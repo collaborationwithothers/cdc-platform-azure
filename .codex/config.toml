@@ -1,0 +1,81 @@
+# Codex CLI project config (committed, trusted-project only).
+#
+# Codex reads this file only when the project is trusted (the first `codex` run
+# in this checkout prompts once and records trust in the user's global config).
+# It layers ABOVE the user's global ~/.codex/config.toml; it never replaces it.
+#
+# NO credentials, tokens, or user-specific paths belong in this file, ever.
+
+# ---------------------------------------------------------------------------
+# Policy: conservative baseline for INTERACTIVE use.
+#
+# The non-interactive loop shim (.codex/loop.sh) does NOT rely on these values;
+# it passes the permissive settings it needs as explicit `codex exec` flags, so
+# interactive sessions stay conservative while the loop never blocks on an
+# approval prompt with nobody there to answer it. See .codex/loop.sh and
+# COMPATIBILITY.md.
+#   - approval_policy = "on-request": interactive Codex asks before risky
+#     commands. The loop overrides this to "never" (Codex docs: use "never" for
+#     non-interactive runs).
+#   - sandbox_mode = "workspace-write": edits stay inside the workspace.
+#   - network access is OFF by default here; the loop enables it explicitly
+#     because gh needs egress.
+approval_policy = "on-request"
+sandbox_mode = "workspace-write"
+
+# ---------------------------------------------------------------------------
+# MCP servers: exact mirror of .mcp.json (Claude Code). Keep in lockstep.
+
+# Read-only namespaced Azure MCP server (group, functionapp, monitor).
+[mcp_servers.azure]
+command = "azmcp"
+args = ["server", "start", "--read-only", "--namespace", "group", "--namespace", "functionapp", "--namespace", "monitor"]
+
+# Microsoft Learn documentation server (streamable HTTP).
+# Codex 0.144.6 signals a streamable-HTTP server by the presence of `url` alone;
+# it needs no `type` key and no experimental_use_rmcp_client flag (verified:
+# `codex mcp list` reports this server enabled). The endpoint is unauthenticated,
+# so there is no bearer token.
+[mcp_servers.microsoft-learn]
+url = "https://learn.microsoft.com/api/mcp"
+
+# Terraform registry MCP server, pinned Docker tag (mirror of .mcp.json).
+[mcp_servers.terraform]
+command = "docker"
+args = ["run", "-i", "--rm", "hashicorp/terraform-mcp-server:1.0.0"]
+
+# Drawio diagram server, pinned PyPI version (mirror of .mcp.json).
+# The `mcp[cli]==1.29.0` constraint is load-bearing: drawio-mcp 1.0.2 declares an
+# unbounded `mcp[cli]>=1.0.0` dependency, so uvx otherwise resolves the mcp SDK
+# to its latest release (2.0.0), which removed the `mcp.server.fastmcp` module
+# drawio-mcp imports (ModuleNotFoundError at startup). 1.29.0 is the last 1.x
+# release before 2.0.0 and starts cleanly. See COMPATIBILITY.md
+# ("mcp SDK for drawio-mcp").
+[mcp_servers.drawio]
+command = "uvx"
+args = ["--with", "mcp[cli]==1.29.0", "drawio-mcp==1.0.2"]
+
+# ---------------------------------------------------------------------------
+# Profiles: the Codex analogue of the implementation/review tier split.
+#
+# INTENTIONALLY NOT DEFINED HERE. Codex 0.144.6 IGNORES project-local
+# [profiles.*] tables and prints a startup warning on every run ("Ignored
+# unsupported project-local config keys ...: profiles", observed via
+# `codex doctor`). Profiles work only as user-global files selected with
+# `--profile NAME` -> `$CODEX_HOME/NAME.config.toml`, which are user-specific and
+# not committable to the repo. So there is nothing useful (and something noisy)
+# to put here.
+#
+# The split is realised without profiles:
+#   - implement posture = the top-level defaults above, plus the loop shim's
+#     explicit flags (.codex/loop.sh);
+#   - review posture is not a Codex concern at all: governance review is
+#     Claude/Opus-only for every bot PR and does not fail over to Codex
+#     (AGENTS.md, "Dual-agent operation").
+# An operator who wants a distinct implement/review model or reasoning effort for
+# interactive Codex use can create the corresponding $CODEX_HOME/*.config.toml
+# files locally; model slugs are deliberately left unpinned (Codex model ids
+# churn; governance truth rules).
+
+[sandbox_workspace_write]
+network_access = true
