@@ -1,0 +1,48 @@
+# Issue tracker
+
+GitHub Issues is the sole tracker. Status lives here and nowhere else; no
+status duplication in docs, the vault, or project boards.
+
+## Labels
+
+- ready-for-agent: the ticket is fully specified (behavior, acceptance
+  checklist, out-of-scope list, Paths list, verification method, size
+  forecast) and may be claimed. Only Hari applies it.
+- in-progress:{session-id}: applied by the claiming session (s1, s2, ...).
+  Exactly one per ticket; the claim protocol in AGENTS.md resolves races.
+- agent:claude / agent:codex: attribution on PRs; additive on takeover.
+- blocked: has open blocking issues; informational, since claimability is
+  computed from the blocking edges themselves.
+- needs-live-test: verification requires real Azure; serialized, run by Hari.
+- large-pr-approved: PR size exception; only Hari applies it.
+- auto-merge-ok: the narrow agent-mergeable class; only Hari applies it.
+
+## Blocking edges
+
+Every ticket lists the issues that must close before it can start, as GitHub
+task-list references under a "Blocked by" heading, one issue per line. A ticket
+with none can start immediately. Edges are the parallelisation mechanism:
+anything unblocked and unclaimed is fair game for any session.
+
+## Path ownership
+
+Every ticket body carries a "Paths:" list naming the directories or files it
+owns. Rules:
+- Two open tickets sharing a path must have a blocking edge between them.
+- A PR whose diff leaves its ticket's paths states the exception and reason in
+  the template's Paths section; governance review checks it.
+- Lanes (coarse path groups tickets should cluster within): infra/persistent,
+  infra/disposable, src/task-api, src/queue-builder, src/queue-reconciler,
+  src/notifier, connect/ (images, connector configs, SMT chain), docs/.
+
+## Ticket shape
+
+Title: imperative, scoped. Body sections, all required before ready-for-agent:
+- Behavior: what is independently true when this merges.
+- Blocked by: issue list or "none".
+- Paths: owned paths.
+- Verification: unit / containers / live, plus the concrete command or test.
+- Acceptance checklist: checkable items, each verifiable from the diff or the
+  verification run.
+- Out of scope: what this ticket explicitly does not do.
+- Size forecast: files, additions plus deletions.

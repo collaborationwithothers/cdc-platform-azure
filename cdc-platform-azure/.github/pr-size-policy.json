@@ -1,0 +1,6 @@
+{
+  "max_files": 10,
+  "max_changed_lines": 500,
+  "exception_label": "large-pr-approved",
+  "ignored_paths": []
+}
