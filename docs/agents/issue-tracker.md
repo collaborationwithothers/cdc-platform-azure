@@ -31,7 +31,7 @@ owns. Rules:
 - Two open tickets sharing a path must have a blocking edge between them.
 - A PR whose diff leaves its ticket's paths states the exception and reason in
   the template's Paths section; governance review checks it.
-- Lanes (coarse path groups tickets should cluster within): infra/persistent,
+- Areas (coarse path groups tickets should cluster within): infra/persistent,
   infra/disposable, src/task-api, src/queue-builder, src/queue-reconciler,
   src/notifier, connect/ (images, connector configs, SMT chain), docs/.
 

@@ -171,9 +171,9 @@ attribution and coordination mechanism.
   issue. One git worktree per session locally (see
   docs/runbooks/development-environment.md).
 - Stacked PRs are for chains: a ticket blocked by an unmerged ticket in the
-  same lane branches from the parent's branch and follows
+  same area branches from the parent's branch and follows
   docs/agents/pr-size.md's stacked-children rebase rule after the parent
-  merges. Never stack across lanes.
+  merges. Never stack across areas.
 - Abandonment: a ticket carrying an in-progress label with no branch push for
   48 h may be reclaimed. The reclaiming session follows the takeover steps:
   read the ticket and full branch diff, swap the in-progress label, keep the
