@@ -96,3 +96,10 @@ above them. Seeded from the sibling repo's repo-neutral rules.
   stays, but every such term gets a one-sentence plain definition at first
   use, and the glossary in docs/blueprint.md is the shared reference. Naming a
   service after its plumbing verb instead of the domain it owns is a finding.
+- 2026-08-22: Never assume Hari holds a mental model of the project
+  between sessions. When asking him for a decision or explaining a
+  concept, first rebuild context in two or three plain sentences (what
+  the thing is, where it sits in the system), then ground the
+  explanation in one concrete worked example (a specific task, tenant,
+  or timeline), then ask the decision in plain words. This applies in
+  chat output, not just docs.

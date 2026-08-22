@@ -1,0 +1,223 @@
+# Blueprint: cdc-platform-azure
+
+Multi-tenant CDC platform on AKS. Debezium via Kafka Connect, Strimzi-managed Kafka, Azure SQL database-per-tenant source.
+
+This is the spec seed for the repo: the design every issue traces back to. Read it before planning any work. All unmeasured figures are estimates, dated, basis stated inline; numbers appear in the README only after they are measured. Revised 2026-08-21 after an independent documentation-verified design review.
+
+Glossary (front matter, not a template section). Plain definitions; full detail where each term is used.
+- Change data capture (CDC): reading a database's own record of committed changes instead of querying tables, so every change is seen exactly as it happened.
+- Change Tracking: a separate, lighter SQL Server feature that records WHICH rows changed (keys only, not contents), with a sync-version watermark defined against committed order. Used here by the reconciler; distinct from CDC.
+- Outbox: a table where the application writes an announcement row in the same transaction as a business change, so the change and its announcement cannot be separated by a crash.
+- Topic / partition: a Kafka topic is a named stream; physically it is N partitions, each an independent ordered log. Order is guaranteed only within one partition.
+- Message key: a string on each message; hash(key) mod partition-count decides its partition. Same key, same partition, therefore ordered.
+- Consumer group: a set of identical service instances that divide a topic's partitions among themselves; each partition is owned by exactly one instance at a time.
+- Rebalance: the reshuffle of partition (or connector) ownership when an instance joins or dies. Causes brief pauses and duplicate redelivery of recent messages.
+- Projection / read model: a service-maintained copy of data, reshaped for fast reading (here: the work-queue chart). The source database remains the truth.
+- Replay: re-reading a topic from the beginning to rebuild a projection. At build scale this holds only within a session (see section 10); in the production design retention is unbounded.
+- Idempotent: safe to apply the same message twice; the second application changes nothing.
+- Snapshot (Debezium): the connector's initial full read of a table before it switches to streaming live changes. An incremental snapshot re-reads a table while streaming continues, triggered by a signal.
+- SMT (single message transform): a per-message rewrite function running inside Kafka Connect between connector and topic.
+- LSN: log sequence number, SQL Server's position marker in its transaction log; Debezium's bookmark.
+
+---
+
+## 1. Thesis
+
+A multi-tenant change-data-capture platform treated as a control plane, not a pipeline: a fleet of per-tenant Debezium connectors on shared infrastructure, with tenant isolation, ordering correctness, and failure detection reasoned explicitly at every layer. The recurring design theme is one trade-off, isolation versus operability, made deliberately at each of three layers: database, stream, compute.
+
+## 2. Business case
+
+Lexfield is a fictional UK legal practice management SaaS: 400 tenant law firms, 60000 users, database-per-tenant on Azure SQL. Core aggregate: workflow tasks (dictation and document tasks) moving through a state machine: Created, Assigned, InProgress, Submitted, QA, Completed, Delivered.
+
+Each transition must atomically (a) persist and (b) publish, because downstream consumers act on transitions in near-real-time: team work queues reorder, authors are notified, SLA timers start and stop. A transition that persists but never publishes is work that silently stops; humans notice within minutes. Publishing to a broker in application code cannot be made atomic with the database write, so the transactional outbox with CDC relay is the mechanism.
+
+Design volumes (fictional design inputs, not measurements): 500k transitions/day fleet-wide, roughly 6/sec average, design peak 150 to 200 events/sec at end-of-day and end-of-month crunch. Task IDs are per-tenant IDENTITY integers, as a 2010s-era legal SaaS would realistically have.
+
+Build scale: 3 tenant databases, designed for 400. Fleet-scale claims are design reasoning; the v1 build demonstrates some and only asserts others. Demonstrated by measurement in v1: poison-event blast radius at 400 tenants (synthetic tenant keys in the load generator), Connect fleet density at 400 connectors (containerised density lab), reconciler per-tenant sweep cost with a published 400-tenant extrapolation model. Asserted, not demonstrated: 400 real tenant databases on one elastic pool, and everything listed as deferred in section 12.
+
+## 3. Architecture
+
+```
+ 3x tenant DBs (Azure SQL, S3-class; pooling contingent, see below)
+  each: WorkflowTask table + Outbox table + TenantInfo claim row
+  CDC enabled on Outbox ONLY
+  Change Tracking enabled on WorkflowTask (reconciler feed)
+       |
+       |  SQL Server capture process (in-engine, scheduler-run)
+       |  populates cdc.* change tables            [stage 1]
+       v
+ Kafka Connect (distributed mode, Strimzi-managed, AKS)
+  1 Debezium SQL Server connector per tenant DB    [stage 2]
+  SMT chain: op filter (drop pruning DELETEs) -> outbox event
+  router -> re-key to "{tenantId}-{taskId}" -> tenant header inject
+  incremental cooperative rebalancing (default protocol: sessioned)
+       |
+       v
+ Kafka (Strimzi, KRaft, AKS)
+  workflow-transitions topic: 12 partitions, keyed
+  stream-isolated tenant: dedicated topic
+  connector signal topic (incremental snapshot triggers)
+       |
+       +--> queue-builder (.NET): stateful projection of
+       |      team work queues; per-task version tracking,
+       |      inline gap detection (jump + head rules), repair client
+       +--> notifier (.NET): send-then-record dedup gate;
+       |      delivery logged behind interface
+       |
+       v
+ QueueState store (Azure SQL S0) + queue API (demo surface)
+
+ task-api (.NET): owns workflow tasks. Performs transitions,
+  writes outbox rows transactionally, serves authoritative reads
+  for repair and the Change Tracking change-feed for the reconciler.
+ queue-reconciler: scheduled sweep comparing source truth
+  (via task-api) against QueueState; detects tail loss and
+  verifies tenant attribution.
+```
+
+Components, one paragraph each:
+
+- Tenant databases. Azure SQL, S3-class capacity per database: CDC on the DTU model requires S3 (100 DTU) or above per database (verified 2026-08-21); subcore tiers are unsupported. Baseline that ships: 3x standalone S3. Cost-reduction contingency, VERIFY-BEFORE-APPLY: a Standard elastic pool whose per-database capacity meets the S3-equivalent floor; if pooled databases qualify, the pool replaces standalone. Fallback ranking: standalone S3, then Standard pool if verified, then GP 2-vCore pool. Each database carries WorkflowTask (Id IDENTITY int, State, Version int, audit columns), Outbox, and a TenantInfo row holding the canonical tenantId (the attribution claim, see section 9). CDC is enabled on Outbox only; Change Tracking is enabled on WorkflowTask as the reconciler's committed-order change feed (ADR-009). WorkflowTask is never captured by CDC (ADR-001).
+- SQL Server capture process. In-engine stage that scans the transaction log into cdc.* change tables, run by Azure SQL's internal scheduler (not SQL Agent). Pipeline stage 1; its lag is measured separately from connector lag, and the reconciler grace window is derived from its measured worst case (section 7).
+- Kafka Connect cluster. Strimzi-managed distributed-mode workers (minimum 2) on AKS; the control plane for the connector fleet. Connector configs, offsets, and status live in internal Kafka topics; tenant onboarding is a REST call, not a deployment. Fleet-scale config stance stated even though invisible at n=3: incremental cooperative rebalancing (current default connect protocol: sessioned; both sessioned and compatible enable it) so a worker loss moves only that worker's connectors, and scheduled.rebalance.max.delay.ms set to ride out a routine pod restart without a double reshuffle. Custom image bakes in the Debezium SQL Server connector, mssql-jdbc, the azure-identity dependency tree, and the Key Vault config provider (auth fallback packaged from day one). The Strimzi build-pod service-account gap that motivates baking a custom image rests on an open Strimzi issue, not reference docs; the fleet density lab (section 12/13) validates it against the targeted Strimzi version before the claim ships publicly.
+- Debezium connectors. One per tenant database (the SQL Server connector runs one task per database; a connector captures a list of tables, here a single-entry list: Outbox). Poll cdc.* change tables (stage 2), emit events through the SMT chain. Incremental snapshots are triggered via the Kafka signal channel (a signal topic), not the in-database signaling table, so connector grants stay read-only (VERIFY-BEFORE-APPLY: Kafka signal channel support for SQL Server incremental snapshots on the pinned Debezium version).
+- SMT chain, in order: an operation filter drops DELETE change events (outbox pruning produces CDC DELETEs that must not become downstream events); the outbox event router unwraps outbox rows into clean domain events; a re-key transform sets the message key to "{tenantId}-{taskId}" (per-tenant IDENTITY ints collide across tenants, so the compound key is a correctness requirement); a header transform injects tenantId. The tenantId constant comes from per-connector provisioning config and is the isolation trust root (section 9).
+- Kafka. Strimzi on AKS, KRaft mode. Build scale: single broker, replication factor 1, durability explicitly sacrificed and documented; production design: 3 brokers, RF3, min.insync.replicas 2. Shared topic workflow-transitions, 12 partitions. Retention: unbounded in the production design; at build scale the broker lives in the disposable layer, so retention and replay hold only within a session (section 10). Stream isolation tier: dedicated per-tenant topic, demonstrated for one fictional tenant that is stream-isolated from birth.
+- task-api. .NET service owning the workflow-task domain. Performs state transitions with optimistic concurrency (WHERE Version = @expected), writes the outbox row in the same transaction, and serves authoritative reads: GET /tenants/{t}/tasks/{id} (state plus version, used by repair) and GET /tenants/{t}/tasks/changes?since={syncVersion} (backed by CHANGETABLE over Change Tracking, returning changed task ids plus versions and the next committed-order sync version; ADR-009). It is the only component with tenant-database access on the read path.
+- queue-builder. .NET consumer group (2 to 4 instances; ceiling 12 set by partition count) maintaining per-team work queues in the QueueState store. Inline rules on the live stream: expected-next (version == last+1) applies; already-seen (version <= last) skips; jump (version > last+1) is a detected gap; unknown task at version 1 is new; unknown task at version > 1 is a detected head-loss gap (first event is always Created at version 1, by construction). Detected gaps trigger repair via task-api (token-bucket limited). Write invariant, all paths: a QueueState row is updated only if the incoming version is greater than the stored version, so live and repair writes cannot regress the chart or oscillate.
+- QueueState store. One Azure SQL S0 database, platform-owned. QueueState (TenantId, TaskId, State, Version, TeamId, AssigneeId, UpdatedAt; PK (TenantId, TaskId)) plus SentNotifications (TenantId, TaskId, Version; PK all three). The tenant databases remain the system of record.
+- queue-reconciler. Scheduled job (every 10 min at build scale) closing the two inline blind spots that only a source comparison can close in bounded time: tail loss (lost final event; nothing later arrives to reveal it) and any residue of head loss. Per tenant: fetch changed (id, version) pairs from task-api's Change Tracking feed since the stored sync version, compare against QueueState, flag mismatches persisting beyond the grace window, emit tail-drift metric, trigger repair. The grace window must exceed measured worst-case stage-1-plus-pipeline lag at design peak; the two are measured together, never tuned independently (section 7), because a grace window below peak lag misclassifies in-flight events as drift and fires a false repair storm at the source's worst moment. The sweep also verifies attribution: the tenantId observed in event headers for each tenant's stream is checked against the TenantInfo claim in that tenant's database; mismatch is a sev-1 mis-provisioning alarm (section 9). Doubles as bootstrap: a full sweep against an empty QueueState populates it from source truth (day-zero, tenant onboarding, and post-teardown rebuild).
+- notifier. .NET consumer demonstrating the side-effecting consumer class. Ordering pinned: send-then-record. Before sending, look up SentNotifications for (TenantId, TaskId, Version); if present, skip. Otherwise send (a log line behind an ISender interface; real email is a config flip), then insert the record. Failure direction is chosen deliberately: a crash between send and record yields a rare duplicate on redelivery; it can never yield a silently dropped notification, because the record is written only after the send. Record-then-send is rejected exactly because its crash window drops the notification forever while marking it sent.
+
+## 4. Key decisions (ADRs)
+
+ADR-001 Transactional outbox with CDC relay; capture the outbox only. Context: atomic persist-and-publish. Options: (a) app publishes to Kafka directly (dual write across DB and broker: crash between them loses or fabricates announcements); (b) capture the task table via CDC and reshape in SMTs; (c) outbox row in the business transaction, CDC on the outbox only. Decision: (c). Against (a): no transaction spans database and broker. Against (b): raw capture is equally atomic (change tables derive from the transaction log) but carries data, not meaning. It cannot distinguish a fee earner submitting work from a support data-fix writing the same column; it emits bulk operations as event floods; one business action touching several rows becomes several events to correlate; business facts not stored in the row (actor, intent) are unrecoverable downstream; and SQL Server capture instances freeze the captured schema, so every task-table schema change forces a capture-instance migration, times 400 databases, whereas the outbox schema (id, aggregate, type, JSON payload, version) is designed once. Consequences: outbox pruning is an operational duty, and pruning DELETEs are captured by CDC-on-outbox, so the SMT chain drops DELETE operations explicitly; the topic, not the outbox table, is history, and at build scale only within a session (section 10).
+
+ADR-002 Kafka on AKS over Event Hubs over Debezium Server native. Context: transport for a 400-connector fleet with replay-dependent consumers. Options: (a) Strimzi Kafka + Connect on AKS; (b) Event Hubs as broker + self-hosted Connect via Kafka protocol; (c) Debezium Server direct to Event Hubs. Decision: (a). (c) eliminated: 400 independent processes with hand-rolled config, offset, and fleet management rebuild Connect's control plane badly. (b) eliminated on: retention cap (90 days Premium, verified) versus unbounded replay in the production design; per-tenant topic growth as a sizing cost (feasible on Premium at roughly 4 PU for 400 event hubs, so a cost argument, not a hard ceiling). Kafka transactions over the Event Hubs endpoint are in public preview on Premium/Dedicated (2026-08-21) and play no part in the decision. Stated openly: learning objectives are a secondary motive. Boundary recorded: below the load where replay depth and per-tenant topics bind, Event Hubs Premium wins on operational burden.
+
+ADR-003 Shared keyed topics with a stream isolation tier. Context: topic topology for 400 tenants. Options: topic-per-tenant (Debezium default), shared per-purpose topics, hybrid. Decision: hybrid; shared topics with compound keys as default, dedicated-topic tier for paying tenants. The tier is named precisely: it delivers a dedicated stream (own retention, own ACLs, no head-of-line queueing behind another tenant, independent replay and offboarding) on shared brokers, shared Connect workers, and shared consumers. It is not infrastructure isolation. The isolation ladder is: shared lane (default), own lane (this tier, v1), own vehicle (dedicated consumer deployment or dedicated cluster; designed, deferred, priced when demanded). Consequences: head-of-line blocking crosses tenants on the shared path (failure mode 4); per-tenant replay on shared topics requires filtering.
+
+ADR-004 Delta events with version numbers over state snapshots. Context: outbox payload shape. Decision: delta (taskId, from, to, actor, at) plus a Version integer incremented in the same transaction, giving a gapless per-task sequence starting at 1 (Created) by construction. Consequences: consumers are stateful; gaps become detectable arithmetic (jump rule and head rule) rather than silent corruption; a repair path is required; detection limits are stated in ADR-007.
+
+ADR-005 Compound message key from per-tenant IDENTITY IDs. Context: per-tenant sequential IDs are globally ambiguous when streams merge; Debezium's default key (table PK) would interleave two tenants' identically numbered tasks under one key and corrupt version tracking. Decision: re-key in the SMT to "{tenantId}-{taskId}". Consequences: the SMT chain is load-bearing; a keying regression is a correctness incident, caught by gap detection and the reconciler; the tenantId constant's own correctness is a provisioning concern (section 9).
+
+ADR-006 Workload identity end to end, gated by spike; Key Vault + SQL auth as packaged fallback. Context: 400 connectors authenticating to 400 databases. Decision: design for Entra workload identity (driver.authentication=ActiveDirectoryDefault via AKS workload identity federation); ship v1 behind a two-stage spike (auth proof, then reconnect stress past token lifetime with forced restarts and killed connections; pass gate: every reconnect re-authenticates unattended and resumes from the correct LSN). The spike also tests one unverified hypothesis: whether toggling database auditing invalidates the server security cache in a way that kills live token-authenticated connections; this is a hypothesis to test, not a documented trigger. Fail gate: flip by config to the Key Vault config provider with SQL auth, same image. Consequences: no public end-to-end reference exists for this stack; a passing spike written up honestly becomes the reference.
+
+ADR-007 Two-layer loss detection: inline version arithmetic plus reconciliation sweep. Context: inline detection has two blind spots. Tail: a lost final event is invisible because nothing later arrives to reveal the jump. Head: without the first-event rule, early loss on a new task passes as a first sighting; the inline head rule (unknown task above version 1 alarms) closes head loss on the live stream, leaving the tail as the sweep's job. Options for the backstop: trust the stream; periodic full rebuild; targeted reconciliation. Decision: queue-reconciler sweep comparing source (via task-api's Change Tracking feed) against QueueState beyond a grace window coupled to measured peak lag, emitting tail-drift metrics and triggering the standard repair. Consequences: a synchronous back-channel from platform to source exists by design (section 6); the sweep doubles as bootstrap and as the attribution verifier; the honest claim is: mid-stream and head gaps detected inline within seconds, tail loss detected by sweep within the sweep interval plus grace window, all healed through one version-guarded repair path.
+
+ADR-008 Consumer classes: projections versus side effects. Context: idempotency is not one property. Decision: consumers maintaining overwritable state (queue-builder) are idempotent by construction via the monotonic-version write invariant; consumers performing one-way actions (notifier) require a dedup gate ordered send-then-record, or a stated duplicate tolerance. Exactly-once external side effects are impossible: the orderings fail differently, and the failure direction is a choice. Send-then-record fails toward a rare duplicate; record-then-send fails toward a silent drop. This system chooses duplicate over drop, because a dropped notification is the business failure the platform exists to prevent. Consequences: SentNotifications table; delivery behind an interface; the demo proves the gate by killing the notifier mid-stream.
+
+ADR-009 Change Tracking as the reconciler's change feed. Context: the reconciler is the sole tail-loss backstop, so its "what changed since my watermark" feed must never skip a row. A hand-rolled feed (UpdatedAt timestamp, or naive rowversion) has the late-commit skip: a row stamped at T but committed at T+delta becomes visible after the watermark has passed T and is never returned again; the backstop gains a permanent dead zone. Options: (a) timestamp with overlap re-read (converts the guarantee into a probability; any fixed margin loses to a longer commit); (b) rowversion with MIN_ACTIVE_ROWVERSION capping (correct, but the correctness is hand-rolled arithmetic in the exact component whose job is eliminating subtle holes); (c) SQL Server Change Tracking, whose sync versions are defined against committed order by feature contract, so the watermark cannot advance past in-flight transactions. Decision: (c). VERIFY-BEFORE-SHIP: Change Tracking semantics and CHANGETABLE watermark contract against current docs. Consequences: Change Tracking enabled per tenant database on WorkflowTask (one more onboarding step, small write overhead); the same database deliberately runs CDC (on Outbox, to publish) and Change Tracking (on WorkflowTask, to verify), two features for two jobs; task-api owns the CHANGETABLE query so the reconciler needs no direct database grant.
+
+## 5. Failure modes
+
+For each: trigger / blast radius / detection / mitigation / deliberately unprotected.
+
+1. Capture-scan lag (stage 1). Trigger: IO pressure on S3-class tier during bursts. Blast radius: event delay for that database; no loss; if lag exceeds the reconciler grace window, false drift classification and a repair-read storm at the source's worst moment. Detection: per-stage lag metric, KQL alert; grace-window headroom metric (measured lag versus configured window). Mitigation: grace window derived from measured worst-case peak lag with headroom, and the pair re-measured together after any tier or load change; tier scaling is the production answer. Unprotected: sub-second latency SLOs at build tier, by design.
+2. Environment recreate severs CDC and Change Tracking. Trigger: teardown/recreate of the disposable layer (the routine end-of-session state), which creates new databases. Blast radius: streams and reconciler feeds start from zero; prior topic history is gone with the broker. Detection: obvious; connector snapshots on first start. Mitigation: recovery runbook: re-enable CDC and Change Tracking, re-run identity provisioning, connectors snapshot, queues rebuild via re-snapshot plus reconciler bootstrap (NOT replay; there is nothing to replay across a teardown). Note: point-in-time restore of a tenant database does NOT sever CDC at this design's tiers; PITR drops CDC only when restoring to a subcore SLO, which the S3 floor prevents. Unprotected: cross-session topic history at build scale, deliberately; the production design's unbounded retention is what the deferred replay-dependent consumers rely on.
+3. Entra token edge cases. Trigger: reconnect during token-acquisition failure. Blast radius: one connector, one tenant delayed. Detection: connector RESTARTING state, finite errors.max.retries alerting, and a watch for reconnects that enter a non-progressing retry loop during schema-history recovery (re-running recovery on fresh-but-doomed connections without forward progress). Mitigation: spike-verified reconnect behaviour; config-flip fallback to SQL auth. The auditing-toggle interaction is an unverified hypothesis tested in the ADR-006 spike, not a known trigger. Unprotected: none claimed until spike results exist.
+4. Poison event, head-of-line blocking. Trigger: unprocessable event in the shared topic. Blast radius: all tenants sharing that partition stall behind it; at 400 tenants roughly 33 tenants per partition, measured in v1 with synthetic tenant keys, not asserted. Detection: stuck-offset alert, lag by partition. Mitigation: consumer-side skip-and-park to a repair topic (Kafka has no broker dead-letter), advance, alert. The stream isolation tier exists partly because this blast radius crosses tenants. Unprotected: automatic repair of parked events; human triage.
+5. Consumer rebalance redelivery. Trigger: queue-builder instance joins or dies. Blast radius: brief pause on moving partitions; redelivery of recent events. Detection: rebalance metrics; normal operation. Mitigation: monotonic-version writes (queue-builder) and the send-then-record gate (notifier) absorb it by construction. Unprotected: nothing; designed-for case, exercised in the demo.
+6. Mid-stream or head gap. Trigger: keying regression, botched partition change, retention edge, operator replay error, outbox pruning bug. Blast radius: one task's projection unreliable; countable per tenant. Detection: inline jump rule; inline head rule (unknown task above version 1). Mitigation: version-guarded repair via task-api (token-bucket limited); re-snapshot as disaster path. Unprotected: partition-count changes are prohibited rather than survived; outgrowing 12 partitions is a planned topic migration (same seam class as tier migration, same version-stitch answer).
+7. Tail loss. Trigger: the final event for a task is lost; nothing later arrives to reveal it. Blast radius: task stale in a queue until the sweep; the exact business failure from section 2, bounded rather than unbounded. Detection: queue-reconciler drift beyond the grace window, over the committed-order Change Tracking feed (ADR-009), which cannot skip late-committing rows. Mitigation: version-guarded repair from source truth; drift-rate metric as the health signal. Unprotected: drift shorter than the sweep interval plus grace window; bound stated and measured.
+8. Duplicate side effects. Trigger: redelivery to the notifier, or a crash between send and record. Blast radius: a rare duplicate notification; never a silent drop, by the pinned ordering. Detection: SentNotifications conflict rate. Mitigation: send-then-record gate. Unprotected: the duplicate itself; closing it needs a notifier-side outbox, deferred.
+9. Tenant mis-attribution (mis-provisioned connector). Trigger: provisioning error assigns connector B tenant A's tenantId constant. Blast radius: an entire tenant's stream mis-keyed and mis-charted; inline version arithmetic stays green because it checks monotonicity within a key, not attribution across keys. Detection: the reconciler's attribution check compares observed header tenantId against the TenantInfo claim row in the source database each sweep; mismatch is a sev-1 alarm. Detection is bounded by the sweep interval; the breach window before detection is real and stated. Mitigation: provisioning automation writes both the connector config and the TenantInfo claim from the same source of truth; the check exists because config, not code, is the isolation trust root. Unprotected: instantaneous detection; a connector-side startup assertion is a hardening option recorded for v2.
+10. Connect worker loss. Trigger: node death, spot eviction. Blast radius: that worker's connectors pause until reassignment; with incremental cooperative rebalancing, only those connectors. Detection: Connect REST status, task counts. Mitigation: distributed mode reassigns to survivors resuming from offset topics; scheduled.rebalance.max.delay rides out routine pod restarts; spot eviction used deliberately as a recurring chaos drill. Unprotected: single-worker deployments; minimum 2 workers even at build scale.
+11. Shared-worker blast radius. Trigger: one misbehaving connector destabilises a worker JVM hosting others. Blast radius: co-hosted tenants; density and rebalance times at 400 measured in the fleet density lab, not asserted. Detection: worker health, per-connector task state divergence. Mitigation: accepted cost of Connect over per-tenant processes (ADR-002); bounded by worker count and restart policies. Unprotected: full per-tenant process isolation; explicitly traded away, named as the "own vehicle" rung.
+12. Kafka broker loss at build scale. Trigger: anything; RF1. Blast radius: total stream outage, possible loss, build scale only. Detection: obvious. Mitigation: none at build scale, documented as economy not ignorance; production RF3, min.insync 2. Unprotected: build-scale durability, deliberately.
+13. Offset or schema-history topic loss. Trigger: internal topic corruption or deletion. Blast radius: fleet-wide; connectors cannot resume. Detection: connector startup failures. Mitigation: compacted (and in production replicated) internal topics; recovery via incremental snapshots triggered over the Kafka signal channel, keeping database grants read-only. Unprotected: v1 does not automate mass re-snapshot orchestration.
+
+## 6. Trade-offs
+
+- Decoupling purity versus verifiability. Repair reads, the reconciler sweep, and the attribution check are a synchronous back-channel from consumers toward source truth, routed through a single surface (task-api). We traded the pure "consumers never touch the source" posture for the ability to detect and heal loss, including the tail loss the stream cannot reveal. Platform-internal coupling within one bounded system; the external contract (outbox event shape) stays pure. Opposite wins when consumers are external parties who must never gain a source dependency.
+- Connect shared workers versus per-tenant processes: traded process isolation for a ready-made control plane. Opposite wins under roughly 20 tenants or when contractual isolation extends to compute.
+- Shared keyed topics versus topic-per-tenant: traded hard stream isolation for sane consumer topology, with the stream isolation tier as the middle rung. Opposite wins when most tenants demand contractual isolation or retention divergence dominates.
+- Kafka on AKS versus Event Hubs Premium: traded managed-service ease for unbounded production retention, per-tenant topic economics, and control-plane cohabitation. Opposite wins at low tenant counts with bounded replay; boundary in ADR-002.
+- Delta events versus state snapshots: traded stateless consumers for intent preservation and detectable gaps. Opposite wins when consumers are many, thin, and rebuild-tolerant.
+- S3-class SQL capacity versus cheaper tiers: not a free choice; S3 is the CDC floor on the DTU model. The remaining trade is standalone versus pooled packing of that floor, decided by the pool-eligibility verification.
+- IDENTITY ints versus GUIDs: traded key simplicity for fiction credibility and the compound-key problem worth solving. Greenfield opposite: GUIDv7.
+- Duplicate versus drop for side effects: the gate's ordering chooses which way it fails. Send-then-record (duplicate) chosen because a drop is the business failure; record-then-send (drop) rejected. Opposite wins only where the action is dangerous to repeat and tolerable to miss.
+- Engine contract versus hand-rolled arithmetic for the reconciler feed: Change Tracking's committed-order contract chosen over rowversion cleverness, in the one component whose purpose is closing subtle holes. Opposite (rowversion) wins where Change Tracking cannot be enabled.
+
+## 7. Performance
+
+Targets (design targets, dated 2026-08-21; nothing measured yet):
+- End-to-end commit-to-queue-applied: p95 under 5 s at design peak on build tier, measured per stage: (1) commit to change-table arrival, (2) change table to Kafka append, (3) append to QueueState applied.
+- Sustained ingest at 200 events/sec synthetic load without unbounded lag growth on build tier.
+- queue-builder single-instance throughput: measure; estimate 200 to 500 events/sec (basis: single-row upserts against S0).
+- Inline gap detection to repair-complete: p95 under 10 s under injected gap.
+- Tail-loss detection bound: sweep interval plus grace window; target under 15 min at build settings.
+- Coupled measurement, mandatory: worst-case stage-1 lag at design peak and the reconciler grace window are one experiment; the window is set from the measured lag plus headroom, and the false-drift rate at peak must be zero across the measurement run. Neither number is tuned alone.
+- Fleet density lab (containers): memory per connector task, startup storm behaviour, rebalance duration at 400 connectors on 2 to 3 workers, density ceiling per worker. Published as a dated lab doc.
+- Poison-event blast radius at 400 synthetic tenants: tenants stalled per partition, and skip-and-park recovery time.
+- Reconciler scale model: measured per-tenant sweep cost at n=3, published 400-tenant extrapolation (cost x tenants / interval versus source headroom), with the crossover point where the interval must stretch.
+
+Method requirements before any number is published: load generator committed to the repo; timestamps captured at each stage; environment and tier stated beside every figure. No number in the README before it is measured this way.
+
+## 8. Cost
+
+All figures are estimates dated 2026-08-21, basis: Azure pricing calculator checks pending before first apply; UK South, GBP. The SQL baseline reflects the verified S3-per-database CDC floor.
+
+Build scale, always-on worst case: 3x standalone S3 tenant databases 330 to 360 (baseline that ships); QueueState S0 roughly 12; AKS: 1x B2s-class system node 25 to 30 plus 2x spot D2as-class 40 to 80; disks, Log Analytics, ACR, misc 60 to 90. Total roughly 470 to 570/month. Contingency: if pooled Standard databases are verified CDC-eligible at S3-equivalent per-database capacity, the pool replaces standalone and the SQL line drops; the delta is recorded when verified, not assumed now.
+
+Expected with teardown-as-default: standing residue (ACR, Terraform state storage, Log Analytics retention, Key Vault) 30 to 60 plus session compute 60 to 100. Expected actuals 90 to 160/month. Ceiling: 800/month, hard stop.
+
+Budget alerts, committed as Terraform in the persistent layer before the first apply of the disposable layer: 150 investigate, 300 teardown discipline failed, 800 destroy disposable layer. They live in the persistent layer because a budget destroyed at every teardown stops guarding the standing residue above.
+
+Production scale (400 tenants): modelled properly in a dedicated doc during build; the S3 floor per database makes SQL the dominant line by far. The model, not a guess, is the deliverable.
+
+Actual spend recorded in COSTS.md as incurred.
+
+## 9. Security and identity
+
+- Capture path: Entra workload identity end to end. Strimzi Connect service account annotated with azure.workload.identity/client-id, pod labelled for the webhook, federated credential on a user-assigned managed identity against the AKS OIDC issuer. Connector config: driver.authentication=ActiveDirectoryDefault; no database.user or database.password. Gated by the ADR-006 spike; Key Vault config provider fallback in the same image, flipped by config.
+- Per-database provisioning: CREATE USER FROM EXTERNAL PROVIDER plus db_datareader plus cdc-schema EXECUTE grants, applied as idempotent T-SQL by tenant-onboarding automation, which also enables CDC (Outbox), enables Change Tracking (WorkflowTask), and writes the TenantInfo claim row. Grants stay read-only: incremental snapshots are signalled over the Kafka signal channel, not an in-database signaling table. At 400 databases this provisioning is itself a control-plane concern and is treated as one.
+- Isolation trust root, stated plainly: the tenantId a connector stamps into keys and headers is per-connector provisioning config, not code. Code-level boundary tests cannot catch a mis-provisioned constant. Therefore: provisioning automation derives connector config and the TenantInfo claim from one source of truth, and the reconciler verifies observed header tenantId against the source claim every sweep, alarming on mismatch (failure mode 9). Within the platform, every QueueState row is keyed by tenant, every read is authorised against the caller's tenant, and write-path tenant IDs come from event headers, never user input; leakage there is a code defect and tests assert it. The two layers cover different threats and both are named.
+- Kafka: Strimzi-managed mTLS intra-cluster; per-service identities and ACLs (queue-builder and notifier read-only on their topics; only Connect produces to transition topics; signal-topic writes restricted to the operations identity).
+- Network: one logical server, one private endpoint; no public SQL exposure; no public ingress except the demo queue API behind Entra auth; task-api endpoints tenant-scoped in the route and enforced in authorisation.
+- Secrets posture: zero secrets in connector configs or repo on the primary path; fallback path keeps secrets in Key Vault only, resolved at connector start.
+
+## 10. Operations
+
+Runbook stubs, expanded during build:
+- Deploy: two-layer Terraform. Persistent layer: resource group, ACR, state storage, Key Vault, Entra app registrations and federated credentials, budget alerts. Disposable layer: AKS, Strimzi, Connect, SQL databases, QueueState. terraform destroy of the disposable layer is the default end-of-session state.
+- Observe: KQL queries committed to repo: per-stage lag by tenant; grace-window headroom; connector task states and restart counts; inline gap and head-loss detections and tail-drift per tenant per hour; attribution-check status; consumer lag by partition; SentNotifications conflict rate; spend versus budget. Alert rules as code.
+- Tear down: destroy disposable layer; verify residual spend baseline.
+- Recover (after teardown/recreate): re-run onboarding automation (CDC, Change Tracking, identity, TenantInfo) per database; connectors perform initial snapshots; queues rebuild via re-snapshot plus reconciler bootstrap. There is no cross-session replay at build scale; the runbook does not claim one. Exercised every session, so recovery is rehearsed, not theoretical.
+
+## 11. Demo path
+
+Under 5 minutes from a stranger's terminal, infrastructure up:
+1. Two panes: queue API (or minimal UI) for tenant A; a terminal.
+2. POST a transition to task-api for tenant A: watch it appear in the team queue within seconds.
+3. POST transitions for tenants A and B concurrently: both queues update independently; show tenant headers.
+4. Kill a queue-builder pod; POST more transitions; restart: catch-up with zero duplicates (monotonic-version writes), and the notifier log shows zero duplicate notifications (send-then-record gate) despite redelivery.
+5. Run the gap-injection script (skips a mid-sequence version): inline jump rule fires, repair heals the chart. Run the head-loss script (suppresses versions 1..k on a new task): inline head rule fires immediately. Run the tail-loss script (suppresses a final event): the reconciler flags and heals it on its next sweep.
+6. Show the workbook panel: per-stage latency for the events just produced; gap, head-loss, drift, and attribution-check counters.
+README walkthrough with copy-paste commands and expected output at each step.
+
+## 12. Scope cuts
+
+v1 (this blueprint): everything above at n=3 tenants; 1 stream-isolated tenant on a dedicated topic, stream-isolated from birth; RF1 single broker; manual recovery runbooks; notifier delivery logged, not sent; fleet density lab (containers) and 400-synthetic-tenant blast-radius measurement included.
+
+Explicitly deferred, not promised:
+- Tier migration (upgrading a live tenant to the stream isolation tier). History is split across topics at cutover with a seam where in-flight events straddle both. Deferred with design intent stated: per-task versions make the seam safe, because a straddle-gap is detected by the same arithmetic and healed by the same repair path; only the cutover choreography needs building.
+- The "own vehicle" isolation rung: dedicated consumers or cluster per tenant.
+- Connector-side startup attribution assertion (hardening on failure mode 9).
+- v2 candidate: cache-invalidation consumer. v3 candidate: search projection with replay-based rebuild (depends on the production design's unbounded retention; not rebuildable across build-scale teardowns, which is a stated limit, not an oversight).
+- SLA timer engine and audit ledger consumers; time-entry aggregate as a second outbox stream.
+- Fleet automation beyond the lab: mass re-snapshot orchestration, multi-namespace sharding.
+- Production-grade Kafka (RF3, rack awareness, quotas); multi-region anything; automated PITR-era recovery beyond the runbook; notifier-side outbox closing the residual duplicate window.
+
+## 13. Learning ledger
+
+Components deliberately chosen outside prior mastery, updated during the build (via the /teach loop) with what was actually mastered versus merely made to work:
+- Kafka Connect distributed-mode internals: worker rebalance protocol (sessioned default, incremental cooperative behaviour), task assignment, internal topics at fleet scale; density and rebalance numbers from the lab.
+- Debezium SQL Server connector: snapshot-to-streaming handoff, incremental snapshots over the Kafka signal channel, offset and schema-history semantics, reconnect behaviour under token expiry.
+- SQL Server change machinery: CDC capture-instance schema freeze and migration; capture scheduler on Azure SQL versus SQL Agent; change-table lag on DTU tiers; Change Tracking sync-version semantics and its committed-order contract (ADR-009).
+- SMT chain composition: op filter, outbox router, re-keying, headers; transform ordering.
+- mssql-jdbc + azure-identity + MSAL4J version coupling on the Connect classpath.
+- Strimzi assembly for workload identity: pod templates, service-account annotation, custom images; build-pod service-account gap validated in the lab against the pinned version.
+- Per-database provisioning automation across a tenant fleet (CDC, Change Tracking, identity, TenantInfo claim) as a control-plane problem.
+- KRaft-mode Kafka operations at small scale.
+- Reconciliation design: committed-order feeds, grace windows coupled to measured lag, drift metrics as health signals, attribution verification.
