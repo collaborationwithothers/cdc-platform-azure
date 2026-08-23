@@ -41,6 +41,7 @@ repo.
 | Azure Container Registry | Holds the custom Connect image. Basic SKU is sufficient at build scale; SPEC-LEVEL. |
 | Key Vault | Holds the SQL auth fallback credentials for ADR-006's fail path, and nothing else. RBAC authorisation, not access policies; SPEC-LEVEL. |
 | Log Analytics workspace | Persistent because blueprint section 8 lists Log Analytics retention as standing residue, so it outlives a teardown. Alert rules that target disposable resources live in the disposable layer. |
+| Application Insights component, connected to that workspace | Persistent for the same reason and one more. The .NET services export to it ([observability.md](../observability.md) section 3), and telemetry whose value is comparing this session to the last one is worthless if it dies at teardown. The disposable layer injects its connection string; it does not own the component. |
 | User-assigned managed identity, `id-connect` | The identity Connect pods federate to (blueprint section 9). Created here because it must outlive the cluster; its federated credential is created in the disposable layer, see below. |
 | Entra app registration for CI | The OIDC principal GitHub Actions assumes. Federated credential issued against the GitHub OIDC issuer, which is stable, so it belongs here. |
 | Role assignments | CI principal gets what it needs on the subscription and the persistent resource group. Least privilege is a review point, not a formality. |
@@ -80,6 +81,7 @@ acr_id                        string
 key_vault_uri                 string
 key_vault_id                  string
 log_analytics_workspace_id    string
+app_insights_connection_string  string, sensitive
 connect_identity_client_id    string
 connect_identity_principal_id string
 connect_identity_id           string
@@ -88,6 +90,12 @@ persistent_resource_group     string
 
 `connect_identity_id` is exported because the disposable layer creates the AKS
 federated credential against it.
+
+`app_insights_connection_string` is marked sensitive and is never committed. It
+reaches workloads the same way every other value from this layer does, through
+the disposable layer's Terraform, not through a file in the repo. It contains an
+ingestion key, which is why it is treated as a secret even though it is not a
+credential for anything a tenant owns.
 
 ## Verification
 
@@ -113,7 +121,7 @@ Blocks: infra/disposable entirely, and the identity spike.
 | --- | --- | --- | --- |
 | P1 | Persistent layer declares an empty `azurerm` backend; the CI workflow passes the state backend names through `-backend-config` from Actions variables. Runbook documents creating the three backend resources by hand. | unit, validate | 2 files, 50 lines |
 | P2 | Budget alerts module exists with the three documented thresholds at subscription scope, and a fixture proves the plan contains them. | unit, plan assertion | 5 files, 200 lines |
-| P3 | Persistent layer creates ACR, Key Vault, Log Analytics, and consumes the budget module. `validate` and `tflint` green. | unit | 6 files, 260 lines |
+| P3 | Persistent layer creates ACR, Key Vault, Log Analytics, the Application Insights component connected to that workspace, and consumes the budget module. `validate` and `tflint` green. | unit | 6 files, 280 lines |
 | P4 | Persistent layer creates the Connect user-assigned identity and the CI app registration with its GitHub OIDC federated credential, and exports the outputs above. | unit | 4 files, 200 lines |
 
 P2 merges before any disposable-layer ticket opens a PR. P3 and P4 are

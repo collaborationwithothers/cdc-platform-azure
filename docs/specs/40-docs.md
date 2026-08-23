@@ -55,6 +55,62 @@ The recovery runbook depends on V9. If point-in-time restore does sever CDC at
 these tiers, the runbook gains a re-enable step and blueprint failure mode 2's
 note needs correcting.
 
+### Incident runbooks, one anchor per alert
+
+[observability.md](../observability.md) section 8 names fifteen anchors:
+`recover-connect`, `recover-internal-topics`, `recover-queuestate`,
+`recover-reconciler`, `recover-task-api`, `recover-connector-auth`,
+`attribution-breach`, `poison-triage`, `recover-connector`,
+`retune-grace-window`, `loss-investigation`, `recover-notifier`,
+`spend-review`, `destroy-disposable`, `lag-investigation`.
+
+The reader model is stated in that document and it is the thing that makes these
+hard to write: a stranger, at 03:00, with the dashboard and this page and nothing
+else. That is a different reader from the four operational runbooks above, which
+Hari runs during a session knowing what he built.
+
+**The binding rule, and it changes how tickets are cut.** A runbook body lands in
+the same ticket as the alert it serves, and no sev1 alert ships without its
+runbook. So the alert-rule tickets in
+[11-infra-disposable.md](11-infra-disposable.md), D10 and D11, each carry their
+runbook bodies, and this area owns the prose while that area owns the rule. Two
+areas, one ticket, which is unusual here and is the reason it is written down. An
+alert that fires with a link to a page that does not exist is worse than no alert:
+it wakes someone and then tells them nothing.
+
+**First steps are instructions, not intentions.** observability.md section 8 sets
+the bar with `attribution-breach`, whose first action pauses the connector before
+any diagnosis, because the failure it responds to is tenant data flowing into the
+wrong tenant's queues and every second of diagnosis is more contaminated rows. A
+step that says "investigate the connector" fails that bar. A step that says "run
+`scripts/ops/pause-connector.sh <tenantId>` from the repo root, then confirm the
+script prints PAUSED" passes it.
+
+That implies a small operator tooling deliverable this area does not own: the
+scripts the first steps invoke. They belong with the connect area and
+infra/disposable, whichever owns the surface each script touches, and a runbook
+step may not reference a script that no ticket creates.
+
+**Two anchors have no self-service fix and must say so.** `loss-investigation`
+ends at a diagnosis, because a lost notification is not recoverable in v1;
+blueprint failure mode 8 and section 12 state that, and the runbook restates it
+rather than leaving a stranger looking for a repair step that does not exist.
+`poison-triage` can park and resume, but a parked event stays parked: recovery
+tooling for the parked topic is deferred in blueprint section 12. Both runbooks
+name the boundary and name who to escalate to.
+
+### Dashboards
+
+Four, as code, from observability.md section 6: Fleet, Correctness, Consumers,
+Spend. The definitions live with the alert rules in infra/disposable; what this
+area owns is the one-page description of what each panel answers, which is what
+makes a stranger able to read them.
+
+Every catalogue alert links exactly one dashboard and one runbook anchor, so the
+three artifacts are checked against each other rather than written separately:
+an anchor with no alert, an alert with no anchor, and a dashboard nothing links
+are all findings.
+
 ### Demo
 
 `tools/demo/` plus the README walkthrough. Blueprint section 11 sets the bar:
@@ -122,6 +178,10 @@ None. This area produces prose and shell scripts.
 | Injection scripts | containers | Assert the gap, head-loss, and tail-loss paths actually fire the rule they claim to. Reuses the queue-builder and reconciler test fixtures. |
 | Cost model | unit | Arithmetic checked; inputs dated and sourced. |
 | Style | unit | The banned-constructions list in `docs/agents/writing-style.md` is checkable for the literal strings. Automate what is automatable; the register is a review judgement. |
+| Every alert has a runbook anchor | unit | A CI check joining observability.md section 2's runbook column to the headings in `docs/runbooks/`. Fails on an alert pointing at an anchor that does not exist, and on an anchor no alert points at. This is checkable text, so it is checked rather than reviewed. |
+| Every sev1 anchor has a first step that is a command | unit | Assert the first numbered step under each sev1 anchor contains a command or a path, not only a verb. Crude, and it catches the failure that matters: a first step that says "investigate" leaves a stranger where the alert found them. |
+| Runbook commands exist | unit | Every script path referenced in a runbook step resolves to a file in the repo. A runbook is the one document whose broken link wakes someone up. |
+| Incident runbooks | live | The four operational runbooks are exercised every session by construction. The incident ones are not, because their preconditions are failures. Hari walks each one against the demo's injection scripts where a script can produce the condition, and the rest are reviewed rather than run. Which is which is stated in each runbook, so nobody mistakes an unrehearsed procedure for a rehearsed one. |
 
 ## Dependencies
 
@@ -144,7 +204,17 @@ of them.
 | X7 | The three injection scripts with tests proving each fires its rule. | containers | 5 files, 320 lines |
 | X8 | Production-scale cost model for 400 tenants, plus `COSTS.md`. | unit | 3 files, 280 lines |
 | X9 | README with the demo walkthrough, written after the measurements exist. | unit | 2 files, 400 lines |
+| X10 | The runbook-anchor CI checks: every alert has an anchor, every anchor has an alert, every referenced script exists, every sev1 first step names a command. Ships before any incident runbook, so the first one written is checked. | unit | 3 files, 220 lines |
+
+The incident runbook bodies are deliberately absent from this table. The binding
+rule puts each one in the same ticket as its alert, which is D10 and D11 in
+[11-infra-disposable.md](11-infra-disposable.md). Listing them here as well would
+create two owners for one deliverable and the second owner would be the one that
+quietly did not do it.
 
 X1 is wave 0 and needs a session immediately; it is the only substantial piece of
 work in the whole plan with no predecessor at all, so it is the natural claim for
 a session that starts while infra is still being written.
+
+X10 is wave 0 for the same reason in a smaller way: it is a checker, it depends
+on nothing, and every later ticket is cheaper if it exists first.
