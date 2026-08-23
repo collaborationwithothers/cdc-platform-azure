@@ -28,11 +28,13 @@ on:
   pull_request:
     paths:
       - "infra/**"
+      - "tests/terraform/**"
       - ".github/workflows/terraform.yml"
   push:
     branches: [main]
     paths:
       - "infra/**"
+      - "tests/terraform/**"
       - ".github/workflows/terraform.yml"
   workflow_dispatch: {}
 
@@ -64,6 +66,29 @@ jobs:
         run: terraform init -backend=false -input=false
       - name: terraform validate
         run: terraform validate -no-color
+
+  module-test:
+    name: budget module plan test (no Azure)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.15.8"
+      # The validate job above formats infra/persistent only; this covers the
+      # shared module and the test fixture, which live outside that tree.
+      - name: terraform fmt (module and tests)
+        run: terraform fmt -check -recursive infra/modules tests/terraform
+      - name: terraform init (no backend)
+        working-directory: tests/terraform/budget_plan_test
+        run: terraform init -input=false
+      # Plan-only assertion that the budget carries all three thresholds. The
+      # azurerm provider is mocked in the .tftest.hcl, so this needs no Azure
+      # credentials and provisions nothing.
+      - name: terraform test
+        working-directory: tests/terraform/budget_plan_test
+        run: terraform test -no-color
 
   plan:
     name: plan (Hari-dispatched, gated)
