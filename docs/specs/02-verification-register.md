@@ -63,6 +63,31 @@ its first action and records the outcome on the issue.
   v1. Neither is decided here. A refuted answer stops the ticket and goes to
   Hari, because it changes a security claim in blueprint section 9 and blueprint
   edits are his.
+- Outcome (2026-08-23, issue #63): REFUTED. The SQL Server connector accepts
+  the trigger over the Kafka signal channel, but incremental snapshots still
+  require an in-database signaling data collection for watermarking, and the
+  connector needs write access to it. The connector doc states it directly:
+  "To enable Debezium to perform incremental snapshots, you must grant the
+  connector permission to write to the signaling table. Write permission is
+  unnecessary only for connectors that can be configured to perform read-only
+  incremental snapshots (MariaDB, MySQL, or PostgreSQL)." SQL Server is not in
+  that list, and the Kafka-channel trigger path lists the same prerequisite: a
+  signaling data collection named in `signal.data.collection`. The Kafka
+  channel only delivers the trigger; the source channel's signaling table does
+  the watermarking that dedupes rows re-captured when streaming resumes, and
+  SQL Server has no read-only incremental snapshot mode. Verified against
+  Debezium 3.6.1.Final, the current stable release as of this date; no Debezium
+  version is pinned in the repo yet, so the image ticket (C3) must pin 3.6.x or
+  re-verify. Sources:
+  https://debezium.io/documentation/reference/3.6/connectors/sqlserver.html
+  and
+  https://debezium.io/documentation/reference/3.6/configuration/signalling.html
+- Path taken: the register's fallback applies. Read-only connector grants and
+  incremental snapshots on SQL Server are mutually exclusive; the choice
+  between a per-tenant writable signaling table and dropping incremental
+  snapshots from v1 changes the read-only security claim in blueprint section
+  9, so it is Hari's decision. This ticket records the finding and does not
+  decide the posture or edit the blueprint.
 
 ## V4. Change Tracking semantics and the CHANGETABLE watermark contract
 
@@ -119,6 +144,23 @@ its first action and records the outcome on the issue.
 - Fallback: set `connect.protocol` explicitly in the worker configuration. This
   is arguably better practice regardless of the answer, so the fallback costs
   one config line.
+- Outcome (2026-08-23, issue #63): PARTIAL. The default is verified; the
+  cooperative-rebalancing claim is not. The Apache Kafka worker-config
+  reference gives `connect.protocol` default `sessioned`, valid values
+  `[eager, compatible, sessioned]`, and `scheduled.rebalance.max.delay.ms`
+  default `300000`. But the reference docs do not state that `sessioned` and
+  `compatible` enable incremental cooperative rebalancing; that behaviour is
+  described only in KIP-415 (added `compatible`, incremental cooperative
+  rebalancing) and KIP-507 (added `sessioned`), which are design proposals, not
+  reference documentation. Per AGENTS.md, a claim unverifiable against the
+  reference docs does not ship as doc-backed fact. Verified against the Apache
+  Kafka 4.x worker-config docs (Debezium 3.6 targets Kafka Connect 3.1+).
+  Source: https://kafka.apache.org/documentation/#connectconfigs
+- Path taken: the register's fallback applies regardless. Set `connect.protocol`
+  explicitly in the worker configuration rather than relying on the default and
+  on the KIP-only rebalancing semantic. The blueprint section 3 sentence that
+  states both values "enable it" is a design assertion Hari owns; this ticket
+  does not edit the blueprint.
 
 ## V7. Debezium connector and SMT property names
 
@@ -135,6 +177,39 @@ its first action and records the outcome on the issue.
   until this runs. The template ships only after the check.
 - Fallback: none needed. This is a lookup, not a hypothesis. If a property is
   unverifiable the template does not ship, per AGENTS.md.
+- Outcome (2026-08-23, issue #63): VERIFIED, with one correction. Names
+  confirmed against the Debezium 3.6.1.Final SQL Server connector and outbox
+  router docs:
+  - Database list: `database.names` (comma-separated; replaced the older
+    `database.dbname`).
+  - Encryption: NOT `database.encrypt`. The connector controls encryption
+    through the `driver.*` pass-through: `driver.encrypt` (SSL is on by
+    default; set `driver.encrypt=false` to disable), with `driver.trustStore`
+    and `driver.trustStorePassword` for a truststore. Debezium strips the
+    `driver.` prefix and passes the property to the JDBC URL. The spec's
+    `database.encrypt` is the property this row exists to catch; the connector
+    config template (C4) must use `driver.encrypt`.
+  - Driver authentication: `driver.authentication`, the same `driver.*`
+    pass-through, mapping to the mssql-jdbc `authentication` setting (for
+    example `ActiveDirectoryDefault`). This is how the Entra path works with no
+    `database.user` or `database.password`.
+  - Schema history topic: `schema.history.internal.kafka.topic` (with
+    `schema.history.internal.kafka.bootstrap.servers`).
+  - Signal channel: `signal.enabled.channels`, `signal.kafka.topic` (default
+    `<topic.prefix>-signal`), and `signal.kafka.bootstrap.servers`.
+  - Outbox router field mapping: `table.fields.additional.placement`,
+    `table.field.event.id` (default `id`), `table.field.event.key` (default
+    `aggregateid`), `table.field.event.payload` (default `payload`),
+    `route.by.field` (default `aggregatetype`), `route.topic.replacement`
+    (default `outbox.event.${routedByValue}`).
+  - Router DELETE handling: "The SMT automatically filters out DELETE
+    operations on an outbox table." A separate drop-DELETE stage is therefore
+    unnecessary on the outbox path (see V8).
+  No Debezium version is pinned in the repo yet; C3 must pin 3.6.x or
+  re-verify. Sources:
+  https://debezium.io/documentation/reference/3.6/connectors/sqlserver.html
+  and
+  https://debezium.io/documentation/reference/3.6/transformations/outbox-event-router.html
 
 ## V8. SMT chain realisability from stock transforms
 
@@ -152,6 +227,26 @@ its first action and records the outcome on the issue.
 - Fallback: `connect/smt/` holds a custom transform project either way. A stage
   that turns out to be stock is deleted from that project; a stage that is not
   is implemented there. The project's existence does not depend on the answer.
+- Outcome (2026-08-23, issue #63): VERIFIED, matching the current expectation.
+  Per stage, on Debezium 3.6.1.Final and Apache Kafka 4.x Connect:
+  - Drop DELETE operations: no separate transform needed. The outbox router
+    "automatically filters out DELETE operations on an outbox table" (see V7),
+    so the `dropDeletes` stage in the provisional chain is redundant on the
+    outbox path. The generic stock route, if ever needed elsewhere, is
+    `org.apache.kafka.connect.transforms.Filter` plus a stock predicate.
+  - Outbox event router: stock, `io.debezium.transforms.outbox.EventRouter`.
+  - Static header inject: stock, `org.apache.kafka.connect.transforms.InsertHeader`,
+    configured with `header` and `value.literal`.
+  - Constant-prefix re-key: NOT stock. No built-in transform prepends a
+    configured constant to the message key (the full stock list was checked:
+    Cast, DropHeaders, ExtractField, Filter, Flatten, HeaderFrom, HoistField,
+    InsertField, InsertHeader, MaskField, RegexRouter, ReplaceField,
+    SetSchemaMetadata, TimestampConverter, TimestampRouter, ValueToKey).
+    RegexRouter rewrites the topic, not the key. So the custom `PrefixKey`
+    transform is required, as ADR-005 anticipated. Sources:
+    https://kafka.apache.org/documentation/#connect_included_transformation
+    and
+    https://debezium.io/documentation/reference/3.6/transformations/outbox-event-router.html
 
 ## V9. Point-in-time restore does not sever CDC at these tiers
 
@@ -275,3 +370,23 @@ its first action and records the outcome on the issue.
   consumer stay exactly as specified.
 - Blocking: the connect area's SMT ticket. Not blocking for the .NET areas,
   which depend on the header existing, not on how it got there.
+- Outcome (2026-08-23, issue #63): VERIFIED (yes), no fifth transform needed.
+  The outbox router promotes an additional column to a Kafka header through
+  configuration alone. Property: `transforms.<name>.table.fields.additional.placement`.
+  Value syntax: a comma-separated list of `column:placement[:alias]`, where
+  placement is `header`, `envelope`, or `partition`. For a header, the column
+  value is written verbatim as the header value under the alias key. The
+  provisional value `TraceParent:header:traceparent` is therefore exactly
+  right: column `TraceParent`, placed as a header, keyed `traceparent`.
+- Related question: the router does have its own distributed-tracing support,
+  but it expects a different column and does not change our contract. That
+  support reads a serialized span-context column named by
+  `tracing.span.context.field` (default `tracingspancontext`) and continues the
+  trace inside Debezium's own instrumentation. It is a different mechanism from
+  copying a plain W3C `traceparent` string into a header for downstream .NET
+  consumers, and the project does not use it. So the column name in
+  00-shared-contracts.md does not follow the router; `TraceParent` and the
+  `traceparent` header stand as specified. Verified against Debezium
+  3.6.1.Final; no version pinned in the repo yet, so C3 pins 3.6.x or
+  re-verifies. Source:
+  https://debezium.io/documentation/reference/3.6/transformations/outbox-event-router.html
