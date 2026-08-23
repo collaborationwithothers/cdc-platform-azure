@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+  <!-- No PackageReference by design (docs/specs/20-src-task-api.md): no
+       dependencies beyond the base library, because anything added here is
+       inherited by all four services at once. System.Text.Json is in the shared
+       framework, so the wire-name attributes cost nothing. -->
+
+</Project>

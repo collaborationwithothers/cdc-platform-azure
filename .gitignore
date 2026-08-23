@@ -1,3 +1,8 @@
+# .NET build output and local test artifacts
+bin/
+obj/
+TestResults/
+
 # Local .terraform directories
 .terraform/
 
