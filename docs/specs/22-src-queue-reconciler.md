@@ -375,6 +375,28 @@ Emits, SPEC-LEVEL metric names: `reconciler.drift.confirmed`,
 `reconciler.drift.within_grace`, `reconciler.sweep.duration`,
 `reconciler.attribution.mismatch`, `reconciler.watermark.aged_out`.
 
+Events this area emits, from observability.md section 5:
+`Reconciler.SweepStarted`, `SweepCompleted`, `DriftFlagged`, `DriftRepaired`,
+`AttributionVerified`, `AttributionMismatch`.
+
+`SweepCompleted` carries more weight than the others. The "reconciler dead"
+alert in observability.md section 2 is a sev1 keyed to the age of the most recent
+`SweepCompleted`, which makes it the platform's only detector of a silently
+stopped backstop. Nothing else notices: a reconciler that has stopped produces no
+errors, no drift, and no alarms, and looks exactly like a healthy fleet with
+nothing wrong in it. The event is therefore emitted at the end of every sweep
+including a sweep that found nothing, and including one that could not take the
+lease. A sweep that exits early without emitting it would page a human at 03:00
+for a working system, which is the fastest way to get the alert muted.
+
+`AttributionVerified` exists for the same reason in the other direction: a check
+that only speaks when it fails cannot be distinguished from a check that has
+stopped running.
+
+The alert reads the newest `SweepCompleted` across every host rather than per
+host, so a host that loses the sweep lease emits nothing for that tick and that
+is correct. Only the host that actually swept says so.
+
 Has no Kafka client and no tenant database grant. Both are deliberate: ADR-009
 routes the feed through task-api so the reconciler needs no database access, and
 the attribution observation comes from queue-builder so it needs no consumer.
@@ -402,6 +424,10 @@ QueueState.
 | Two hosts do not sweep at once | containers | Start two reconciler hosts against one store. Assert exactly one takes the lease and sweeps, the other does nothing that tick, and the watermark advances once rather than twice. |
 | A dead holder does not deadlock the sweep | containers | Take the lease, kill that host without releasing it, assert the next host proceeds once the lease expires rather than waiting forever. |
 | A slow sweep skips the tick rather than overlapping | containers | Make a sweep outlast its interval. Assert the next tick is skipped, `sweep.skipped` increments, and no second sweep starts inside the same process. |
+| An empty sweep still reports completion | containers | Run a sweep against a store with no drift. Assert `Reconciler.SweepCompleted` is emitted anyway. The sev1 "reconciler dead" alert reads the age of this event, so a healthy quiet system that stops emitting it pages someone at 03:00 for nothing, and an alert that does that gets muted. |
+| A host that did not sweep does not claim it did | containers | Make one host hold the lease and assert the host that could not take it emits no `SweepCompleted`. The sev1 alert reads the newest event across all hosts, not per host, so the lease holder's event is enough; a losing host emitting one would report a sweep that never ran. |
+| The attribution check speaks when it passes | containers | Run a sweep over a healthy fleet, assert `AttributionVerified`. A check that only logs failures is indistinguishable from a check that has stopped. |
+| Repair continues the original trace | containers | Drive drift from a traced transition, sweep, and assert the repair call to task-api carries the same trace id as the transition that caused the drift. This is what makes a repair readable as the end of one story rather than an unexplained write. |
 | Coupled grace window and stage-1 lag | live | Blueprint section 7's mandatory joint experiment against real Azure SQL at design peak, using the load generator. Produces the measured window, the headroom, and a zero false-drift claim across the run. Labelled `needs-live-test`, serialized. |
 
 Every row except the last runs with zero Azure, which is what makes the
