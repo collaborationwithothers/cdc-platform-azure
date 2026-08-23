@@ -110,6 +110,55 @@ its first action and records the outcome on the issue.
 - Fallback if no: ADR-009's rejected option (b), rowversion with
   `MIN_ACTIVE_ROWVERSION` capping. That reopens an ADR, so a refuted answer
   stops and goes to Hari.
+- Outcome (2026-08-23, issue #38): VERIFIED on the main question, REFUTED on the
+  retention rule as this row stated it. Taking them in turn.
+
+  The watermark contract holds. "Change tracking is based on committed
+  transactions. The order of the changes is based on transaction commit time.
+  This allows for reliable results to be obtained when there are long-running
+  and overlapping transactions." `CHANGE_TRACKING_CURRENT_VERSION` returns "the
+  version of the last committed transaction", and a transaction still in flight
+  is not the last committed one, so its version must land above a watermark
+  already handed out. A late commit cannot be skipped. Stated limit: the docs
+  give the ordering principle, not a proof of how concurrent commits are
+  sequenced internally. No documented scenario describes a permanent miss, and
+  the hazard the docs do describe runs the other way, toward redelivery.
+  ADR-009 stands and the fallback is not taken.
+
+  The retention rule is the opposite of what this row assumed. A stale
+  `@since` does not raise an error. `CHANGETABLE` returns rows, and the
+  omissions are silent: `CHANGE_TRACKING_MIN_VALID_VERSION` says only that
+  results "might not be valid", and the CHANGETABLE error range 22101 to 22110
+  has no code for an expired watermark. The docs put the duty on the caller:
+  "Before an application obtains changes by using CHANGETABLE(CHANGES ...), the
+  application must validate the value."
+
+  This changes why the feed's guard exists rather than what it does.
+  [20-src-task-api.md](20-src-task-api.md) already has the handler compare
+  `@since` against `CHANGE_TRACKING_MIN_VALID_VERSION` and answer 410 Gone, so
+  the specified behaviour was already correct. What was wrong is the belief that
+  the engine would raise the error for us. It will not. That comparison is the
+  only thing between an outage longer than `CHANGE_RETENTION` and a silently
+  short list from the sole tail-loss backstop, so the changes feed ticket may
+  not treat it as defensive tidying.
+
+  One finding beyond the question asked, recorded because the changes feed
+  ticket needs it. Microsoft strongly recommends snapshot isolation for change
+  tracking consumers, and the guarantee that `CHANGETABLE` never returns a
+  version later than the one `CHANGE_TRACKING_CURRENT_VERSION` reported is
+  documented only for that path. Without it the failure mode is redelivery, not
+  loss: a row committing near the boundary arrives again next cycle. This
+  platform absorbs a repeat by design, since the guarded upsert never lowers a
+  version, so snapshot isolation is worth having but is not load-bearing for
+  correctness here. It is not required for the no-skip property above.
+
+  No documented difference between Azure SQL Database and SQL Server for change
+  tracking version semantics, retention, or `AUTO_CLEANUP`. Sources, all checked
+  2026-08-23:
+  https://learn.microsoft.com/sql/relational-databases/track-changes/work-with-change-tracking-sql-server
+  https://learn.microsoft.com/sql/relational-databases/track-changes/track-data-changes-sql-server
+  https://learn.microsoft.com/sql/relational-databases/system-functions/change-tracking-min-valid-version-transact-sql
+  https://learn.microsoft.com/sql/relational-databases/system-functions/changetable-transact-sql
 
 ## V5. Strimzi build-pod service account gap
 
