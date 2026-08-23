@@ -6,6 +6,11 @@ TestResults/
 # Local .terraform directories
 .terraform/
 
+# Provider dependency lock files. CI always runs a fresh init, and a lock
+# generated on one OS carries only that platform's hashes, so committing it would
+# break init on the linux runners.
+.terraform.lock.hcl
+
 # .tfstate files
 *.tfstate
 *.tfstate.*
