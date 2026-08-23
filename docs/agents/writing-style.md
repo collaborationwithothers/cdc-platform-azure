@@ -103,3 +103,33 @@ above them. Seeded from the sibling repo's repo-neutral rules.
   explanation in one concrete worked example (a specific task, tenant,
   or timeline), then ask the decision in plain words. This applies in
   chat output, not just docs.
+- 2026-08-22: Do not name a repo concept after a physical metaphor when a
+  literal word exists. "lane" for a path-ownership group becomes "area";
+  "seam" for the place a test drives the system becomes "test boundary";
+  "own vehicle" for the top isolation rung becomes "dedicated
+  infrastructure". A metaphor makes the reader translate before they can
+  think, and the literal word is usually no longer.
+- 2026-08-22: When a doc records a configuration setting, show what the
+  setting changes about the output, not just its name and an abstract
+  consequence. Two short before-and-after blocks beat a sentence naming
+  the effect. This sharpens the 2026-08-12 rule for the specific case of
+  config: "schemas disabled, so the topic carries the plain payload
+  rather than a schema envelope" names a decision the reader cannot
+  picture, and a reader who cannot picture it cannot review it.
+- 2026-08-22: An ADR reference is a pointer, not an explanation. Writing
+  "X is never captured by CDC (ADR-001)" makes the reader stop, find the
+  ADR, and reconstruct the argument before they can judge the sentence.
+  Restate the reasoning in one or two sentences and cite the ADR for the
+  full version. The same applies to "blueprint section 9 makes this so":
+  say what section 9 makes so.
+- 2026-08-22: When a decision has a counterargument a reviewer will
+  reach on their own, write the counterargument down and say why the
+  decision stands anyway. An unstated alternative reads as an unnoticed
+  one, and the reviewer then has to establish whether it was considered
+  before they can trust anything else on the page.
+- 2026-08-23: In a worked timeline, say how many of the thing there are
+  before the table, and group sub-steps visibly under the step they
+  belong to. A reader counts rows as events. A four-row table of "sweep
+  1 pass one, sweep 1 pass two, sweep 2 pass one, sweep 2 pass two" was
+  read as four sweeps, and every question that followed was built on
+  that. Prose headings per unit beat a repeated column value.
