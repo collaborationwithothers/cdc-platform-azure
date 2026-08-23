@@ -1,0 +1,40 @@
+name: dotnet
+
+on:
+  pull_request:
+    paths:
+      - "global.json"
+      - "src/**"
+      - "tests/**"
+      - ".github/workflows/dotnet.yml"
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: dotnet-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: build and test
+    # AGENTS.md: workflows run on ubuntu-latest only. The runner also provides
+    # the Docker daemon the Testcontainers suites need, with no service block.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-dotnet@v6
+        with:
+          global-json-file: global.json
+
+      - name: Restore
+        run: dotnet restore src/Lexfield.slnx
+
+      - name: Build
+        run: dotnet build src/Lexfield.slnx --no-restore --configuration Release
+
+      - name: Test
+        run: dotnet test src/Lexfield.slnx --no-build --configuration Release --verbosity normal
