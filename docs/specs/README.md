@@ -4,10 +4,18 @@ These are working documents. They exist to be turned into tickets and then to
 go stale. They are not written for a public reader and they are not part of the
 portfolio surface; docs/blueprint.md and the eventual README are.
 
-docs/blueprint.md is settled design. Nothing here reopens it. Where the
-blueprint is silent on an implementation detail, this spec set decides it and
-marks the decision SPEC-LEVEL, meaning: review may change it freely, it carries
-no design weight, and it never overrides the blueprint.
+Two documents are settled design, and nothing here reopens either.
+docs/blueprint.md covers what the platform is and how it works.
+[docs/observability.md](../observability.md) covers how it is operated:
+severities, alerts, correlation, logging, dashboards, and SLOs. Where either is
+silent on an implementation detail, this spec set decides it and marks the
+decision SPEC-LEVEL, meaning: review may change it freely, it carries no design
+weight, and it never overrides a design document.
+
+observability.md assumes a different reader from the blueprint, and it is worth
+holding on to while reading the specs: a stranger on call at 03:00 with the
+runbooks and a dashboard, without the people who built this. Several decisions in
+this set only make sense against that reader.
 
 ## How to read this set
 
@@ -17,13 +25,13 @@ no design weight, and it never overrides the blueprint.
 | [01-wire-format.md](01-wire-format.md) | The four shapes a transition passes through, the event envelope, topics and headers, the converter setting, and what survives a worker dying. |
 | [02-verification-register.md](02-verification-register.md) | Every VERIFY-BEFORE-APPLY and VERIFY-BEFORE-SHIP flag, its owning area, its question, and its fallback. |
 | [10-infra-persistent.md](10-infra-persistent.md) | Resource group, ACR, state storage, Key Vault, Entra registrations, budget alerts. |
-| [11-infra-disposable.md](11-infra-disposable.md) | AKS, Strimzi Kafka and Connect, tenant SQL databases, QueueState, observability. |
+| [11-infra-disposable.md](11-infra-disposable.md) | AKS, Strimzi Kafka and Connect, tenant SQL databases, QueueState, telemetry wiring, alert rules and dashboards as code. |
 | [20-src-task-api.md](20-src-task-api.md) | Workflow-task domain, outbox writes, Change Tracking feed, shared foundation projects, load generator. |
 | [21-src-queue-builder.md](21-src-queue-builder.md) | Projection, inline gap rules, repair client, queue API, skip-and-park. |
 | [22-src-queue-reconciler.md](22-src-queue-reconciler.md) | Sweep, grace window, drift metric, attribution check, bootstrap. |
 | [23-src-notifier.md](23-src-notifier.md) | Send-then-record dedup gate. |
 | [30-connect.md](30-connect.md) | Custom Connect image, SMT chain, per-tenant connector config, signal channel. |
-| [40-docs.md](40-docs.md) | ADRs, runbooks, demo scripts and walkthrough, cost model, lab write-ups. |
+| [40-docs.md](40-docs.md) | ADRs, operational and incident runbooks, demo scripts and walkthrough, cost model, lab write-ups. |
 | [50-spike-identity.md](50-spike-identity.md) | ADR-006 workload identity spike: procedure, gates, artifact. |
 | [51-lab-fleet-density.md](51-lab-fleet-density.md) | Fleet density lab: procedure, gates, artifact. |
 
@@ -82,15 +90,22 @@ wave can be claimed by different sessions at the same time.
 3. src/task-api foundation ticket: solution file, `Lexfield.Contracts`,
    `Lexfield.TestSupport`. This is small and it unblocks all four .NET areas,
    so it should be claimed first inside its area.
+4. src/task-api observability foundation, `Lexfield.Observability`. Same wave and
+   for the same reason: the log field list and the event vocabulary are
+   mandatory in all four services, and a standard that lands after three
+   services exist is a standard three services do not follow.
+5. docs/: the runbook-anchor CI checks. A checker with no dependencies, and every
+   later runbook ticket is cheaper once it exists.
 
 **Wave 1. After wave 0.**
 
-4. infra/disposable, minimal slice: AKS with the OIDC issuer and workload
-   identity enabled, one S3-class tenant database, Log Analytics. This exists
-   to make the identity spike possible and nothing more.
-5. Identity spike stage A, auth proof (live, serialized, Hari). Blocked by 1
-   and 4.
-6. connect/ image ticket and infra/disposable Strimzi ticket, in parallel.
+6. infra/disposable, minimal slice: AKS with the OIDC issuer and workload
+   identity enabled, one S3-class tenant database, Log Analytics, and the
+   Application Insights component the .NET services export to. This exists to
+   make the identity spike possible and nothing more.
+7. Identity spike stage A, auth proof (live, serialized, Hari). Blocked by 1
+   and 6.
+8. connect/ image ticket and infra/disposable Strimzi ticket, in parallel.
 
 **Wave 2. Container-testable skeletons, four areas fully parallel.**
 
