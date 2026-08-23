@@ -1,15 +1,28 @@
 name: terraform
 
-# Two jobs, deliberately split by what they need.
+# This is a public repository. The `plan` job below authenticates to Azure, so
+# it is gated so that no one outside the repo can trigger it or spend money.
+# Four layers, in order of importance:
 #
-# `validate` runs on every pull request. It needs no Azure and no backend, so it
-# initialises with `-backend=false` and only checks formatting and validity.
-#
-# `plan` runs only when Hari dispatches it, against a gated environment. It is
-# the one place the state backend names are read, and they arrive as GitHub
-# Actions variables passed through `terraform init -backend-config`, never from a
-# file in the repo. It runs `plan` only. Apply and destroy are never automated;
-# AGENTS.md reserves both for Hari.
+#   1. `plan` runs only on `workflow_dispatch`, and dispatching a workflow needs
+#      write access to the repo. The public, and anyone opening a pull request
+#      from a fork, does not have it. Fork pull requests also receive no secrets
+#      and no OIDC token from GitHub, so the `validate` job cannot reach Azure
+#      either.
+#   2. The `azure-plan` environment MUST be configured in repo Settings >
+#      Environments with a required reviewer (Hari) and its deployment branches
+#      restricted to `main`. Environment protection is enforced by GitHub even
+#      if the workflow file is edited on a branch, so it is the real lock. It
+#      cannot be expressed in YAML; it is a one-time repo setting.
+#   3. The Azure federated credential for AZURE_CLIENT_ID MUST have its subject
+#      scoped to `repo:<owner>/<repo>:environment:azure-plan`. Azure then refuses
+#      to mint a token for any other trigger (a fork PR, a different branch).
+#      This is created with the CI app registration in the identity ticket (P4),
+#      not here.
+#   4. `plan` runs `terraform plan` only. There is no `apply` or `destroy` in
+#      this workflow; AGENTS.md reserves both for Hari. `plan` is read-only
+#      against Azure and provisions nothing, so it cannot create a billable
+#      resource even if it runs.
 
 on:
   pull_request:
@@ -26,10 +39,17 @@ on:
 permissions:
   contents: read
 
+# One run per ref; a new push cancels an in-flight run so a rapid series of
+# pushes cannot pile up jobs.
+concurrency:
+  group: terraform-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   validate:
     name: fmt and validate (no backend)
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     defaults:
       run:
         working-directory: infra/persistent
@@ -49,6 +69,7 @@ jobs:
     name: plan (Hari-dispatched, gated)
     if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     environment: azure-plan
     permissions:
       id-token: write
