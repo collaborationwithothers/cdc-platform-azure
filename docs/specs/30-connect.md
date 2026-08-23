@@ -43,6 +43,7 @@ transforms. The current expectation, which V8 confirms or replaces:
 | --- | --- | --- |
 | Drop DELETE operations | Possibly covered by the outbox router's own delete handling, otherwise a stock filter | Small custom transform |
 | Outbox event router | Stock, shipped with Debezium | n/a |
+| Promote the outbox `TraceParent` column to a `traceparent` header | Stock, a configuration property on the router above rather than a stage of its own | A fifth stage: a small custom transform reading the column and setting the header |
 | Re-key with a constant prefix from connector config | Not stock. No stock transform prefixes a key with a configured constant. | Custom transform, `PrefixKey`, taking a `prefix` configuration property |
 | Inject a static header | Stock header-insert transform | n/a |
 
@@ -86,6 +87,7 @@ Shape, SPEC-LEVEL and provisional pending V7:
     "signal.kafka.bootstrap.servers": "{bootstrap}",
     "errors.max.retries": "10",
     "transforms": "dropDeletes,outbox,rekey,tenantHeader",
+    "transforms.outbox.table.fields.additional.placement": "TraceParent:header:traceparent",
     "transforms.rekey.type": "com.lexfield.connect.PrefixKey",
     "transforms.rekey.prefix": "{tenantId}-",
     "transforms.tenantHeader.header": "tenantId",
@@ -93,6 +95,16 @@ Shape, SPEC-LEVEL and provisional pending V7:
   }
 }
 ```
+
+The `table.fields.additional.placement` line is the whole of the tracing wiring
+on this side, and it is the reason
+[00-shared-contracts.md](00-shared-contracts.md) gives `TraceParent` its own
+outbox column: promoting a column to a header is configuration, and digging a
+field out of a JSON string would be a second custom transform. Its exact
+property name and value syntax are provisional pending
+[V14](02-verification-register.md); if the router cannot do it, the fallback is
+the fifth transform named in the stage table above, which is small and does not
+change any contract.
 
 No `database.user`, no `database.password` on the primary path. Blueprint
 section 9 requires zero secrets in connector configurations, and the Key Vault
@@ -181,6 +193,8 @@ The end-to-end container test, `tests/Lexfield.Connect.Tests/`:
 | A DELETE on the outbox row produces no message | Outbox pruning must not become a downstream event (ADR-001). The most likely thing to silently break. |
 | Two tenants with the same taskId produce two distinct keys | The collision ADR-005 exists to prevent, tested rather than argued. |
 | An incremental snapshot signal on `connect-signals` triggers a re-read | V3's behaviour, exercised rather than assumed. |
+| `traceparent` header present and byte-identical to the outbox `TraceParent` column | The trace survives the hop, which is the one place it can be lost silently. A broken trace looks exactly like a working one until an operator needs it at 03:00. |
+| A row with `TraceParent` NULL still produces a message, with no `traceparent` header | An untraced write path must not become a dead connector. |
 
 | Deliverable | Method |
 | --- | --- |

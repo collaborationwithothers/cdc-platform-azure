@@ -248,3 +248,30 @@ its first action and records the outcome on the issue.
   publishes the granularity beside every figure, and says plainly that the
   stage-1 boundary is inferred rather than observed. It does not publish a
   proxy as if it were exact.
+
+## V14. Promoting an outbox column to a Kafka header
+
+- Flag: not tagged in the blueprint, because tracing arrives with
+  [observability.md](../observability.md) rather than with it. Load-bearing
+  because section 3 of that document makes distributed tracing mandatory and the
+  header is the only way a trace crosses the Kafka hop.
+- Owner: connect/.
+- Question: does the Debezium outbox event router map an additional outbox table
+  column onto a Kafka header through configuration alone, and what is the exact
+  property name and value syntax? The spec currently writes
+  `transforms.outbox.table.fields.additional.placement` with the value
+  `TraceParent:header:traceparent`, and that string is an expectation, not a
+  verified fact.
+- Related question in the same check: does the router offer its own tracing
+  support that expects a differently named column? If it does, the column name
+  in [00-shared-contracts.md](00-shared-contracts.md) follows the router rather
+  than the router following the spec.
+- Consequence if yes: no fifth transform, and the tracing wiring on the connect
+  side is one configuration line.
+- Fallback if no or unverifiable: a small custom transform reading the column and
+  setting the header, added to the chain after the router. It is the same shape
+  as `PrefixKey`, which the area is already writing and testing, so the cost is
+  bounded and no contract changes. The header contract, the column, and every
+  consumer stay exactly as specified.
+- Blocking: the connect area's SMT ticket. Not blocking for the .NET areas,
+  which depend on the header existing, not on how it got there.
