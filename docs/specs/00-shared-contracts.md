@@ -17,7 +17,7 @@ infra/persistent/               Terraform, persistent layer
 infra/disposable/               Terraform, disposable layer
 infra/modules/                  shared Terraform modules
 
-src/Lexfield.sln
+src/Lexfield.slnx
 src/Lexfield.Contracts/         event envelope, topic names, header names
 src/Lexfield.TaskApi/
 src/Lexfield.QueueStore/        QueueState data access, shared by 3 services
