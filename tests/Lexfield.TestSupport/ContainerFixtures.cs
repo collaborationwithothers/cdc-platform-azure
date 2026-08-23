@@ -6,13 +6,15 @@ namespace Lexfield.TestSupport;
 
 /// <summary>
 /// One SQL Server container, shared by every test class in the
-/// <see cref="LexfieldContainers"/> collection. Starting the engine costs tens of
-/// seconds, so it starts once; each test class asks for its own database inside
-/// it, which costs milliseconds and still isolates one class from another.
+/// <see cref="LexfieldContainers"/> collection. The engine costs tens of seconds
+/// to start, so it starts once; each class asks for its own database inside it,
+/// which costs milliseconds and still isolates one class from another.
 /// </summary>
 public sealed class SqlServerFixture : IAsyncLifetime
 {
-    private readonly MsSqlContainer _container = new MsSqlBuilder().Build();
+    // Pinned, not defaulted: the default moves with the Testcontainers package.
+    private readonly MsSqlContainer _container =
+        new MsSqlBuilder("mcr.microsoft.com/mssql/server:2022-CU14-ubuntu-22.04").Build();
 
     /// <summary>Connection string for the container's <c>master</c> database.</summary>
     public string AdminConnectionString => _container.GetConnectionString();
@@ -148,12 +150,13 @@ public sealed class SqlServerFixture : IAsyncLifetime
 
 /// <summary>
 /// One Kafka broker, shared on the same terms as <see cref="SqlServerFixture"/>.
-/// Tests create their own topics; the broker is not reset between classes, so a
-/// test class picks topic names it owns.
+/// The broker is not reset between classes, so a test class picks topic names it
+/// owns.
 /// </summary>
 public sealed class KafkaFixture : IAsyncLifetime
 {
-    private readonly KafkaContainer _container = new KafkaBuilder().Build();
+    private readonly KafkaContainer _container =
+        new KafkaBuilder("confluentinc/cp-kafka:7.5.12").Build();
 
     /// <summary>The <c>bootstrap.servers</c> value for a client on the host.</summary>
     public string BootstrapAddress => _container.GetBootstrapAddress();
@@ -166,8 +169,7 @@ public sealed class KafkaFixture : IAsyncLifetime
 /// <summary>
 /// The collection every container test class joins. xUnit creates each fixture
 /// once for the whole collection and disposes it when the last class finishes,
-/// which is what shares the containers across test classes rather than paying
-/// for a container per test.
+/// which is what shares containers across classes rather than one per test.
 /// </summary>
 [CollectionDefinition(Name)]
 public sealed class LexfieldContainers

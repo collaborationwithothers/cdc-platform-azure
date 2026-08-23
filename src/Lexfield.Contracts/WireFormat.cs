@@ -3,12 +3,9 @@ namespace Lexfield.Contracts;
 /// <summary>
 /// Kafka topic names. docs/specs/01-wire-format.md is the authority on the full
 /// set; only the topics a .NET service names in code are here, because a name no
-/// service uses is not a contract between services.
+/// service uses is not a contract between services. Hyphens only: a name mixing
+/// dots and underscores collides in Kafka's metric names, so both are avoided.
 /// </summary>
-/// <remarks>
-/// Hyphens only. A topic name mixing dots and underscores collides in Kafka's
-/// metric names, so the set avoids both.
-/// </remarks>
 public static class Topics
 {
     /// <summary>The shared keyed topic every tenant publishes to by default (ADR-003).</summary>
