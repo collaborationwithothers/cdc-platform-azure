@@ -279,6 +279,14 @@ Finish: complete the PR template's review summary, tick only checklist items
 that are actually true, request review from Hari, remove the in-progress
 label, and stop.
 
+Batch mode: the operator may authorise up to N tickets per session
+(default 1; Hari currently runs N=2). Each ticket is completed fully,
+through review-requested and label removal, before the next claim; the
+next claim re-enters frontier selection from the top. A session halts
+early, regardless of N, when no ticket is claimable or when 2 of its own
+PRs are open unreviewed. The unreviewed-PR halt is the review-bandwidth
+throttle from the governance section and is not negotiable per session.
+
 Hard stops:
 - Do not merge, regardless of CI state or merge class, except the narrow
   auto-merge-ok class.
