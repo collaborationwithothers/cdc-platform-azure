@@ -133,3 +133,13 @@ above them. Seeded from the sibling repo's repo-neutral rules.
   1 pass one, sweep 1 pass two, sweep 2 pass one, sweep 2 pass two" was
   read as four sweeps, and every question that followed was built on
   that. Prose headings per unit beat a repeated column value.
+- 2026-08-23: A finding about ordering, timing, or retention does not
+  survive being written as prose. Lead with the concrete sequence, a few
+  lines carrying real clock times and real version numbers, and put the
+  supporting documentation quote after it. The V4 outcome first said "a
+  transaction still in flight is not the last committed one, so its
+  version must land above a watermark already handed out", which is
+  accurate and still had to be explained again in chat before it landed.
+  The four-line timeline that replaced it needed no explanation. The same
+  applies to a negative finding: show the call, what a reader expects
+  back, and what actually comes back, one above the other.
