@@ -7,7 +7,7 @@ reconciler's change feed, and the attribution claim all arrive here.
 
 Paths owned: `src/Lexfield.TaskApi/`, `src/Lexfield.Contracts/`,
 `tests/Lexfield.TestSupport/`, `tests/Lexfield.TaskApi.Tests/`, `tools/loadgen/`,
-`src/Lexfield.sln`, `global.json`.
+`src/Lexfield.slnx`, `global.json`.
 
 ## Deliverables
 
