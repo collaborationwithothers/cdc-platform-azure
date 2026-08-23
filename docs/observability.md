@@ -2,7 +2,7 @@
 
 Design authority for how this platform is operated: severities, alerts,
 correlation, logging, dashboards, and SLOs. Sits beside docs/blueprint.md and
-binds the specs the same way. Status: v0.2 (2026-08-23), post-grill; twelve findings folded.
+binds the specs the same way. Status: v0.3 (2026-08-23), post-grill; twelve findings folded; parking made consumer-level.
 Thresholds marked PENDING-MEASUREMENT are published only after the section 7
 experiments run; nothing here states an unmeasured number as fact.
 
@@ -34,7 +34,7 @@ derive from the SLOs (section 7) or the coupled lag experiment.
 | Internal topic loss | connector startup failures citing offsets/schema-history | any | 1 | Fleet | recover-internal-topics |
 | QueueState store down | queue-builder/notifier SQL failures | sustained 5 min | 1 | Consumers | recover-queuestate |
 | Attribution mismatch | Reconciler.AttributionMismatch | any single event | 1 | Correctness | attribution-breach (step 1: pause connector) |
-| Systemic poison | QueueBuilder.EventParked rate | more than 5 per hour | 1 | Correctness | poison-triage |
+| Systemic poison | EventParked rate, any consumer (QueueBuilder + Notifier) | more than 5 per hour | 1 | Correctness | poison-triage |
 | Parking failure | park write fails; partition stalls | any | 1 | Correctness | poison-triage |
 | Budget ceiling | spend at 800 GBP | at threshold | 1 | Spend | destroy-disposable |
 | Single-tenant stream stop | one connector retries exhausted | 15 min stopped; escalate to sev1 at 4 h, or immediately for a stream-isolation-tier tenant; suppressed while Partial fleet outage is active | 2 | Fleet | recover-connector |
@@ -42,7 +42,7 @@ derive from the SLOs (section 7) or the coupled lag experiment.
 | Tail-drift rate | Reconciler.DriftFlagged rate per tenant | above baseline, PENDING-MEASUREMENT | 2 | Correctness | loss-investigation |
 | Repair-read storm | repair token-bucket saturated, or repair-read rate at task-api | bucket exhausted 5 min, or rate PENDING-MEASUREMENT | 2 | Consumers | retune-grace-window |
 | Grace-window headroom | measured stage-1 lag versus configured window | lag above 80 percent of window | 2 | Fleet | retune-grace-window |
-| Parked events present | QueueBuilder.EventParked count | 1 to 5 per hour | 2 | Correctness | poison-triage |
+| Parked events present | EventParked count, any consumer | 1 to 5 per hour | 2 | Correctness | poison-triage |
 | Loss-rate trend | GapDetected + HeadLossDetected rate per tenant | above baseline, PENDING-MEASUREMENT | 2 | Correctness | loss-investigation |
 | Notifier degraded | consumer stopped, or Notifier.DuplicateSkipped conflict-rate spike | 15 min / rate PENDING-MEASUREMENT | 2 | Consumers | recover-notifier |
 | Budget investigate / discipline | spend at 150 / 300 GBP | at threshold | 2 | Spend | spend-review |
@@ -80,8 +80,8 @@ stale Tuesday") is one KQL query filtering those three fields across all
 services, yielding the full timeline by eye from event timestamps.
 
 Two stated exceptions to the universal-key promise, exactly where the operator
-must know them: (a) a poison event may be unparseable, so
-QueueBuilder.EventParked guarantees only partition and offset, with tenantId,
+must know them: (a) a poison event may be unparseable, so EventParked (from
+any consumer) guarantees only partition and offset, with tenantId,
 taskId, version, and traceparent stamped best-effort from the message key when
 it parses; investigating a parked event may mean reading the repair topic at
 that offset. (b) A victim of cross-tenant head-of-line blocking shows silence
@@ -128,7 +128,11 @@ vocabulary events. All SPEC-LEVEL beyond the field list.
   PartitionBlocked.
 - Reconciler: SweepStarted, SweepCompleted, DriftFlagged, DriftRepaired,
   AttributionVerified, AttributionMismatch.
-- Notifier: EventReceived, DuplicateSkipped, NotificationSent, SendRecorded.
+- Notifier: EventReceived, DuplicateSkipped, NotificationSent, SendRecorded,
+  EventParked. Parking is a consumer-level behaviour on this topic, not a
+  queue-builder specialty: every consumer that meets an unprocessable event
+  parks it to the repair topic and advances, so no consumer can crash-loop or
+  silently skip on poison.
 - Connect/Debezium logs keep their upstream names; the design maps the
   patterns the alerts depend on (task state transitions, retry exhaustion)
   rather than renaming them. Nobody should hunt for Lexfield names in Connect
