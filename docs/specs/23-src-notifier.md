@@ -139,6 +139,31 @@ Writes: `SentNotifications` through `Lexfield.QueueStore`.
 Emits, SPEC-LEVEL metric names: `notifier.sent`, `notifier.skipped_duplicate`,
 `notifier.record_conflict`.
 
+Events this area emits, from observability.md section 5:
+`Notifier.EventReceived`, `DuplicateSkipped`, `NotificationSent`,
+`SendRecorded`.
+
+`NotificationSent` and `SendRecorded` are two events rather than one because
+they are two steps with a gap between them, and that gap is the whole of ADR-008.
+A crash inside it produces a `NotificationSent` with no `SendRecorded`, and an
+operator reading that pair knows a duplicate is coming on redelivery rather than
+suspecting a lost notification. Collapsing them into one event would erase the
+only evidence that distinguishes the two.
+
+**One gap worth raising rather than papering over.** This area parks messages
+too, on an operator skip and on the wait window expiring, but observability.md
+section 5 gives the notifier no parking event, and section 2's poison alerts are
+keyed to `QueueBuilder.EventParked`. As written, a notifier park is invisible to
+the alert catalogue.
+
+This spec does not invent an event to close that, because the vocabulary is
+design authority and inventing names in a spec is how two vocabularies start. It
+implements what section 5 says and records the gap here. The cheapest resolution
+is one more name in section 5, `Notifier.EventParked`, with the existing poison
+alerts reading both; that is a change to the design document and Hari's to make.
+Until it is made, the three park paths this area's tests already exercise are
+observable only in the parked topic itself.
+
 Does not write `QueueState`, does not call task-api, has no repair path. A
 notification that was never sent because its event was lost is recovered by
 nothing in v1, and blueprint failure mode 8 states that residual window rather
@@ -165,6 +190,8 @@ implementation's whole job is an outbound side effect.
 | Operator retry resumes the partition | containers | Pause on a message the fake sender is failing, make the sender succeed, write a `retry` control message, assert the message is delivered and nothing is parked. |
 | The wait is bounded | containers | Pause on a poison message with the wait window set to seconds. Send no control message. Assert the partition resumes on its own, the message is parked, and `auto_park` increments. Proves the state has an exit when nobody answers. |
 | A skipped notification is never silently lost | containers | After any of the three park paths, assert the parked topic holds the message with its original key, value and headers, so it remains recoverable. |
+| The parked message keeps its traceparent | containers | Park a message that arrived with a `traceparent` header and assert the header survives onto the parked topic byte for byte. A parked event is the one an operator will investigate, so it is the worst one to strip a trace from. |
+| The send-and-record pair is legible after a crash | containers | Reuse the crash-between-send-and-record test and assert the emitted events, not just the rows: one `NotificationSent` with no matching `SendRecorded` before the restart, then both after redelivery. This is what tells an operator the duplicate was expected rather than a fault. |
 
 ## Dependencies
 

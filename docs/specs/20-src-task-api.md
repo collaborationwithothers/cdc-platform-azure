@@ -26,6 +26,62 @@ fixture that applies the tenant schema or the QueueState schema on demand, a
 Kafka fixture, and a collection definition so containers are shared across a
 test class rather than started per test.
 
+`src/Lexfield.Observability/` holds the one call every service makes at startup,
+described next. It ships in this ticket because
+[observability.md](../observability.md) section 4 makes its field list mandatory
+in all four services, and a standard that arrives after three services exist is
+a standard three services do not follow.
+
+### The observability foundation, once, for all four services
+
+Every service calls one extension method, `AddLexfieldObservability(serviceName)`,
+and gets four things. All of it is SPEC-LEVEL; the design authority is
+observability.md sections 3, 4, and 5, and this is how those become code.
+
+**1. Telemetry export.** The Azure Monitor OpenTelemetry distro, package
+`Azure.Monitor.OpenTelemetry.AspNetCore`, via `UseAzureMonitor()`. It reads its
+destination from the `APPLICATIONINSIGHTS_CONNECTION_STRING` environment
+variable, which infra/disposable injects; nothing about the destination is
+compiled in. The distro carries ASP.NET Core, HttpClient, and SqlClient
+instrumentation, which covers the platform's incoming requests, its task-api
+calls, and every SQL round trip without per-call code. Each service registers one
+`ActivitySource` and one `Meter`, both named `Lexfield.{ServiceName}`, because
+the distro exports custom sources only when they are named at registration.
+
+**2. Identical sampling in every service.** `OTEL_TRACES_SAMPLER` set to
+`microsoft.fixed_percentage` with `OTEL_TRACES_SAMPLER_ARG` of `1.0`: sample
+nothing out. observability.md section 3 requires this and gives the reason,
+which is worth repeating because it is not obvious. Application Insights samples
+each component independently rather than honouring an upstream sampling
+decision, so a producer sampling at 100 percent feeding a consumer sampling at
+10 percent yields traces that end at the Kafka hop. At build scale the volume
+does not justify sampling at all, so the setting is a guard rather than a tuning
+knob, and it is set explicitly so that nobody later changes one service's value
+alone.
+
+**3. Structured logging with the mandatory fields.** JSON to stdout, and an
+enricher that puts `service`, `eventName`, `traceparent`, and `tenantId` on
+every line, with `taskId` and `version` where the operation has them. The
+enricher reads them from the ambient activity and a scope the message handler
+opens, so a hand-written log line cannot omit them by accident. observability.md
+section 3 calls `(tenantId, taskId, version)` the natural correlation key this
+domain has and most systems lack: one KQL filter on those three fields returns a
+task's whole life across four services, which is the investigation an operator
+actually runs.
+
+**4. Two endpoints on a fixed internal port.** `/healthz` and `/readyz`, and
+`/metrics` in Prometheus text form. The metrics endpoint is not how production
+telemetry travels; the distro pushes metrics to Application Insights. It exists
+because the container tests and the fleet density lab need to read counters with
+no Azure present, and a counter nothing can read during a test is a counter that
+silently stops working. The two workers, reconciler and notifier, run a minimal
+HTTP listener for these three routes and nothing else.
+
+**Levels.** Warning and above are reserved for conditions that appear in the
+alert catalogue, observability.md section 2. A warning nobody alerts on trains
+an operator to ignore warnings, which is how a real one gets missed. Hot paths
+log at information sparingly and never per message beyond the vocabulary events.
+
 ### task-api
 
 An ASP.NET minimal API. Dapper for data access.
@@ -41,14 +97,22 @@ UPDATE dbo.WorkflowTask
  WHERE Id = @taskId AND Version = @expectedVersion;
 -- zero rows affected: roll back, return 409
 
-INSERT INTO dbo.Outbox (AggregateType, AggregateId, EventType, Version, Payload)
-VALUES ('WorkflowTask', @taskId, 'TaskTransitioned', @expectedVersion + 1, @payload);
+INSERT INTO dbo.Outbox (AggregateType, AggregateId, EventType, Version, Payload, TraceParent)
+VALUES ('WorkflowTask', @taskId, 'TaskTransitioned', @expectedVersion + 1, @payload, @traceParent);
 
 COMMIT;
 ```
 
 Both writes or neither. This is the mechanism the whole platform rests on
 (ADR-001), so it is one transaction with no retry loop hiding inside it.
+
+`@traceParent` is the current activity's W3C identifier, or null when there is no
+active trace. It goes in this statement rather than a following one for the same
+reason the outbox row does: a trace stamped outside the transaction can be lost
+by a crash, and the event that survives without it is the one an operator will
+most want to follow. `Activity.Current?.Id` supplies it, so the load generator
+and the container tests, which run with no listener attached, write null and
+still produce legal rows.
 
 State machine, SPEC-LEVEL. The blueprint names seven states in order and calls
 them a state machine without listing the legal edges. v1 allows forward
@@ -133,6 +197,13 @@ The HTTP routes and the changes response shape are in
 [00-shared-contracts.md](00-shared-contracts.md). The outbox row shape and the
 event envelope are there too. This area owns all of them.
 
+Events this area emits, from observability.md section 5, and they are an
+interface because alert rules and dashboards bind to the names:
+`TaskApi.TransitionCommitted`, `TaskApi.OutboxWritten`, `TaskApi.RepairRead`,
+`TaskApi.ChangesFeedRead`, `TaskApi.FaultInjected`. The last one exists so the
+demo's fault injection announces itself; a fault that looks like a real failure
+in the logs teaches an operator to distrust the logs.
+
 ## Verification
 
 Test boundary: HTTP through `WebApplicationFactory`, SQL Server from Testcontainers, the
@@ -153,8 +224,19 @@ local.
 | Tenant scoping | containers | A token for tenant A calling tenant B's route gets 403, for every route. |
 | Fault injection gate | containers | With the flag unset, `?suppressOutbox=true` is rejected and the outbox row is written. |
 | Load generator | unit | Rate limiter and tenant key distribution tested without a network. |
+| Traceparent written in the transaction | containers | POST a transition inside a started activity, assert the `Outbox` row's `TraceParent` matches it. Then force the outbox insert to fail and assert no partially traced state survives, which is the same rollback test reading one more column. |
+| Untraced write path | containers | POST with no active activity, assert the row is written with `TraceParent` null and nothing throws. The load generator runs this way, so a regression here stops every load run. |
+| Mandatory log fields | unit | Capture the log output of one transition and assert every line carries service, eventName, traceparent, and tenantId, with taskId and version on the lines that have them. Asserted on the enricher rather than on hand-written call sites, because the enricher is the thing that makes the guarantee. |
+| Vocabulary events emitted | unit | Assert the five task-api event names appear exactly where observability.md section 5 says they do. An alert keyed to an event name that nobody emits is an alert that never fires. |
 
 Every row above except the last runs with zero Azure.
+
+The vocabulary rows deserve their own note. The alert catalogue in
+observability.md section 2 is keyed to event names, so an event name is a
+contract between the code and an alert rule, not a log message. Renaming
+`Reconciler.SweepCompleted` silently disables the "reconciler dead" alert, and
+nothing fails until the day the reconciler is dead. Each area therefore tests
+its own names.
 
 ## Dependencies
 
@@ -173,6 +255,7 @@ which this area owns and answers before the changes feed ticket writes code.
 | # | Behavior | Verification | Size forecast |
 | --- | --- | --- | --- |
 | T1 | Solution, `global.json`, `Lexfield.Contracts`, `Lexfield.TestSupport` with SQL Server and Kafka fixtures, and one smoke test proving a container starts and the schema applies. | containers | 9 files, 380 lines |
+| T1b | `Lexfield.Observability`: the distro registration, the sampler settings, the log enricher, and the three endpoints, with the enricher's field guarantee tested. Wave 0, alongside T1, because the other three areas consume it. | unit | 7 files, 340 lines |
 | T2 | V4 answered and recorded before T5 starts. | documentation check | 1 file, 40 lines |
 | T3 | task-api host, tenant catalog, authorisation, health endpoints, create-task endpoint. | containers | 8 files, 400 lines |
 | T4 | Transition endpoint with optimistic concurrency and the transactional outbox write, plus the state machine table. | containers | 7 files, 460 lines |

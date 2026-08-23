@@ -188,6 +188,29 @@ Writes: `QueueState`, `StreamAttribution`.
 
 Serves: the queue API routes above.
 
+Events this area emits, from observability.md section 5:
+`QueueBuilder.EventReceived`, `EventApplied`, `DuplicateSkipped`,
+`GapDetected`, `HeadLossDetected`, `RepairRequested`, `RepairApplied`,
+`EventParked`, `PartitionBlocked`. Six alert rules bind to these names, so they
+are an interface rather than log text.
+
+Two of them carry rules the rest do not, and both come from observability.md
+section 3's two stated exceptions to the correlation key.
+
+`EventParked` is the one event that cannot promise the standard fields. A parked
+message may be unparseable, which is often why it was parked, so the only fields
+guaranteed are partition and offset. `tenantId`, `taskId`, `version`, and
+`traceparent` are stamped best effort from the message key when it parses. An
+operator investigating a parked event may have to read the parked topic at that
+offset, and the runbook says so rather than implying the log line is enough.
+
+`PartitionBlocked` is deliberately not tenant scoped. It records the partition,
+the blocked offset, and the tenant doing the blocking. A tenant sharing a
+partition with a blocked one sees nothing at all in its own timeline, so
+filtering by the correlation key returns silence, and silence looks like health.
+This event is what explains the silence, which is why it names the blocking
+tenant rather than the victim.
+
 ## Verification
 
 Test boundary: produce to a Testcontainers Kafka, run the real generic host in-process,
@@ -213,6 +236,10 @@ exists anywhere in this suite.
 | Queue API tenant scoping | containers | A token for one tenant calling another tenant's route gets 403, on every route. Then assert the same with a valid token whose tenant matches but whose query would otherwise return another tenant's rows, proving the `WHERE` clause filters as well as the route check. This is the only externally reachable surface in the system, so it gets both layers tested. |
 | Queue API rejects anonymous | containers | Every route without a token returns 401. |
 | Blast radius at 400 synthetic tenants | containers | The measurement above, producing a dated figure with its basis. |
+| The trace continues across the hop | containers | Produce a message with a known `traceparent` header, assert the activity the consumer runs under carries the same trace id, and assert a repair call to task-api carries it onward. The hop and the repair call are the two places a trace can end without anything failing. |
+| A missing traceparent is not a poison event | containers | Produce a valid message with no `traceparent` header. Assert it is applied normally under a fresh trace, and specifically that it is not parked. |
+| `EventParked` survives an unparseable message | containers | Park a message whose value is not JSON at all. Assert the event still carries partition and offset, and that the missing fields are absent rather than logged as empty strings, so a KQL filter cannot match them by accident. |
+| `PartitionBlocked` names the blocking tenant | containers | Block one tenant's processing on a shared partition, assert the event identifies the blocking tenant and the offset, and that the victim tenant's own timeline is empty over the same window. The second half is the point: it proves the event is the only explanation available. |
 
 ## Dependencies
 
