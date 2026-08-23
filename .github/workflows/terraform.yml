@@ -1,0 +1,81 @@
+name: terraform
+
+# Two jobs, deliberately split by what they need.
+#
+# `validate` runs on every pull request. It needs no Azure and no backend, so it
+# initialises with `-backend=false` and only checks formatting and validity.
+#
+# `plan` runs only when Hari dispatches it, against a gated environment. It is
+# the one place the state backend names are read, and they arrive as GitHub
+# Actions variables passed through `terraform init -backend-config`, never from a
+# file in the repo. It runs `plan` only. Apply and destroy are never automated;
+# AGENTS.md reserves both for Hari.
+
+on:
+  pull_request:
+    paths:
+      - "infra/**"
+      - ".github/workflows/terraform.yml"
+  push:
+    branches: [main]
+    paths:
+      - "infra/**"
+      - ".github/workflows/terraform.yml"
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    name: fmt and validate (no backend)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: infra/persistent
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.15.8"
+      - name: terraform fmt
+        run: terraform fmt -check -recursive
+      - name: terraform init (no backend)
+        run: terraform init -backend=false -input=false
+      - name: terraform validate
+        run: terraform validate -no-color
+
+  plan:
+    name: plan (Hari-dispatched, gated)
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    environment: azure-plan
+    permissions:
+      id-token: write
+      contents: read
+    defaults:
+      run:
+        working-directory: infra/persistent
+    steps:
+      - uses: actions/checkout@v4
+      - uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.15.8"
+      - name: terraform init (backend names from Actions variables)
+        env:
+          ARM_USE_OIDC: "true"
+        run: |
+          terraform init -input=false \
+            -backend-config="resource_group_name=${{ vars.TF_BACKEND_RESOURCE_GROUP }}" \
+            -backend-config="storage_account_name=${{ vars.TF_BACKEND_STORAGE_ACCOUNT }}" \
+            -backend-config="container_name=${{ vars.TF_BACKEND_CONTAINER }}" \
+            -backend-config="key=${{ vars.TF_BACKEND_STATE_KEY }}"
+      - name: terraform plan (no apply)
+        env:
+          ARM_USE_OIDC: "true"
+        run: terraform plan -input=false -no-color
