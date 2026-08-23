@@ -27,6 +27,30 @@ its first action and records the outcome on the issue.
   2-vCore pool, is only reached if standalone S3 itself proves ineligible.
 - Blocking: this must be answered before the first `terraform apply` of the
   disposable layer, because it decides what that apply creates.
+- Outcome (2026-08-23, issue #29): UNVERIFIABLE. Microsoft Learn does not state
+  whether a database inside a Standard, DTU-model elastic pool is CDC-eligible,
+  nor what governs eligibility. The compute-requirements page names elastic
+  pools only in its vCore clause: "You can enable CDC on Azure SQL Database for
+  any service tier within the vCore-based purchasing model, for both single
+  databases and elastic pools." The DTU clause beside it says only that
+  "databases lower than S3 (such as Basic, S0, S1, S2) aren't supported in the
+  DTU purchasing model" and does not restate elastic pools. The DTU elastic-pool
+  resource-limits page documents per-database max DTU settings but does not
+  mention CDC at all. So both readings of the question, that per-database max DTU
+  governs and that pool tier governs, are inference rather than documented fact.
+  Per AGENTS.md an UNVERIFIABLE claim does not ship. Sources:
+  https://learn.microsoft.com/azure/azure-sql/database/change-data-capture-overview?view=azuresql
+  and
+  https://learn.microsoft.com/azure/azure-sql/database/resource-limits-dtu-elastic-pools?view=azuresql
+- Path taken: the register's fallback applies. The first apply creates the
+  baseline, three standalone S3 databases, which V10 confirms are CDC-eligible;
+  the Standard elastic pool contingency does not ship, and the SQL cost line
+  does not drop. One documented fact bears on the pooling goal and is recorded
+  here for Hari without being acted on: vCore-model elastic pools support CDC in
+  any service tier with no S3-equivalent floor, which is the register's third
+  fallback (a General Purpose vCore pool). Moving off the DTU model to reach
+  documented pool eligibility is a blueprint-level design change and is Hari's,
+  not this ticket's.
 
 ## V2. Entra reconnect behaviour past token lifetime
 
@@ -269,6 +293,14 @@ its first action and records the outcome on the issue.
 - Action: re-confirm at the same time as V1, because the two answers together
   decide what the first apply creates, and because a stale verification on the
   single claim that sets the largest cost line is not worth the saved minute.
+- Outcome (2026-08-23, issue #29): VERIFIED, re-confirmed. On the DTU purchasing
+  model, change data capture is supported for databases in the S3 tier or
+  higher; the subcore tiers (Basic, S0, S1, S2) are not supported. This matches
+  the 2026-08-21 record and blueprint section 3, so nothing that ships changes.
+  Quote: "For databases in the DTU purchasing model, CDC is supported for
+  databases in the S3 tier or higher. Subcore tiers (Basic, S0, S1, S2) aren't
+  supported for CDC." Source:
+  https://learn.microsoft.com/azure/azure-sql/database/change-data-capture-overview?view=azuresql
 
 ## V11. The two numbers that bound crash behaviour
 
