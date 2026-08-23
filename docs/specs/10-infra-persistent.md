@@ -10,17 +10,29 @@ Paths owned: `infra/persistent/`, `infra/modules/budget-alerts/`,
 
 ## Deliverables
 
-### Bootstrap, outside Terraform
+### State backend, created outside this repo
 
 SPEC-LEVEL. Terraform cannot create the storage account that holds its own
-state, so `infra/persistent/bootstrap/bootstrap.sh` creates three things with
-the Azure CLI and nothing else: the persistent resource group, the state storage
-account, and the state container. Hari runs it once. The persistent layer
-configures that account as its backend and does not manage those three
-resources, so there is no import dance and no resource that Terraform could
+state. The persistent resource group, the state storage account, and the state
+container are therefore created outside Terraform and outside this repo. Hari
+creates them once, by hand, before the first `terraform init`. This repo carries
+no script that creates them.
+
+Their names reach Terraform as backend configuration at init time, not as a
+hardcoded backend block. The persistent layer declares an empty
+`backend "azurerm" {}`, and the CI workflow passes `resource_group_name`,
+`storage_account_name`, and `container_name` through `terraform init
+-backend-config` from GitHub Actions variables. So no storage account name lives
+in the repo, and the persistent layer configures that account as its backend
+without managing it: there is no import dance and no resource Terraform could
 destroy out from under its own state.
 
-The script is idempotent and prints what it would create before creating it.
+Trade-off, decided 2026-08-23: the state backend's creation is no longer
+reproducible from source. A reader cloning this repo cannot stand the backend up
+from what is committed; the three resources must already exist, and their names
+must arrive as Actions variables. This was chosen over a committed idempotent
+bootstrap script to keep both the creation steps and the identifiers out of the
+repo.
 
 ### Terraform, persistent layer
 
@@ -84,7 +96,7 @@ federated credential against it.
 | All Terraform | unit | `terraform fmt -check`, `terraform validate`, and `tflint` in CI on ubuntu-latest. No Azure credentials needed, so this runs on every PR. |
 | Budget alerts module | unit | A `terraform validate` on a test fixture that instantiates the module, plus a check that the three thresholds are present with the documented amounts. A plain assertion on the plan JSON, not a live apply. |
 | Whole layer | live | `terraform plan` in the gated environment. Hari dispatches it. Agents never run apply. |
-| Bootstrap script | unit | ShellCheck, plus a dry-run flag exercised in CI. It is not run against Azure by CI. |
+| Backend config | unit | `terraform validate` accepts the empty `backend "azurerm" {}`; the three names are supplied at init time, so no name is committed. |
 
 CI runs on `runs-on: ubuntu-latest` only, per AGENTS.md.
 
@@ -99,7 +111,7 @@ Blocks: infra/disposable entirely, and the identity spike.
 
 | # | Behavior | Verification | Size forecast |
 | --- | --- | --- | --- |
-| P1 | Bootstrap script creates the state backend and prints its plan first. Runbook section documents running it. | unit, ShellCheck plus dry run | 3 files, 120 lines |
+| P1 | Persistent layer declares an empty `azurerm` backend; the CI workflow passes the state backend names through `-backend-config` from Actions variables. Runbook documents creating the three backend resources by hand. | unit, validate | 2 files, 50 lines |
 | P2 | Budget alerts module exists with the three documented thresholds at subscription scope, and a fixture proves the plan contains them. | unit, plan assertion | 5 files, 200 lines |
 | P3 | Persistent layer creates ACR, Key Vault, Log Analytics, and consumes the budget module. `validate` and `tflint` green. | unit | 6 files, 260 lines |
 | P4 | Persistent layer creates the Connect user-assigned identity and the CI app registration with its GitHub OIDC federated credential, and exports the outputs above. | unit | 4 files, 200 lines |
