@@ -99,7 +99,8 @@ row and hands the chain this:
 ```
 key     {"Id": 92841}
 value   {"after": {"Id":92841,"AggregateId":"4711","Version":7,
-                   "Payload":"{\"taskId\":4711,\"to\":\"InProgress\",...}"},
+                   "Payload":"{\"taskId\":4711,\"to\":\"InProgress\",...}",
+                   "TraceParent":"00-4bf92f...4736-00f067aa0ba902b7-01"},
          "op":"c"}
 headers (none)
 ```
@@ -110,14 +111,21 @@ through untouched. Had this been the nightly outbox pruning deleting row 92841,
 stop here and never reach the topic.
 
 **2. outbox**, the event router, pulls the `Payload` string out of the envelope
-and makes it the message value, sets the key from `AggregateId`, and adds two
+and makes it the message value, sets the key from `AggregateId`, and adds three
 headers from the row.
 
 ```
 key     "4711"
 value   {"taskId":4711,"from":"Assigned","to":"InProgress","version":7,...}
-headers eventType=TaskTransitioned, eventId=92841
+headers eventType=TaskTransitioned, eventId=92841,
+        traceparent=00-4bf92f...4736-00f067aa0ba902b7-01
 ```
+
+`traceparent` is the third because the router can map additional outbox columns
+onto headers, which is why
+[00-shared-contracts.md](00-shared-contracts.md) puts it in its own column
+rather than inside `Payload`. The property that configures the mapping is
+provisional pending [V14](02-verification-register.md).
 
 The message is now the business event. But the key is `4711`, and Ashworth & Co
 on `lexfield-001` also has a task 4711.
@@ -135,7 +143,8 @@ header.
 ```
 key     "lexfield-002-4711"
 value   {"taskId":4711,"from":"Assigned","to":"InProgress","version":7,...}
-headers tenantId=lexfield-002, eventType=TaskTransitioned, eventId=92841
+headers tenantId=lexfield-002, eventType=TaskTransitioned, eventId=92841,
+        traceparent=00-4bf92f...4736-00f067aa0ba902b7-01
 ```
 
 That is shape 4, the message on `workflow-transitions`.
@@ -171,6 +180,9 @@ The `Payload` column, and therefore the message value on the topic.
 - `teamId` and `assigneeId` are the values after the transition, carried because
   queue-builder maintains them in QueueState and must not read the source to get
   them. SPEC-LEVEL.
+- `traceparent` is deliberately absent for the same reason it is a column rather
+  than a payload field: the envelope is what happened, and the trace identifier
+  is how the platform followed it. It travels as a header.
 - `tenantId` is deliberately absent. It exists on the message key and in the
   header, both stamped from connector config, so there is exactly one
   attribution source. Two sources could disagree, and a disagreement would
@@ -266,10 +278,17 @@ Headers, all values UTF-8 strings:
 | `tenantId` | SMT chain, from connector config | The isolation trust root (blueprint section 9). |
 | `eventType` | SMT chain, from the outbox row | `TaskTransitioned` in v1. |
 | `eventId` | SMT chain, from the outbox row id | Traceability only; consumers do not dedup on it. |
+| `traceparent` | SMT chain, from the outbox `TraceParent` column | W3C trace context. Consumers continue the trace from it (observability.md section 3). |
 
 Consumers treat a message with a missing or unparseable `tenantId` header as a
 poison event and park it. They never fall back to the key, because a key
 malformed in the same way is the same fault.
+
+A missing or unparseable `traceparent` is handled the other way round: the
+consumer starts a new trace with no parent and carries on. The difference is
+that `tenantId` decides where data belongs and a traceparent decides nothing, so
+losing one is a correctness fault and losing the other costs a link in a
+timeline.
 
 ## What survives a Connect worker dying
 

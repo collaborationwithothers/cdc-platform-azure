@@ -99,6 +99,7 @@ CREATE TABLE dbo.Outbox (
     EventType     nvarchar(64)  NOT NULL,   -- always 'TaskTransitioned' in v1
     Version       int           NOT NULL,   -- mirrors WorkflowTask.Version
     Payload       nvarchar(max) NOT NULL,   -- JSON, see event envelope
+    TraceParent   nvarchar(64)  NULL,       -- W3C traceparent, see below
     CreatedAt     datetime2(3)  NOT NULL CONSTRAINT DF_Outbox_CreatedAt
                                           DEFAULT SYSUTCDATETIME()
 );
@@ -158,6 +159,43 @@ against itself, and the platform would be trusting its own code to label every
 tenant correctly with no outside check. The blueprint takes the second position.
 This spec implements it and does not reopen it, but the trade is real and it is
 worth Hari knowing it was noticed rather than missed.
+
+### Why `TraceParent` is a column and not a payload field
+
+[observability.md](../observability.md) section 3 makes distributed tracing
+mandatory and says task-api writes the traceparent in the same transaction as
+the event, and that the SMT chain copies it to a Kafka header. A traceparent is
+the W3C standard string identifying one distributed trace and the span that
+produced it, for example
+`00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01`.
+
+Writing it in the same transaction is the load-bearing half. If task-api wrote
+the event and stamped the trace separately, a crash between the two would
+produce an event nobody can trace, which is exactly the event you most want to
+trace. The outbox already gives transactional atomicity, so the traceparent
+rides in it.
+
+Its own column, rather than a field inside `Payload`, is SPEC-LEVEL. Two
+reasons:
+
+- **The transform that moves it can then be stock.** The outbox event router
+  already maps additional outbox columns onto Kafka headers. Reading a field out
+  of a JSON string and promoting it to a header is not something any stock
+  transform does, so a payload field would mean writing and testing a second
+  custom transform for something the router does already.
+- **It keeps the message value free of transport concerns.** The event envelope
+  is the business event. A trace identifier is how the platform followed the
+  event, not part of what happened, and the same reasoning already keeps
+  `tenantId` out of the value.
+
+`NULL` is allowed because a transition written by a path with no active trace,
+the load generator and the container tests, must still be a legal outbox row.
+Consumers treat a missing traceparent as "not traced", never as a fault. That is
+the one difference from the `tenantId` header, whose absence is a poison event:
+`tenantId` decides where data belongs, and a traceparent decides nothing.
+
+The exact router property that performs the mapping is provisional pending
+[V14](02-verification-register.md).
 
 ### Why two different change-tracking features on one database
 
