@@ -53,7 +53,7 @@ serialized and run by Hari only (AGENTS.md, Verification strategy).
 
 - A session never claims a second ticket while its first is unmerged, unless
   the first is parked with a comment saying why.
-- Merge conflicts between lanes indicate a missing blocking edge or a Paths
+- Merge conflicts between areas indicate a missing blocking edge or a Paths
   violation; stop and fix the tickets, do not resolve-and-hope.
-- Stacked PRs only within a lane; after a parent merges, rebase the child per
+- Stacked PRs only within one area; after a parent merges, rebase the child per
   docs/agents/pr-size.md before requesting review.
