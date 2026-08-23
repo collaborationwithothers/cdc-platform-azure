@@ -19,5 +19,8 @@ declared method, open the PR with the template and agent:claude label, get CI
 green, complete the review summary, request review from Hari, remove the
 in-progress label, stop.
 
-Do not merge (except the auto-merge-ok class). Do not modify ticket scope. Do
-not touch paths outside the ticket's Paths list without stating why in the PR.
+Batch mode per AGENTS.md applies: default 1 ticket; if Hari's session
+message authorises more, complete each fully before the next claim and
+honour the unreviewed-PR halt. Do not merge (except the auto-merge-ok
+class). Do not modify ticket scope. Do not touch paths outside the
+ticket's Paths list without stating why in the PR.
