@@ -17,8 +17,8 @@ other. `fmt`, `validate`, `plan`, and `tflint` only.
 | --- | --- |
 | VNet with an AKS subnet and a private endpoint subnet | SPEC-LEVEL address space, documented in the module. |
 | AKS cluster | OIDC issuer enabled, workload identity enabled. Without both, the ADR-006 primary path cannot exist. |
-| System node pool | 1x B2s-class, from blueprint section 8. |
-| User node pool | 2x D2as-class spot. Spot is deliberate: blueprint failure mode 10 uses eviction as a recurring chaos drill, so it is a test surface, not only a discount. |
+| System node pool | 2x `Standard_D2s_v6`, regular capacity. This is the build-scale shape Hari selected on 2026-08-24. The live-validation boundary below applies. |
+| User node pool | 2x `Standard_D2s_v6` spot. Spot is deliberate: blueprint failure mode 10 uses eviction as a recurring chaos drill, so it is a test surface, not only a discount. |
 | Private DNS zone for Azure SQL, linked to the VNet | Required for the cluster to resolve the private endpoint. |
 | `AcrPull` role assignment, cluster kubelet identity onto the persistent ACR | Lives here because it is destroyed with the cluster. |
 | Federated credential on `id-connect` against the AKS OIDC issuer | SPEC-LEVEL placement, see below. |
@@ -30,6 +30,19 @@ its issuer URL is created by the AKS cluster and changes on every recreate. So
 the credentials split by issuer: GitHub in persistent, AKS in disposable, both
 against identities that live in persistent. This is a consequence of
 teardown-as-default, not a change to the identity design.
+
+The system-pool size is an explicit project deviation from current Microsoft
+Learn guidance. Microsoft lists `Standard_D2s_v6` as 2 vCPUs and 8 GiB, while
+the AKS system-pool page describes 4 vCPUs as a restriction. Hari reported an
+existing AKS system pool running this SKU, so the code keeps his observed
+build-scale shape instead of replacing it with an unrequested larger VM. The
+offline plan proves the requested shape, not Azure service acceptance for a new
+cluster. The first gated live run must record whether a new cluster accepts it;
+if Azure rejects it, the operator stops rather than silently resizing the pool.
+Verified 2026-08-24 against
+https://learn.microsoft.com/azure/virtual-machines/sizes/general-purpose/dsv6-series
+and
+https://learn.microsoft.com/azure/aks/use-system-pools
 
 ### Data
 
@@ -263,7 +276,7 @@ mode 9 requires.
 
 | Deliverable | Method | Concrete approach |
 | --- | --- | --- |
-| All Terraform | unit | `fmt -check`, `validate`, `tflint` in CI. |
+| All Terraform | unit | `fmt -check`, `validate`, `tflint`, and mocked plan assertions in CI. The plan asserts both identity switches, both two-node `Standard_D2s_v6` pools, the ACR role binding, the Connect federation target, and the cluster-name output. |
 | Kafka and Connect manifests | unit | Schema-validate the rendered custom resources against the pinned Strimzi CRDs, offline. No cluster needed. |
 | Onboarding T-SQL, steps 1, 2, 3, 4, 6 | containers | Run the runner against a Testcontainers SQL Server. Assert: tables exist, including `dbo.DebeziumSignal`; `sys.databases.is_cdc_enabled`; a capture instance on `dbo.Outbox` and none on `dbo.WorkflowTask`; `sys.change_tracking_tables` contains `WorkflowTask` and nothing else; `sys.databases.snapshot_isolation_state` is on for the database; the `TenantInfo` row holds the expected tenantId. Then run the whole thing a second time and assert nothing changed and nothing threw, which is the actual idempotency claim. |
 | Onboarding step 5 | live | `CREATE USER FROM EXTERNAL PROVIDER` and its grants need a real Entra-backed server. The signal-table INSERT and SELECT grant is part of this step, so it too is verified during the identity spike, not in the container test. Excluded from the container test by a flag. Labelled `needs-live-test`. |
