@@ -1,0 +1,59 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<mxfile host="drawio-mcp" modified="2026-08-24T04:54:21.000Z" agent="drawio-mcp/1.0" version="24.7.17" type="device" compressed="false">
+  <diagram name="Workflow task state machine" id="workflow-task-state-machine">
+    <mxGraphModel dx="1354" dy="981" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1500" pageHeight="700" background="none" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="title" value="Workflow task state machine" style="text;html=1;align=left;verticalAlign=middle;fontSize=24;fontStyle=1;fontColor=#1f4e79;" parent="1" vertex="1">
+          <mxGeometry as="geometry" x="50.0" y="40.0" width="700.0" height="40.0" />
+        </mxCell>
+        <mxCell id="subtitle" value="The only v1 workflow states, in their transition order" style="text;html=1;align=left;verticalAlign=middle;fontSize=13;fontColor=#666666;" parent="1" vertex="1">
+          <mxGeometry as="geometry" x="50.0" y="90.0" width="700.0" height="30.0" />
+        </mxCell>
+        <mxCell id="transaction-note" value="Each arrow is one transaction: persist the new state and increment Version." style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=15;fontStyle=1;align=center;verticalAlign=middle;" parent="1" vertex="1">
+          <mxGeometry as="geometry" x="100.0" y="160.0" width="1300.0" height="70.0" />
+        </mxCell>
+        <mxCell id="created" value="Created" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d9eaf7;strokeColor=#4472c4;fontSize=15;fontStyle=1;" parent="1" vertex="1">
+          <mxGeometry as="geometry" x="70.0" y="340.0" width="150.0" height="70.0" />
+        </mxCell>
+        <mxCell id="assigned" value="Assigned" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d9eaf7;strokeColor=#4472c4;fontSize=15;fontStyle=1;" parent="1" vertex="1">
+          <mxGeometry as="geometry" x="280.0" y="340.0" width="150.0" height="70.0" />
+        </mxCell>
+        <mxCell id="in-progress" value="InProgress" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d9eaf7;strokeColor=#4472c4;fontSize=15;fontStyle=1;" parent="1" vertex="1">
+          <mxGeometry as="geometry" x="490.0" y="340.0" width="150.0" height="70.0" />
+        </mxCell>
+        <mxCell id="submitted" value="Submitted" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d9eaf7;strokeColor=#4472c4;fontSize=15;fontStyle=1;" parent="1" vertex="1">
+          <mxGeometry as="geometry" x="700.0" y="340.0" width="150.0" height="70.0" />
+        </mxCell>
+        <mxCell id="qa" value="QA" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d9eaf7;strokeColor=#4472c4;fontSize=15;fontStyle=1;" parent="1" vertex="1">
+          <mxGeometry as="geometry" x="910.0" y="340.0" width="150.0" height="70.0" />
+        </mxCell>
+        <mxCell id="completed" value="Completed" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d9eaf7;strokeColor=#4472c4;fontSize=15;fontStyle=1;" parent="1" vertex="1">
+          <mxGeometry as="geometry" x="1120.0" y="340.0" width="150.0" height="70.0" />
+        </mxCell>
+        <mxCell id="delivered" value="Delivered" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#70ad47;fontSize=15;fontStyle=1;" parent="1" vertex="1">
+          <mxGeometry as="geometry" x="1330.0" y="340.0" width="150.0" height="70.0" />
+        </mxCell>
+        <mxCell id="e-created-assigned" value="Version +1" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#4472c4;fontSize=11;endArrow=block;" parent="1" edge="1" source="created" target="assigned">
+          <mxGeometry as="geometry" relative="1" />
+        </mxCell>
+        <mxCell id="e-assigned-progress" value="Version +1" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#4472c4;fontSize=11;endArrow=block;" parent="1" edge="1" source="assigned" target="in-progress">
+          <mxGeometry as="geometry" relative="1" />
+        </mxCell>
+        <mxCell id="e-progress-submitted" value="Version +1" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#4472c4;fontSize=11;endArrow=block;" parent="1" edge="1" source="in-progress" target="submitted">
+          <mxGeometry as="geometry" relative="1" />
+        </mxCell>
+        <mxCell id="e-submitted-qa" value="Version +1" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#4472c4;fontSize=11;endArrow=block;" parent="1" edge="1" source="submitted" target="qa">
+          <mxGeometry as="geometry" relative="1" />
+        </mxCell>
+        <mxCell id="e-qa-completed" value="Version +1" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#4472c4;fontSize=11;endArrow=block;" parent="1" edge="1" source="qa" target="completed">
+          <mxGeometry as="geometry" relative="1" />
+        </mxCell>
+        <mxCell id="e-completed-delivered" value="Version +1" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#70ad47;fontSize=11;endArrow=block;" parent="1" edge="1" source="completed" target="delivered">
+          <mxGeometry as="geometry" relative="1" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>
