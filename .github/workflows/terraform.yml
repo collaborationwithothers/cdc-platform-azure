@@ -60,12 +60,21 @@ jobs:
       - uses: hashicorp/setup-terraform@v3
         with:
           terraform_version: "1.15.8"
+      - uses: terraform-linters/setup-tflint@v6
+        with:
+          tflint_version: "v0.64.0"
       - name: terraform fmt
         run: terraform fmt -check -recursive
       - name: terraform init (no backend)
         run: terraform init -backend=false -input=false
       - name: terraform validate
         run: terraform validate -no-color
+      - name: tflint init
+        run: tflint --init
+      - name: tflint
+        run: tflint --format compact
+      - name: workspace link plan test
+        run: terraform test -no-color
 
   module-test:
     name: budget module plan test (no Azure)
@@ -112,6 +121,14 @@ jobs:
       - uses: hashicorp/setup-terraform@v3
         with:
           terraform_version: "1.15.8"
+      - name: reject state and platform resource-group collision
+        env:
+          TF_BACKEND_RESOURCE_GROUP: ${{ vars.TF_BACKEND_RESOURCE_GROUP }}
+        run: |
+          if [ "$TF_BACKEND_RESOURCE_GROUP" = "rg-cdc-platform-persistent" ]; then
+            echo "::error::TF_BACKEND_RESOURCE_GROUP must not name the Terraform-managed platform resource group."
+            exit 1
+          fi
       - name: terraform init (backend names from Actions variables)
         env:
           ARM_USE_OIDC: "true"

@@ -25,12 +25,14 @@ longer reproducible from source) is recorded in
 - The target subscription is selected: `az account set --subscription <SUBSCRIPTION>`.
 - You have chosen four names, none of which are committed anywhere. Choose them
   now, before the commands below use them:
-  - `<STATE_RG>`: the resource group that holds the state storage account.
+  - `<STATE_RG>`: the resource group that holds the state storage account. It
+    must not be `rg-cdc-platform-persistent`, which Terraform creates and
+    manages separately.
   - `<STATE_SA>`: the storage account name. It must be globally unique, 3 to 24
     lowercase letters and digits.
   - `<STATE_CONTAINER>`: the blob container name, for example `tfstate`.
   - `<STATE_KEY>`: the state blob name, for example `persistent.tfstate`.
-- A region, `<LOCATION>`, for example `uksouth`.
+- Use UK South: set `<LOCATION>` to `uksouth`.
 
 ## Part 1: create the three backend resources by hand
 

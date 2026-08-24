@@ -9,8 +9,8 @@ terraform {
   }
 
   # The state backend is declared empty on purpose. Terraform cannot create the
-  # storage account that holds its own state, so the persistent resource group,
-  # the state storage account, and the state container are created once by hand,
+  # storage account that holds its own state, so the state backend resource
+  # group, storage account, and container are created once by hand,
   # outside this repo and outside Terraform (see
   # docs/runbooks/state-backend-bootstrap.md). Their names never live in the
   # repo: CI passes resource_group_name, storage_account_name, container_name,

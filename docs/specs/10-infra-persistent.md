@@ -13,10 +13,10 @@ Paths owned: `infra/persistent/`, `infra/modules/budget-alerts/`,
 ### State backend, created outside this repo
 
 SPEC-LEVEL. Terraform cannot create the storage account that holds its own
-state. The persistent resource group, the state storage account, and the state
-container are therefore created outside Terraform and outside this repo. Hari
-creates them once, by hand, before the first `terraform init`. This repo carries
-no script that creates them.
+state. The state backend resource group, storage account, and container are
+therefore created outside Terraform and outside this repo. Hari creates them
+once, by hand, before the first `terraform init`. This repo carries no script
+that creates them.
 
 Their names reach Terraform as backend configuration at init time, not as a
 hardcoded backend block. The persistent layer declares an empty
@@ -33,6 +33,13 @@ from what is committed; the three resources must already exist, and their names
 must arrive as Actions variables. This was chosen over a committed idempotent
 bootstrap script to keep both the creation steps and the identifiers out of the
 repo.
+
+Terraform creates `rg-cdc-platform-persistent` in UK South for the platform
+resources in this layer. This resource group is separate from the state backend
+resource group. `TF_BACKEND_RESOURCE_GROUP` is passed only to `terraform init`,
+and the workflow rejects the platform group's name as a backend value. Terraform
+can manage the platform group without managing or deleting the group that holds
+its state.
 
 ### Terraform, persistent layer
 
