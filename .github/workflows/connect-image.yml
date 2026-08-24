@@ -1,0 +1,95 @@
+name: connect-image
+
+# Builds the custom Kafka Connect worker image and proves its plugins loaded. The
+# build job needs no Azure and runs on every pull request, so the plugin check
+# gates a change here rather than at a later deployment.
+#
+# The push job reuses the gate terraform.yml documents in full at its top:
+# workflow_dispatch only, the azure-plan environment enforced by GitHub, and a
+# federated credential scoped to that environment
+# (docs/runbooks/ci-identity-bootstrap.md). That environment is named for
+# planning because it is this repository's only OIDC-gated Azure environment and
+# its credential subject is immutable; a second would need a second credential
+# created by hand, out of scope for #65. The CI principal needs AcrPush.
+
+on:
+  pull_request:
+    paths:
+      - "connect/image/**"
+      - ".github/workflows/connect-image.yml"
+  push:
+    branches: [main]
+    paths:
+      - "connect/image/**"
+      - ".github/workflows/connect-image.yml"
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+concurrency:
+  group: connect-image-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  IMAGE_NAME: cdc-connect
+
+jobs:
+  build:
+    name: build and smoke test
+    # AGENTS.md: workflows run on ubuntu-latest only.
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Build the image
+        run: |
+          docker build \
+            --file connect/image/Dockerfile \
+            --tag "${IMAGE_NAME}:${GITHUB_SHA}" \
+            connect/image
+
+      # The acceptance check for this ticket. connect/image/README.md lists the
+      # four assertions and what each one guards against.
+      - name: Smoke test the plugin path
+        run: connect/image/smoke-test.sh "${IMAGE_NAME}:${GITHUB_SHA}"
+
+  push:
+    name: push to ACR (Hari-dispatched, gated)
+    if: github.event_name == 'workflow_dispatch'
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: azure-plan
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      # No registry password is handled here: az acr login exchanges the OIDC
+      # session for a short-lived token, so nothing durable is written anywhere.
+      # ACR_LOGIN_SERVER is the persistent layer's acr_login_server output.
+      #
+      # One immutable tag, no floating tag: the disposable layer's KafkaConnect
+      # resource pins a tag that must keep meaning the same image, and a moving
+      # tag would let a redeploy silently change the worker.
+      - name: Build and push
+        env:
+          ACR_LOGIN_SERVER: ${{ vars.ACR_LOGIN_SERVER }}
+        run: |
+          : "${ACR_LOGIN_SERVER:?repository variable is not set}"
+          az acr login --name "${ACR_LOGIN_SERVER%%.*}"
+
+          reference="${ACR_LOGIN_SERVER}/${IMAGE_NAME}:$(git rev-parse --short=12 HEAD)"
+          docker build --file connect/image/Dockerfile --tag "${reference}" connect/image
+          connect/image/smoke-test.sh "${reference}"
+          docker push "${reference}"
+          echo "### Pushed \`${reference}\`" >> "${GITHUB_STEP_SUMMARY}"
