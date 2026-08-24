@@ -4,6 +4,15 @@
 mock_provider "azurerm" {
   override_during = plan
 
+  mock_data "azurerm_client_config" {
+    defaults = {
+      client_id       = "00000000-0000-0000-0000-000000000000"
+      object_id       = "00000000-0000-0000-0000-000000000000"
+      subscription_id = "00000000-0000-0000-0000-000000000000"
+      tenant_id       = "00000000-0000-0000-0000-000000000000"
+    }
+  }
+
   mock_resource "azurerm_kubernetes_cluster" {
     defaults = {
       id              = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-cdc-platform-disposable/providers/Microsoft.ContainerService/managedClusters/aks-cdc-platform"
