@@ -1,0 +1,49 @@
+name: strimzi-schema
+
+on:
+  pull_request:
+    paths:
+      - "infra/disposable/kafka/**"
+      - "infra/disposable/strimzi.tf"
+      - ".github/workflows/strimzi-schema.yml"
+  push:
+    branches: [main]
+    paths:
+      - "infra/disposable/kafka/**"
+      - "infra/disposable/strimzi.tf"
+      - ".github/workflows/strimzi-schema.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    name: render and validate Strimzi resources
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      STRIMZI_VERSION: "1.2.0"
+      STRIMZI_CRDS_SHA256: "6f300e77128dc0963b8a6153c520a0f11b6f8999486a9b8e361c06aaa17860a3"
+    steps:
+      - uses: actions/checkout@v7
+      - uses: azure/setup-helm@v5
+        with:
+          version: "v4.2.4"
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.14"
+      - name: install pinned validator dependencies
+        run: python -m pip install --disable-pip-version-check PyYAML==6.0.3 jsonschema==4.26.0
+      - name: render resources
+        run: helm template cdc-kafka-resources infra/disposable/kafka > "${RUNNER_TEMP}/kafka-resources.yaml"
+      - name: download pinned Strimzi CRDs
+        run: |
+          curl --fail --location --silent --show-error \
+            --output "${RUNNER_TEMP}/strimzi-crds.yaml" \
+            "https://github.com/strimzi/strimzi-kafka-operator/releases/download/${STRIMZI_VERSION}/strimzi-crds-${STRIMZI_VERSION}.yaml"
+          echo "${STRIMZI_CRDS_SHA256}  ${RUNNER_TEMP}/strimzi-crds.yaml" | sha256sum --check
+      - name: validate rendered resources against pinned CRDs
+        run: >-
+          python infra/disposable/kafka/validate.py
+          --crds "${RUNNER_TEMP}/strimzi-crds.yaml"
+          "${RUNNER_TEMP}/kafka-resources.yaml"

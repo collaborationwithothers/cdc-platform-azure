@@ -1,0 +1,83 @@
+apiVersion: kafka.strimzi.io/v1
+kind: KafkaUser
+metadata:
+  name: connect
+  labels: { strimzi.io/cluster: cdc-platform }
+spec:
+  authentication: { type: tls }
+  authorization:
+    type: simple
+    acls:
+      - resource: { type: topic, name: workflow-transitions, patternType: literal }
+        operations: [Describe, Write]
+      - resource: { type: topic, name: workflow-transitions-lexfield-003, patternType: literal }
+        operations: [Describe, Write]
+      - resource: { type: topic, name: schema-history-, patternType: prefix }
+        operations: [Describe, Read, Write]
+      - resource: { type: topic, name: connect-configs, patternType: literal }
+        operations: [Describe, Read, Write]
+      - resource: { type: topic, name: connect-offsets, patternType: literal }
+        operations: [Describe, Read, Write]
+      - resource: { type: topic, name: connect-status, patternType: literal }
+        operations: [Describe, Read, Write]
+      - resource: { type: topic, name: connect-signals, patternType: literal }
+        operations: [Describe, Read]
+      - resource: { type: group, name: connect-, patternType: prefix }
+        operations: [Read]
+      - resource: { type: group, name: kafka-signal, patternType: literal }
+        operations: [Read]
+---
+apiVersion: kafka.strimzi.io/v1
+kind: KafkaUser
+metadata:
+  name: queue-builder
+  labels: { strimzi.io/cluster: cdc-platform }
+spec:
+  authentication: { type: tls }
+  authorization:
+    type: simple
+    acls:
+      - resource: { type: topic, name: workflow-transitions, patternType: literal }
+        operations: [Describe, Read]
+      - resource: { type: topic, name: workflow-transitions-lexfield-003, patternType: literal }
+        operations: [Describe, Read]
+      - resource: { type: topic, name: workflow-transitions-parked, patternType: literal }
+        operations: [Describe, Write]
+      - resource: { type: group, name: queue-builder, patternType: literal }
+        operations: [Read]
+---
+apiVersion: kafka.strimzi.io/v1
+kind: KafkaUser
+metadata:
+  name: notifier
+  labels: { strimzi.io/cluster: cdc-platform }
+spec:
+  authentication: { type: tls }
+  authorization:
+    type: simple
+    acls:
+      - resource: { type: topic, name: workflow-transitions, patternType: literal }
+        operations: [Describe, Read]
+      - resource: { type: topic, name: workflow-transitions-lexfield-003, patternType: literal }
+        operations: [Describe, Read]
+      - resource: { type: topic, name: notifier-control, patternType: literal }
+        operations: [Describe, Read]
+      - resource: { type: topic, name: workflow-transitions-parked, patternType: literal }
+        operations: [Describe, Write]
+      - resource: { type: group, name: notifier, patternType: literal }
+        operations: [Read]
+---
+apiVersion: kafka.strimzi.io/v1
+kind: KafkaUser
+metadata:
+  name: operations
+  labels: { strimzi.io/cluster: cdc-platform }
+spec:
+  authentication: { type: tls }
+  authorization:
+    type: simple
+    acls:
+      - resource: { type: topic, name: connect-signals, patternType: literal }
+        operations: [Describe, Write]
+      - resource: { type: topic, name: notifier-control, patternType: literal }
+        operations: [Describe, Write]

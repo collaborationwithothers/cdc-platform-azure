@@ -1,0 +1,44 @@
+apiVersion: kafka.strimzi.io/v1
+kind: KafkaNodePool
+metadata:
+  name: dual-role
+  labels: { strimzi.io/cluster: cdc-platform }
+spec:
+  replicas: 1
+  roles: [controller, broker]
+  storage:
+    type: jbod
+    volumes:
+      - id: 0
+        type: persistent-claim
+        size: 32Gi
+        deleteClaim: true
+        kraftMetadata: shared
+---
+apiVersion: kafka.strimzi.io/v1
+kind: Kafka
+metadata:
+  name: cdc-platform
+spec:
+  kafka:
+    version: 4.3.1
+    metadataVersion: 4.3-IV0
+    listeners:
+      - name: tls
+        port: 9093
+        type: internal
+        tls: true
+        authentication: { type: tls }
+    authorization: { type: simple }
+    config:
+      # RF1 is a disposable build-scale economy, not a production design.
+      # Production uses 3 brokers, RF3, and min.insync.replicas 2.
+      offsets.topic.replication.factor: 1
+      transaction.state.log.replication.factor: 1
+      transaction.state.log.min.isr: 1
+      default.replication.factor: 1
+      min.insync.replicas: 1
+      auto.create.topics.enable: false
+  entityOperator:
+    topicOperator: {}
+    userOperator: {}

@@ -1,0 +1,76 @@
+apiVersion: kafka.strimzi.io/v1
+kind: KafkaTopic
+metadata:
+  name: workflow-transitions
+  labels: { strimzi.io/cluster: cdc-platform }
+spec: { partitions: 12, replicas: 1 }
+---
+apiVersion: kafka.strimzi.io/v1
+kind: KafkaTopic
+metadata:
+  name: workflow-transitions-lexfield-003
+  labels: { strimzi.io/cluster: cdc-platform }
+spec: { partitions: 12, replicas: 1 }
+---
+apiVersion: kafka.strimzi.io/v1
+kind: KafkaTopic
+metadata:
+  name: workflow-transitions-parked
+  labels: { strimzi.io/cluster: cdc-platform }
+spec: { partitions: 1, replicas: 1 }
+---
+apiVersion: kafka.strimzi.io/v1
+kind: KafkaTopic
+metadata:
+  name: notifier-control
+  labels: { strimzi.io/cluster: cdc-platform }
+spec: { partitions: 1, replicas: 1 }
+---
+apiVersion: kafka.strimzi.io/v1
+kind: KafkaTopic
+metadata:
+  name: connect-signals
+  labels: { strimzi.io/cluster: cdc-platform }
+spec: { partitions: 1, replicas: 1 }
+---
+apiVersion: kafka.strimzi.io/v1
+kind: KafkaTopic
+metadata:
+  name: schema-history-lexfield-001
+  labels: { strimzi.io/cluster: cdc-platform }
+spec: { partitions: 1, replicas: 1, config: { cleanup.policy: compact } }
+---
+apiVersion: kafka.strimzi.io/v1
+kind: KafkaTopic
+metadata:
+  name: schema-history-lexfield-002
+  labels: { strimzi.io/cluster: cdc-platform }
+spec: { partitions: 1, replicas: 1, config: { cleanup.policy: compact } }
+---
+apiVersion: kafka.strimzi.io/v1
+kind: KafkaTopic
+metadata:
+  name: schema-history-lexfield-003
+  labels: { strimzi.io/cluster: cdc-platform }
+spec: { partitions: 1, replicas: 1, config: { cleanup.policy: compact } }
+---
+apiVersion: kafka.strimzi.io/v1
+kind: KafkaTopic
+metadata:
+  name: connect-configs
+  labels: { strimzi.io/cluster: cdc-platform }
+spec: { partitions: 1, replicas: 1, config: { cleanup.policy: compact } }
+---
+apiVersion: kafka.strimzi.io/v1
+kind: KafkaTopic
+metadata:
+  name: connect-offsets
+  labels: { strimzi.io/cluster: cdc-platform }
+spec: { partitions: 25, replicas: 1, config: { cleanup.policy: compact } }
+---
+apiVersion: kafka.strimzi.io/v1
+kind: KafkaTopic
+metadata:
+  name: connect-status
+  labels: { strimzi.io/cluster: cdc-platform }
+spec: { partitions: 5, replicas: 1, config: { cleanup.policy: compact } }
