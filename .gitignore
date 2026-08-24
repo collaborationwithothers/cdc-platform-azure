@@ -3,6 +3,9 @@ bin/
 obj/
 TestResults/
 
+# Maven build output from the Connect SMT project
+connect/smt/target/
+
 # Local .terraform directories
 .terraform/
 

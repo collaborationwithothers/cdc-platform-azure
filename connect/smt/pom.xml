@@ -1,0 +1,67 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+
+  <groupId>com.lexfield.connect</groupId>
+  <artifactId>lexfield-connect-smt</artifactId>
+  <version>1.0.0</version>
+  <packaging>jar</packaging>
+
+  <name>Lexfield Connect SMT</name>
+  <description>Custom single message transforms for the tenant outbox connectors.</description>
+
+  <properties>
+    <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+    <!-- Connect 4.0 dropped Java 11 for the worker runtime (KIP-1013) and this
+         jar runs inside that worker.
+         https://kafka.apache.org/41/getting-started/compatibility/ -->
+    <maven.compiler.release>17</maven.compiler.release>
+
+    <!-- The floor of the 4.x line, not the newest patch: the worker supplies
+         this dependency at runtime, so compiling against 4.0 keeps the jar
+         loadable on every 4.x worker. The image ticket pins what actually
+         runs. -->
+    <kafka.version>4.0.2</kafka.version>
+    <junit.version>5.12.2</junit.version>
+  </properties>
+
+  <dependencies>
+    <dependency>
+      <groupId>org.apache.kafka</groupId>
+      <artifactId>connect-api</artifactId>
+      <version>${kafka.version}</version>
+      <!-- provided: the worker already has connect-api on its classpath, and a
+           second copy in the plugin path is how classloader conflicts start. -->
+      <scope>provided</scope>
+    </dependency>
+
+    <dependency>
+      <groupId>org.junit.jupiter</groupId>
+      <artifactId>junit-jupiter</artifactId>
+      <version>${junit.version}</version>
+      <scope>test</scope>
+    </dependency>
+  </dependencies>
+
+  <build>
+    <plugins>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-compiler-plugin</artifactId>
+        <version>3.15.0</version>
+      </plugin>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-surefire-plugin</artifactId>
+        <version>3.5.6</version>
+      </plugin>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-jar-plugin</artifactId>
+        <version>3.5.0</version>
+      </plugin>
+    </plugins>
+  </build>
+</project>
