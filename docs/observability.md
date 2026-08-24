@@ -47,6 +47,9 @@ derive from the SLOs (section 7) or the coupled lag experiment.
 | Notifier degraded | consumer stopped, or Notifier.DuplicateSkipped conflict-rate spike | 15 min / rate PENDING-MEASUREMENT | 2 | Consumers | recover-notifier |
 | Budget investigate / discipline | spend at 150 / 300 GBP | at threshold | 2 | Spend | spend-review |
 | Freshness SLO burn | rolling compliance dipping toward promise | derived from SLO, PENDING-MEASUREMENT | 2 | Fleet | lag-investigation |
+| GitOps divergence | Argo Application Degraded or OutOfSync beyond 15 min | any app | 2 | Fleet | gitops-diverged |
+| Origin cert expiry | cert-manager renewal failing / cert under 14 days | any | 2 | Fleet | recover-ingress |
+| Ingress path broken | external-dns update failures, or gateway 5xx rate | sustained 15 min | 2 | Fleet | recover-ingress |
 | Healed drift | Reconciler.DriftRepaired | any | 3 | Correctness | none |
 | Rebalances, spot evictions, repair throttling | platform events | any | 3 | Fleet / Consumers | none |
 
@@ -137,6 +140,9 @@ vocabulary events. All SPEC-LEVEL beyond the field list.
   patterns the alerts depend on (task state transitions, retry exhaustion)
   rather than renaming them. Nobody should hunt for Lexfield names in Connect
   logs.
+- Argo CD, Istio, cert-manager, external-dns, ESO keep their upstream log and
+  metric names; the design maps the signals the three alert rows depend on
+  rather than renaming them.
 
 ## 6. Dashboards (as code, four)
 
@@ -171,8 +177,8 @@ recover-connect, recover-internal-topics, recover-queuestate,
 recover-reconciler, recover-task-api, recover-connector-auth,
 attribution-breach, poison-triage, recover-connector, retune-grace-window,
 loss-investigation, recover-notifier, spend-review, destroy-disposable,
-lag-investigation. Each is a section in docs/runbooks/, written in the
-procedural register, first action first.
+lag-investigation, gitops-diverged, recover-ingress. Each is a section in
+docs/runbooks/, written in the procedural register, first action first.
 
 Binding rule: a runbook body lands in the same ticket as its alert, and no
 sev1 alert ships without its runbook. First steps must be instructions, not

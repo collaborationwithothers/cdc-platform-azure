@@ -2,7 +2,7 @@
 
 Multi-tenant CDC platform on AKS. Debezium via Kafka Connect, Strimzi-managed Kafka, Azure SQL database-per-tenant source.
 
-This is the spec seed for the repo: the design every issue traces back to. Read it before planning any work. All unmeasured figures are estimates, dated, basis stated inline; numbers appear in the README only after they are measured. Revised 2026-08-21 after an independent documentation-verified design review, revised 2026-08-27, compound key authored at source (ADR-005 reshaped).
+This is the spec seed for the repo: the design every issue traces back to. Read it before planning any work. All unmeasured figures are estimates, dated, basis stated inline; numbers appear in the README only after they are measured. Revised 2026-08-21 after an independent documentation-verified design review, revised 2026-08-26, GitOps delivery workstream (ADR-010), revised 2026-08-27, compound key authored at source (ADR-005 reshaped).
 
 Glossary (front matter, not a template section). Plain definitions; full detail where each term is used.
 - Change data capture (CDC): reading a database's own record of committed changes instead of querying tables, so every change is seen exactly as it happened.
@@ -52,6 +52,9 @@ Build scale: 3 tenant databases, designed for 400. Fleet-scale claims are design
   outbox aggregate id, drops pruning DELETEs itself) ->
   tenant header inject
   incremental cooperative rebalancing (default protocol: sessioned)
+  Argo CD (GitOps: all in-cluster delivery, app-of-apps)
+  Istio ambient/sidecar + Gateway API (north-south entry)
+  ESO (Key Vault secret hydration via workload identity)
        |
        v
  Kafka (Strimzi, KRaft, AKS)
@@ -84,6 +87,7 @@ Components, one paragraph each:
 - Debezium connectors. One per tenant database (the SQL Server connector runs one task per database; a connector captures a list of tables, here a single-entry list: Outbox). Poll cdc.* change tables (stage 2), emit events through the SMT chain. Incremental snapshots are triggered via the Kafka signal channel (a signal topic), not the in-database signaling table, so connector grants stay read-only (VERIFY-BEFORE-APPLY: Kafka signal channel support for SQL Server incremental snapshots on the pinned Debezium version).
 - SMT chain, in order: the outbox event router unwraps outbox rows into clean domain events, keys each message directly from the outbox aggregate-id column, and itself drops outbox DELETE events (verified 2026-08-25; no separate filter transform); a header transform injects tenantId. Both are stock transforms; the platform authors no custom SMT. The compound key '{tenantId}-{taskId}' is written by task-api into the aggregate-id column inside the business transaction, so the key is authored in the tenant's own database rather than assembled from per-connector config (ADR-005).
 - Kafka. Strimzi on AKS, KRaft mode. Build scale: single broker, replication factor 1, durability explicitly sacrificed and documented; production design: 3 brokers, RF3, min.insync.replicas 2. Shared topic workflow-transitions, 12 partitions. Retention: unbounded in the production design; at build scale the broker lives in the disposable layer, so retention and replay hold only within a session (section 10). Stream isolation tier: dedicated per-tenant topic, demonstrated for one fictional tenant that is stream-isolated from birth.
+- Delivery and ingress. Argo CD, installed by Terraform along with a single root Application, owns all in-cluster delivery as an app-of-apps converged in sync waves: Istio (upstream, Gateway API implementation, ingress for the platform), cert-manager, external-dns, External Secrets Operator, Strimzi, Connect, and the services. Exposure is a public LB behind proxied Cloudflare DNS (edge TLS and WAF, origin locked to Cloudflare ranges, origin cert via DNS-01, record updated by external-dns as the LB IP churns per recreate). The mesh is deliberately under-used at n=3 and says so: one capability beyond ingress is exercised, Entra-JWT authorisation on the demo queue API and Argo API path; Kafka is excluded from mesh interception, Strimzi's mTLS owns it (ADR-010).
 - task-api. .NET service owning the workflow-task domain. Performs state transitions with optimistic concurrency (WHERE Version = @expected), writes the outbox row in the same transaction. The outbox aggregate id is the compound key '{tenantId}-{taskId}', authored at insert time; keying is a property of the contract, not of pipeline configuration (ADR-005). It serves authoritative reads: GET /tenants/{t}/tasks/{id} (state plus version, used by repair) and GET /tenants/{t}/tasks/changes?since={syncVersion} (backed by CHANGETABLE over Change Tracking, returning changed task ids plus versions and the next committed-order sync version; ADR-009). It is the only component with tenant-database access on the read path.
 - queue-builder. .NET consumer group (2 to 4 instances; ceiling 12 set by partition count) maintaining per-team work queues in the QueueState store. Inline rules on the live stream: expected-next (version == last+1) applies; already-seen (version <= last) skips; jump (version > last+1) is a detected gap; unknown task at version 1 is new; unknown task at version > 1 is a detected head-loss gap (first event is always Created at version 1, by construction). Detected gaps trigger repair via task-api (token-bucket limited). Write invariant, all paths: a QueueState row is updated only if the incoming version is greater than the stored version, so live and repair writes cannot regress the chart or oscillate.
 - QueueState store. One Azure SQL S0 database, platform-owned. QueueState (TenantId, TaskId, State, Version, TeamId, AssigneeId, UpdatedAt; PK (TenantId, TaskId)) plus SentNotifications (TenantId, TaskId, Version; PK all three). The tenant databases remain the system of record.
@@ -159,7 +163,7 @@ Method requirements before any number is published: load generator committed to 
 
 These are estimates for UK South in GBP. The AKS and tenant-pool rates were refreshed from the Azure Retail Prices API on 2026-08-24. QueueState and miscellaneous-resource figures retain the original 2026-08-21 estimates.
 
-Build scale, always-on worst case: the 2-vCore `GP_Gen5` tenant pool is estimated at GBP 209.07/month for compute plus GBP 3.18/month for 32 GB of storage. QueueState S0 is roughly 12; disks, Log Analytics, ACR, and miscellaneous resources are 60 to 90. AKS compute is an estimated 128 for 2x regular `Standard_D2s_v6` plus 17 for 2x spot `Standard_D2s_v6`. The compute estimates use 730 hours. The returned UK South rates were GBP 0.2864/hour for the tenant pool, GBP 0.0995/GB/month for pool storage, GBP 0.088/hour for regular AKS nodes, and GBP 0.0116/hour for spot AKS nodes. Spot price and capacity can change. The total estimate is therefore 429 to 459 GBP/month.
+Build scale, always-on worst case: the 2-vCore `GP_Gen5` tenant pool is estimated at GBP 209.07/month for compute plus GBP 3.18/month for 32 GB of storage. QueueState S0 is roughly 12; disks, Log Analytics, ACR, and miscellaneous resources are 60 to 90; public LB plus static IP and Istio/Argo/ESO overhead on existing nodes: estimate 10 to 20 (2026-08-26). AKS compute is an estimated 128 for 2x regular `Standard_D2s_v6` plus 17 for 2x spot `Standard_D2s_v6`. The compute estimates use 730 hours. The returned UK South rates were GBP 0.2864/hour for the tenant pool, GBP 0.0995/GB/month for pool storage, GBP 0.088/hour for regular AKS nodes, and GBP 0.0116/hour for spot AKS nodes. Spot price and capacity can change. The total estimate is therefore 439 to 479 GBP/month.
 
 Hari reported an existing system pool on this SKU and selected it for build scale. A new cluster still needs live validation because current Microsoft Learn guidance says system nodes require 4 vCPUs. The two-vCore SQL pool also needs live load validation because three CDC-enabled databases exceed Microsoft's recommendation. Price source: https://prices.azure.com/api/retail/prices
 
@@ -177,8 +181,9 @@ Actual spend recorded in COSTS.md as incurred.
 - Per-database provisioning: CREATE USER FROM EXTERNAL PROVIDER plus db_datareader plus cdc-schema EXECUTE grants, applied as idempotent T-SQL by tenant-onboarding automation, which also enables CDC (Outbox), enables Change Tracking (WorkflowTask), and writes the TenantInfo claim row. Grants stay read-only: incremental snapshots are signalled over the Kafka signal channel, not an in-database signaling table. At 400 databases this provisioning is itself a control-plane concern and is treated as one.
 - Isolation trust root, stated plainly: the tenantId a connector stamps into headers is per-connector provisioning config, not code. Code-level boundary tests cannot catch a mis-provisioned constant. Therefore: provisioning automation derives connector config and the TenantInfo claim from one source of truth, and the reconciler verifies observed header tenantId against the source claim every sweep, alarming on mismatch (failure mode 9). Within the platform, every QueueState row is keyed by tenant, every read is authorised against the caller's tenant, and write-path tenant IDs come from event headers, never user input; leakage there is a code defect and tests assert it. The two layers cover different threats and both are named. The message key itself is authored at source and sits outside this trust root (ADR-005).
 - Kafka: Strimzi-managed mTLS intra-cluster; per-service identities and ACLs (queue-builder and notifier read-only on their topics; only Connect produces to transition topics; signal-topic writes restricted to the operations identity).
-- Network: one logical server, one private endpoint; no public SQL exposure; no public ingress except the demo queue API behind Entra auth; task-api endpoints tenant-scoped in the route and enforced in authorisation.
+- Network: one logical server, one private endpoint; no public SQL exposure. Two public HTTPS surfaces, both through proxied Cloudflare in front of the Istio gateway with origin lockdown to Cloudflare IP ranges: the Argo CD UI (Entra OIDC, group-mapped RBAC, admin and readonly) and the demo queue API (Entra-JWT enforced by Istio authorisation policy). task-api endpoints tenant-scoped in the route and enforced in authorisation. The management UI is dark between sessions by design.
 - Secrets posture: zero secrets in connector configs or repo on the primary path; fallback path keeps secrets in Key Vault only, resolved at connector start.
+- Runtime secret hydration: External Secrets Operator under workload identity pulls the Cloudflare API token and Argo OIDC client secret from Key Vault; Terraform state carries no secret material.
 
 ## 10. Operations
 
@@ -190,12 +195,13 @@ Runbook stubs, expanded during build:
   Application Insights, Connect workload identity, and budget alerts. The CI
   app registration and GitHub federated credential are bootstrapped outside
   Terraform because the workflow needs them before it can plan either layer.
-  The disposable layer creates AKS, Strimzi, Connect, SQL databases, and
-  QueueState. `terraform destroy` of the disposable layer is the default
-  end-of-session state.
+  Disposable layer: AKS, then Argo CD plus one root Application; Argo
+  converges Istio, gateway, cert-manager, external-dns, ESO, Strimzi, Connect,
+  SQL-dependent services. terraform destroy of the disposable layer is the
+  default end-of-session state.
 - Observe: KQL queries committed to repo: per-stage lag by tenant; grace-window headroom; connector task states and restart counts; inline gap and head-loss detections and tail-drift per tenant per hour; attribution-check status; consumer lag by partition; SentNotifications conflict rate; spend versus budget. Alert rules as code.
 - Tear down: destroy disposable layer; verify residual spend baseline.
-- Recover (after teardown/recreate): re-run onboarding automation (CDC, Change Tracking, identity, TenantInfo) per database; connectors perform initial snapshots; queues rebuild via re-snapshot plus reconciler bootstrap. There is no cross-session replay at build scale; the runbook does not claim one. Exercised every session, so recovery is rehearsed, not theoretical.
+- Recover (after teardown/recreate): re-run onboarding automation (CDC, Change Tracking, identity, TenantInfo) per database; connectors perform initial snapshots; queues rebuild via re-snapshot plus reconciler bootstrap. There is no cross-session replay at build scale; the runbook does not claim one. Exercised every session, so recovery is rehearsed, not theoretical. In-cluster recovery is bootstrap-and-converge: apply the disposable layer, Argo converges the tree in sync waves; the runbook's manual steps shrink to the database-side onboarding and verification.
 
 ## 11. Demo path
 
@@ -222,6 +228,7 @@ Explicitly deferred, not promised:
 - SLA timer engine and audit ledger consumers; time-entry aggregate as a second outbox stream.
 - Fleet automation beyond the lab: mass re-snapshot orchestration, multi-namespace sharding.
 - Production-grade Kafka (RF3, rack awareness, quotas); multi-region anything; automated PITR-era recovery beyond the runbook; notifier-side outbox closing the residual duplicate window.
+- Production ingress evolution: Front Door plus Private Link into a firewalled hub-spoke, correct at multi-spoke scale with compliance-driven inspection; rejected at build scale on cost and need (ADR-010).
 
 ## 13. Learning ledger
 
@@ -235,3 +242,4 @@ Components deliberately chosen outside prior mastery, updated during the build (
 - Per-database provisioning automation across a tenant fleet (CDC, Change Tracking, identity, TenantInfo claim) as a control-plane problem.
 - KRaft-mode Kafka operations at small scale.
 - Reconciliation design: committed-order feeds, grace windows coupled to measured lag, drift metrics as health signals, attribution verification.
+- GitOps and ingress: Argo CD app-of-apps and sync-wave ordering; upstream Istio (ambient dataplane if verified) and Gateway API; ESO under workload identity; cert-manager DNS-01 and external-dns against Cloudflare.

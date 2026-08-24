@@ -34,6 +34,7 @@ this set only make sense against that reader.
 | [40-docs.md](40-docs.md) | ADRs, operational and incident runbooks, demo scripts and walkthrough, cost model, lab write-ups. |
 | [50-spike-identity.md](50-spike-identity.md) | ADR-006 workload identity spike: procedure, gates, artifact. |
 | [51-lab-fleet-density.md](51-lab-fleet-density.md) | Fleet density lab: procedure, gates, artifact. |
+| [60-gitops.md](60-gitops.md) | Argo CD app-of-apps and sync waves, Istio Gateway API ingress, proxied Cloudflare exposure, ESO secret hydration, the Terraform-to-Argo boundary. |
 
 Each area file has the same five sections: deliverables, external interfaces,
 verification, dependencies, candidate tickets. The candidate-ticket lists carry
