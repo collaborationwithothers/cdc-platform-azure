@@ -1,0 +1,87 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Resolves the SQL Server JDBC driver and the azure-identity dependency tree for
+  the Connect image. It builds no code of ours; it exists so that Maven works out
+  the full transitive set Entra authentication needs at runtime, rather than a
+  hand-written list of download URLs. README.md explains the version pinning.
+-->
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+
+  <groupId>com.lexfield.connect</groupId>
+  <artifactId>connect-image-identity-libraries</artifactId>
+  <version>1.0.0</version>
+  <packaging>pom</packaging>
+
+  <name>Connect image identity libraries</name>
+
+  <properties>
+    <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+
+    <!-- Microsoft pairs one azure-identity version with each driver version.
+         12.10 is the newest driver line whose ActiveDirectoryDefault credential
+         chain composition Microsoft still documents, and that chain is what
+         ADR-006 depends on. See README.md.
+         https://learn.microsoft.com/sql/connect/jdbc/feature-dependencies-of-microsoft-jdbc-driver-for-sql-server -->
+    <mssql.jdbc.version>12.10.2.jre11</mssql.jdbc.version>
+    <azure.identity.version>1.15.3</azure.identity.version>
+  </properties>
+
+  <dependencies>
+    <dependency>
+      <groupId>com.microsoft.sqlserver</groupId>
+      <artifactId>mssql-jdbc</artifactId>
+      <version>${mssql.jdbc.version}</version>
+    </dependency>
+
+    <dependency>
+      <groupId>com.azure</groupId>
+      <artifactId>azure-identity</artifactId>
+      <version>${azure.identity.version}</version>
+    </dependency>
+
+    <!-- Everything below is provided, so copy-dependencies leaves it out of the
+         plugin directory and the worker's own copy is the only copy. README.md
+         explains what breaks when a plugin ships its own jackson. Kafka 4.3.1
+         ships jackson 2.21.2 and azure-core 1.55.2 asks for 2.17.2, so the
+         worker's copy satisfies both. jackson-datatype-jsr310 is deliberately
+         not listed: it is a separate package that nothing reflects across the
+         classloader boundary, and the worker is not guaranteed to ship it. -->
+    <dependency>
+      <groupId>org.slf4j</groupId>
+      <artifactId>slf4j-api</artifactId>
+      <version>1.7.36</version>
+      <scope>provided</scope>
+    </dependency>
+    <dependency>
+      <groupId>com.fasterxml.jackson.core</groupId>
+      <artifactId>jackson-databind</artifactId>
+      <version>2.17.2</version>
+      <scope>provided</scope>
+    </dependency>
+    <dependency>
+      <groupId>com.fasterxml.jackson.core</groupId>
+      <artifactId>jackson-core</artifactId>
+      <version>2.17.2</version>
+      <scope>provided</scope>
+    </dependency>
+    <dependency>
+      <groupId>com.fasterxml.jackson.core</groupId>
+      <artifactId>jackson-annotations</artifactId>
+      <version>2.17.2</version>
+      <scope>provided</scope>
+    </dependency>
+  </dependencies>
+
+  <build>
+    <plugins>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-dependency-plugin</artifactId>
+        <version>3.11.0</version>
+      </plugin>
+    </plugins>
+  </build>
+</project>
