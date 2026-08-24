@@ -124,6 +124,8 @@ tightening or loosening it later touches one place.
 Change Tracking feed, the ADR-009 surface:
 
 ```sql
+SET TRANSACTION ISOLATION LEVEL SNAPSHOT;
+
 SELECT ct.TaskId, wt.Version
   FROM CHANGETABLE(CHANGES dbo.WorkflowTask, @since) AS ct
   LEFT JOIN dbo.WorkflowTask AS wt ON wt.Id = ct.Id;
@@ -133,9 +135,20 @@ SELECT CHANGE_TRACKING_CURRENT_VERSION();
 Before running it, the handler compares `@since` against
 `CHANGE_TRACKING_MIN_VALID_VERSION` for the table. If the caller's watermark has
 aged out of retention, the response is 410 Gone rather than a silently
-incomplete list, and the reconciler responds by running a bootstrap sweep. A
-silently incomplete list from the sole tail-loss backstop is the exact failure
-ADR-009 exists to prevent, so this branch is not an afterthought.
+incomplete list, and the reconciler responds by running a bootstrap sweep. This
+comparison is a correctness requirement, not defensive tidying: past the
+retention horizon `CHANGETABLE` returns a silently short result and raises no
+error (V4), so without the 410 the sole tail-loss backstop would hand back a
+partial list that looks complete. That silently incomplete list is the exact
+failure ADR-009 exists to prevent, so this branch is not an afterthought.
+
+The feed query runs under snapshot isolation. The `CHANGETABLE` read and its
+join to `dbo.WorkflowTask` execute in one snapshot transaction, so the caller
+sees a single consistent point-in-time view: the task versions returned match
+the change rows returned, with no torn read and no blocking against concurrent
+transitions. Snapshot isolation is available only when the database option is
+on, which onboarding sets per tenant database (`ALLOW_SNAPSHOT_ISOLATION ON`,
+see [11-infra-disposable.md](11-infra-disposable.md)).
 
 Tenant routing, SPEC-LEVEL: a tenant catalog mapping tenantId to a connection
 string, populated from the same tenant manifest the onboarding runner and the
