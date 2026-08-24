@@ -23,7 +23,7 @@ longer reproducible from source) is recorded in
 
 - The Azure CLI (`az`) is installed and logged in: `az login`.
 - The target subscription is selected: `az account set --subscription <SUBSCRIPTION>`.
-- You have chosen four names, none of which are committed anywhere. Choose them
+- You have chosen five names, none of which are committed anywhere. Choose them
   now, before the commands below use them:
   - `<STATE_RG>`: the resource group that holds the state storage account. It
     must not be `rg-cdc-platform-persistent`, which Terraform creates and
@@ -32,6 +32,8 @@ longer reproducible from source) is recorded in
     lowercase letters and digits.
   - `<STATE_CONTAINER>`: the blob container name, for example `tfstate`.
   - `<STATE_KEY>`: the state blob name, for example `persistent.tfstate`.
+  - `<DISPOSABLE_STATE_KEY>`: a different state blob name for the disposable
+    layer, for example `disposable.tfstate`.
 - Use UK South: set `<LOCATION>` to `uksouth`.
 
 ## Part 1: create the three backend resources by hand
@@ -80,20 +82,22 @@ directory, because nothing here touches the repo.
      --auth-mode login
    ```
 
-## Part 2: give CI the four names as Actions variables
+## Part 2: give CI the five names as Actions variables
 
 CI passes these to `terraform init -backend-config` at init time. They are
 GitHub Actions **variables**, not secrets, and they are the only place the
 backend names live. Set them on the repository (or environment) so the
 `terraform.yml` workflow's gated `plan` job can read them.
 
-1. Set the four variables to the names you chose in the prerequisites:
+1. Set the five variables to the names you chose in the prerequisites. Do not
+   add whitespace before or after either state key:
 
    ```bash
    gh variable set TF_BACKEND_RESOURCE_GROUP  --body "<STATE_RG>"
    gh variable set TF_BACKEND_STORAGE_ACCOUNT --body "<STATE_SA>"
    gh variable set TF_BACKEND_CONTAINER       --body "<STATE_CONTAINER>"
    gh variable set TF_BACKEND_STATE_KEY       --body "<STATE_KEY>"
+   gh variable set TF_DISPOSABLE_BACKEND_STATE_KEY --body "<DISPOSABLE_STATE_KEY>"
    ```
 
 2. Confirm they are set:
@@ -108,9 +112,21 @@ environment secrets, set separately through the
 [CI identity bootstrap runbook](ci-identity-bootstrap.md), not here. This
 runbook covers only the state backend.
 
+## Before the disposable plan
+
+The persistent layer must already have state written by an earlier apply. A
+persistent plan reads state but does not write the outputs that the disposable
+layer needs. The disposable plan stops when that existing state is missing.
+
+The workflow plans the persistent layer first. It starts the disposable plan
+only after the persistent plan succeeds. The disposable plan uses
+`<DISPOSABLE_STATE_KEY>` for its own backend and reads persistent outputs from
+`<STATE_KEY>`. Neither plan writes state.
+
 ## What you have after this
 
 The three backend resources exist, and CI knows their names without any of
-those names being committed. A `terraform init` that supplies the four
-`-backend-config` values now finds a real, versioned backend to write state to,
-and `infra/persistent/backend.tf` never has to name or manage it.
+those names being committed. The persistent and disposable layers share the
+backend resources but use different state blobs. A `terraform init` that
+supplies the backend coordinates and the layer's state key finds a real,
+versioned backend without either Terraform layer naming or managing it.
