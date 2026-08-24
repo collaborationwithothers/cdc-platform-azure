@@ -1,0 +1,176 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<mxfile host="drawio-mcp" modified="2026-08-24T05:14:49.000Z" agent="drawio-mcp/1.0" version="24.7.17" type="device" compressed="false">
+  <diagram name="Detection and healing" id="detection-and-healing">
+    <mxGraphModel dx="1354" dy="981" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1900" pageHeight="1200" background="none" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="title" value="Detection and healing" style="text;html=1;align=left;verticalAlign=middle;fontSize=26;fontStyle=1;fontColor=#1f4e79;" parent="1" vertex="1">
+          <mxGeometry as="geometry" x="40.0" y="20.0" width="800.0" height="40.0" />
+        </mxCell>
+        <mxCell id="subtitle" value="Inline gap detection and Change Tracking sweeps converge on one version-guarded repair path" style="text;html=1;align=left;verticalAlign=middle;fontSize=13;fontColor=#666666;" parent="1" vertex="1">
+          <mxGeometry as="geometry" x="40.0" y="65.0" width="1100.0" height="30.0" />
+        </mxCell>
+        <mxCell id="inline-zone" value="Inline detection" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f9ff;strokeColor=#4472c4;strokeWidth=2;verticalAlign=top;align=left;spacingLeft=10;spacingTop=8;fontSize=15;fontStyle=1;connectable=0;" parent="1" vertex="1">
+          <mxGeometry as="geometry" x="40.0" y="120.0" width="700.0" height="230.0" />
+        </mxCell>
+        <mxCell id="sweep-zone" value="Sweep detection" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f3eef8;strokeColor=#9673a6;strokeWidth=2;verticalAlign=top;align=left;spacingLeft=10;spacingTop=8;fontSize=15;fontStyle=1;connectable=0;" parent="1" vertex="1">
+          <mxGeometry as="geometry" x="40.0" y="390.0" width="700.0" height="220.0" />
+        </mxCell>
+        <mxCell id="healing-zone" value="Shared healing path" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#eef7ee;strokeColor=#70ad47;strokeWidth=2;verticalAlign=top;align=left;spacingLeft=10;spacingTop=8;fontSize=15;fontStyle=1;connectable=0;" parent="1" vertex="1">
+          <mxGeometry as="geometry" x="780.0" y="120.0" width="900.0" height="490.0" />
+        </mxCell>
+        <mxCell id="notifier-zone" value="Side-effect delivery gate" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff8e6;strokeColor=#d6b656;strokeWidth=2;verticalAlign=top;align=center;spacingTop=8;fontSize=15;fontStyle=1;connectable=0;" parent="1" vertex="1">
+          <mxGeometry as="geometry" x="40.0" y="640.0" width="1640.0" height="240.0" />
+        </mxCell>
+        <mxCell id="topic" value="workflow-transitions&lt;br&gt;keyed topic" style="shape=cylinder;whiteSpace=wrap;html=1;fillColor=#fce4d6;strokeColor=#c55a11;fontSize=13;fontStyle=1;" parent="1" vertex="1">
+          <mxGeometry as="geometry" x="75.0" y="200.0" width="110.0" height="90.0" />
+        </mxCell>
+        <mxCell id="queue-builder" value="queue-builder&lt;br&gt;event received" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d9eaf7;strokeColor=#4472c4;fontSize=13;fontStyle=1;" parent="1" vertex="1">
+          <mxGeometry as="geometry" x="240.0" y="210.0" width="150.0" height="70.0" />
+        </mxCell>
+        <mxCell id="inline-rules" value="Inline rules&lt;br&gt;known task + version jump: GapDetected&lt;br&gt;unknown task + Version &gt; 1: HeadLossDetected" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=12;fontStyle=1;" parent="1" vertex="1">
+          <mxGeometry as="geometry" x="445.0" y="185.0" width="260.0" height="120.0" />
+        </mxCell>
+        <mxCell id="reconciler" value="queue-reconciler&lt;br&gt;scheduled sweep" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=13;fontStyle=1;" parent="1" vertex="1">
+          <mxGeometry as="geometry" x="70.0" y="470.0" width="150.0" height="70.0" />
+        </mxCell>
+        <mxCell id="changes-api" value="task-api&lt;br&gt;Change Tracking feed" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d9eaf7;strokeColor=#4472c4;fontSize=13;fontStyle=1;" parent="1" vertex="1">
+          <mxGeometry as="geometry" x="270.0" y="470.0" width="160.0" height="70.0" />
+        </mxCell>
+        <mxCell id="change-tracking" value="WorkflowTask&lt;br&gt;Change Tracking" style="shape=cylinder;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#4472c4;fontSize=12;fontStyle=1;" parent="1" vertex="1">
+          <mxGeometry as="geometry" x="480" y="460.0" width="100.0" height="90.0" />
+        </mxCell>
+        <mxCell id="drift-check" value="Grace window +&lt;br&gt;QueueState compare&lt;br&gt;drift: DriftFlagged" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=12;fontStyle=1;" parent="1" vertex="1">
+          <mxGeometry as="geometry" x="590" y="455.0" width="140" height="100.0" />
+        </mxCell>
+        <mxCell id="repair-request" value="Repair requested&lt;br&gt;token-bucket limited" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;fontSize=13;fontStyle=1;" parent="1" vertex="1">
+          <mxGeometry as="geometry" x="825.0" y="300.0" width="160.0" height="70.0" />
+        </mxCell>
+        <mxCell id="repair-read" value="task-api&lt;br&gt;authoritative repair read" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d9eaf7;strokeColor=#4472c4;fontSize=13;fontStyle=1;" parent="1" vertex="1">
+          <mxGeometry as="geometry" x="1030.0" y="300.0" width="180.0" height="70.0" />
+        </mxCell>
+        <mxCell id="source-truth" value="WorkflowTask&lt;br&gt;source truth" style="shape=cylinder;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#4472c4;fontSize=13;fontStyle=1;" parent="1" vertex="1">
+          <mxGeometry as="geometry" x="1260.0" y="290.0" width="110.0" height="90.0" />
+        </mxCell>
+        <mxCell id="version-guard" value="Version-guarded write&lt;br&gt;apply only when source Version&lt;br&gt;is greater than stored Version" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#70ad47;fontSize=12;fontStyle=1;" parent="1" vertex="1">
+          <mxGeometry as="geometry" x="1420.0" y="280.0" width="200.0" height="110.0" />
+        </mxCell>
+        <mxCell id="queue-state" value="QueueState" style="shape=cylinder;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#4472c4;fontSize=13;fontStyle=1;" parent="1" vertex="1">
+          <mxGeometry as="geometry" x="1480.0" y="460.0" width="100.0" height="90.0" />
+        </mxCell>
+        <mxCell id="healed-note" value="Normal events and repairs share the same monotonic write invariant." style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e2f0d9;strokeColor=#70ad47;fontSize=12;" parent="1" vertex="1">
+          <mxGeometry as="geometry" x="1000.0" y="475.0" width="360.0" height="60.0" />
+        </mxCell>
+        <mxCell id="notifier" value="notifier&lt;br&gt;event received" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;fontSize=13;fontStyle=1;" parent="1" vertex="1">
+          <mxGeometry as="geometry" x="250.0" y="710.0" width="150.0" height="70.0" />
+        </mxCell>
+        <mxCell id="sent-lookup" value="Lookup SentNotifications&lt;br&gt;(tenant, task, version)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=12;fontStyle=1;" parent="1" vertex="1">
+          <mxGeometry as="geometry" x="455.0" y="700.0" width="190.0" height="90.0" />
+        </mxCell>
+        <mxCell id="already-sent" value="Already&lt;br&gt;recorded?" style="rhombus;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=12;fontStyle=1;" parent="1" vertex="1">
+          <mxGeometry as="geometry" x="700.0" y="695.0" width="110.0" height="100.0" />
+        </mxCell>
+        <mxCell id="skip-send" value="Skip duplicate" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontSize=12;fontStyle=1;" parent="1" vertex="1">
+          <mxGeometry as="geometry" x="865.0" y="675.0" width="140.0" height="60.0" />
+        </mxCell>
+        <mxCell id="send" value="Send notification" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontSize=12;fontStyle=1;" parent="1" vertex="1">
+          <mxGeometry as="geometry" x="865.0" y="765.0" width="140.0" height="60.0" />
+        </mxCell>
+        <mxCell id="record" value="Then record send" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#70ad47;fontSize=12;fontStyle=1;" parent="1" vertex="1">
+          <mxGeometry as="geometry" x="1060.0" y="765.0" width="150.0" height="60.0" />
+        </mxCell>
+        <mxCell id="sent-store" value="SentNotifications" style="shape=cylinder;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#4472c4;fontSize=12;fontStyle=1;" parent="1" vertex="1">
+          <mxGeometry as="geometry" x="1265.0" y="750.0" width="130.0" height="90.0" />
+        </mxCell>
+        <mxCell id="ordering-note" value="Pinned ordering: send, then record.&lt;br&gt;A crash may duplicate; it cannot silently drop." style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=12;" parent="1" vertex="1">
+          <mxGeometry as="geometry" x="1440.0" y="730.0" width="200.0" height="90.0" />
+        </mxCell>
+        <mxCell id="e-topic-builder" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#4472c4;endArrow=block;exitX=1;exitY=0.5;entryX=0;entryY=0.5;exitX=1.0;exitY=0.5;exitDx=0;exitDy=0;exitPerimeter=0;entryX=0.0;entryY=0.5;entryDx=0;entryDy=0;entryPerimeter=0;" parent="1" edge="1" source="topic" target="queue-builder">
+          <mxGeometry as="geometry" relative="1" />
+        </mxCell>
+        <mxCell id="e-builder-rules" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#4472c4;endArrow=block;exitX=1;exitY=0.5;entryX=0;entryY=0.5;exitX=1.0;exitY=0.5;exitDx=0;exitDy=0;exitPerimeter=0;entryX=0.0;entryY=0.5;entryDx=0;entryDy=0;entryPerimeter=0;" parent="1" edge="1" source="queue-builder" target="inline-rules">
+          <mxGeometry as="geometry" relative="1" />
+        </mxCell>
+        <mxCell id="e-rules-repair" value="gap or head loss" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#d79b00;fontSize=10;endArrow=block;exitX=1;exitY=0.7;entryX=0;entryY=0.3;exitX=1.0;exitY=0.7;exitDx=0;exitDy=0;exitPerimeter=0;entryX=0.0;entryY=0.3;entryDx=0;entryDy=0;entryPerimeter=0;" parent="1" edge="1" source="inline-rules" target="repair-request">
+          <mxGeometry as="geometry" relative="1">
+            <Array as="points">
+              <mxPoint x="760.0" y="270.0" />
+              <mxPoint x="760.0" y="320.0" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e-rules-guard" value="normal event or duplicate" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#70ad47;fontSize=10;endArrow=block;exitX=1;exitY=0.25;entryX=0.5;entryY=0;exitX=1.0;exitY=0.25;exitDx=0;exitDy=0;exitPerimeter=0;entryX=0.5;entryY=0.0;entryDx=0;entryDy=0;entryPerimeter=0;" parent="1" edge="1" source="inline-rules" target="version-guard">
+          <mxGeometry as="geometry" relative="1">
+            <Array as="points">
+              <mxPoint x="760.0" y="180.0" />
+              <mxPoint x="1520.0" y="180.0" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e-reconciler-changes" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#9673a6;endArrow=block;exitX=1;exitY=0.5;entryX=0;entryY=0.5;exitX=1.0;exitY=0.5;exitDx=0;exitDy=0;exitPerimeter=0;entryX=0.0;entryY=0.5;entryDx=0;entryDy=0;entryPerimeter=0;" parent="1" edge="1" source="reconciler" target="changes-api">
+          <mxGeometry as="geometry" relative="1" />
+        </mxCell>
+        <mxCell id="e-changes-ct" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#9673a6;fontSize=10;endArrow=block;exitX=1;exitY=0.5;entryX=0;entryY=0.5;exitX=1.0;exitY=0.5;exitDx=0;exitDy=0;exitPerimeter=0;entryX=0.0;entryY=0.5;entryDx=0;entryDy=0;entryPerimeter=0;" parent="1" edge="1" source="changes-api" target="change-tracking">
+          <mxGeometry as="geometry" relative="1" />
+        </mxCell>
+        <mxCell id="e-ct-drift" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#9673a6;endArrow=block;exitX=1;exitY=0.5;entryX=0;entryY=0.5;exitX=1.0;exitY=0.5;exitDx=0;exitDy=0;exitPerimeter=0;entryX=0.0;entryY=0.5;entryDx=0;entryDy=0;entryPerimeter=0;" parent="1" edge="1" source="change-tracking" target="drift-check">
+          <mxGeometry as="geometry" relative="1" />
+        </mxCell>
+        <mxCell id="e-drift-repair" value="drift beyond grace" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#d79b00;fontSize=10;endArrow=block;exitX=1;exitY=0.5;entryX=0;entryY=0.7;exitX=1.0;exitY=0.5;exitDx=0;exitDy=0;exitPerimeter=0;entryX=0.0;entryY=0.7;entryDx=0;entryDy=0;entryPerimeter=0;" parent="1" edge="1" source="drift-check" target="repair-request">
+          <mxGeometry as="geometry" relative="1">
+            <Array as="points">
+              <mxPoint x="795.0" y="505.0" />
+              <mxPoint x="795.0" y="350.0" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e-repair-read" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#d79b00;endArrow=block;exitX=1;exitY=0.5;entryX=0;entryY=0.5;exitX=1.0;exitY=0.5;exitDx=0;exitDy=0;exitPerimeter=0;entryX=0.0;entryY=0.5;entryDx=0;entryDy=0;entryPerimeter=0;" parent="1" edge="1" source="repair-request" target="repair-read">
+          <mxGeometry as="geometry" relative="1" />
+        </mxCell>
+        <mxCell id="e-read-source" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#4472c4;endArrow=block;exitX=1;exitY=0.5;entryX=0;entryY=0.5;exitX=1.0;exitY=0.5;exitDx=0;exitDy=0;exitPerimeter=0;entryX=0.0;entryY=0.5;entryDx=0;entryDy=0;entryPerimeter=0;" parent="1" edge="1" source="repair-read" target="source-truth">
+          <mxGeometry as="geometry" relative="1" />
+        </mxCell>
+        <mxCell id="e-source-guard" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#70ad47;endArrow=block;exitX=1;exitY=0.5;entryX=0;entryY=0.5;exitX=1.0;exitY=0.5;exitDx=0;exitDy=0;exitPerimeter=0;entryX=0.0;entryY=0.5;entryDx=0;entryDy=0;entryPerimeter=0;" parent="1" edge="1" source="source-truth" target="version-guard">
+          <mxGeometry as="geometry" relative="1" />
+        </mxCell>
+        <mxCell id="e-guard-state" value="guarded upsert" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#70ad47;fontSize=10;endArrow=block;exitX=0.5;exitY=1;entryX=0.5;entryY=0;exitX=0.5;exitY=1.0;exitDx=0;exitDy=0;exitPerimeter=0;entryX=0.5;entryY=0.0;entryDx=0;entryDy=0;entryPerimeter=0;" parent="1" edge="1" source="version-guard" target="queue-state">
+          <mxGeometry as="geometry" relative="1" />
+        </mxCell>
+        <mxCell id="e-state-drift" value="current projection" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#7030a0;dashed=1;fontSize=10;endArrow=block;exitX=0;exitY=0.8;entryX=1;entryY=0.8;exitX=0.0;exitY=0.8;exitDx=0;exitDy=0;exitPerimeter=0;entryX=1.0;entryY=0.8;entryDx=0;entryDy=0;entryPerimeter=0;" parent="1" edge="1" source="queue-state" target="drift-check">
+          <mxGeometry as="geometry" relative="1">
+            <Array as="points">
+              <mxPoint x="1450.0" y="575.0" />
+              <mxPoint x="790.0" y="575.0" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e-topic-notifier" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#d79b00;endArrow=block;exitX=0.5;exitY=1;entryX=0;entryY=0.5;exitX=0.5;exitY=1.0;exitDx=0;exitDy=0;exitPerimeter=0;entryX=0.0;entryY=0.5;entryDx=0;entryDy=0;entryPerimeter=0;" parent="1" edge="1" source="topic" target="notifier">
+          <mxGeometry as="geometry" relative="1">
+            <Array as="points">
+              <mxPoint x="130.0" y="745.0" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e-notifier-lookup" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#d79b00;endArrow=block;exitX=1;exitY=0.5;entryX=0;entryY=0.5;exitX=1.0;exitY=0.5;exitDx=0;exitDy=0;exitPerimeter=0;entryX=0.0;entryY=0.5;entryDx=0;entryDy=0;entryPerimeter=0;" parent="1" edge="1" source="notifier" target="sent-lookup">
+          <mxGeometry as="geometry" relative="1" />
+        </mxCell>
+        <mxCell id="e-lookup-decision" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#d79b00;endArrow=block;exitX=1;exitY=0.5;entryX=0;entryY=0.5;exitX=1.0;exitY=0.5;exitDx=0;exitDy=0;exitPerimeter=0;entryX=0.0;entryY=0.5;entryDx=0;entryDy=0;entryPerimeter=0;" parent="1" edge="1" source="sent-lookup" target="already-sent">
+          <mxGeometry as="geometry" relative="1" />
+        </mxCell>
+        <mxCell id="e-decision-skip" value="yes" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#666666;fontSize=10;endArrow=block;exitX=1;exitY=0.25;entryX=0;entryY=0.5;exitX=1.0;exitY=0.25;exitDx=0;exitDy=0;exitPerimeter=0;entryX=0.0;entryY=0.5;entryDx=0;entryDy=0;entryPerimeter=0;" parent="1" edge="1" source="already-sent" target="skip-send">
+          <mxGeometry as="geometry" relative="1" />
+        </mxCell>
+        <mxCell id="e-decision-send" value="no" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#b85450;fontSize=10;endArrow=block;exitX=1;exitY=0.75;entryX=0;entryY=0.5;exitX=1.0;exitY=0.75;exitDx=0;exitDy=0;exitPerimeter=0;entryX=0.0;entryY=0.5;entryDx=0;entryDy=0;entryPerimeter=0;" parent="1" edge="1" source="already-sent" target="send">
+          <mxGeometry as="geometry" relative="1" />
+        </mxCell>
+        <mxCell id="e-send-record" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#70ad47;strokeWidth=2;endArrow=block;exitX=1;exitY=0.5;entryX=0;entryY=0.5;exitX=1.0;exitY=0.5;exitDx=0;exitDy=0;exitPerimeter=0;entryX=0.0;entryY=0.5;entryDx=0;entryDy=0;entryPerimeter=0;" parent="1" edge="1" source="send" target="record">
+          <mxGeometry as="geometry" relative="1" />
+        </mxCell>
+        <mxCell id="e-record-store" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#70ad47;endArrow=block;exitX=1;exitY=0.5;entryX=0;entryY=0.5;exitX=1.0;exitY=0.5;exitDx=0;exitDy=0;exitPerimeter=0;entryX=0.0;entryY=0.5;entryDx=0;entryDy=0;entryPerimeter=0;" parent="1" edge="1" source="record" target="sent-store">
+          <mxGeometry as="geometry" relative="1" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>
