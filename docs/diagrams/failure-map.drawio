@@ -1,0 +1,144 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<mxfile host="drawio-mcp" modified="2026-08-24T05:20:43.000Z" agent="drawio-mcp/1.0" version="24.7.17" type="device" compressed="false">
+  <diagram name="Failure map" id="failure-map">
+    <mxGraphModel dx="1354" dy="981" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1900" pageHeight="1500" background="none" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="title" value="Failure map" style="text;html=1;align=left;verticalAlign=middle;fontSize=26;fontStyle=1;fontColor=#1f4e79;" parent="1" vertex="1">
+          <mxGeometry as="geometry" x="40.0" y="20.0" width="700.0" height="40.0" />
+        </mxCell>
+        <mxCell id="subtitle" value="All 13 blueprint failure modes pinned to the v1 event path" style="text;html=1;align=left;verticalAlign=middle;fontSize=13;fontColor=#666666;" parent="1" vertex="1">
+          <mxGeometry as="geometry" x="40.0" y="65.0" width="900.0" height="30.0" />
+        </mxCell>
+        <mxCell id="pipeline-zone" value="v1 event path" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8fbff;strokeColor=#5b9bd5;strokeWidth=3;verticalAlign=top;align=left;spacingLeft=12;spacingTop=8;fontSize=16;fontStyle=1;connectable=0;" parent="1" vertex="1">
+          <mxGeometry as="geometry" x="40.0" y="120.0" width="1400.0" height="450.0" />
+        </mxCell>
+        <mxCell id="source" value="Tenant source&lt;br&gt;WorkflowTask + Outbox" style="shape=cylinder;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#4472c4;fontSize=12;fontStyle=1;" parent="1" vertex="1">
+          <mxGeometry as="geometry" x="70.0" y="250.0" width="125.0" height="80.0" />
+        </mxCell>
+        <mxCell id="capture" value="SQL Server capture&lt;br&gt;Stage 1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=12;fontStyle=1;" parent="1" vertex="1">
+          <mxGeometry as="geometry" x="230.0" y="260.0" width="125.0" height="65.0" />
+        </mxCell>
+        <mxCell id="connect-zone" value="Kafka Connect distributed workers" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff8e6;strokeColor=#d6b656;strokeWidth=2;verticalAlign=top;align=center;spacingTop=8;fontSize=13;fontStyle=1;connectable=0;" parent="1" vertex="1">
+          <mxGeometry as="geometry" x="390.0" y="170.0" width="270.0" height="290.0" />
+        </mxCell>
+        <mxCell id="connect" value="Debezium connector&lt;br&gt;Stage 2" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;fontSize=12;fontStyle=1;" parent="1" vertex="1">
+          <mxGeometry as="geometry" x="420.0" y="260.0" width="140.0" height="65.0" />
+        </mxCell>
+        <mxCell id="internal-topics" value="offset + schema-history&lt;br&gt;internal topics" style="shape=cylinder;whiteSpace=wrap;html=1;fillColor=#fce4d6;strokeColor=#c55a11;fontSize=11;fontStyle=1;" parent="1" vertex="1">
+          <mxGeometry as="geometry" x="520.0" y="370.0" width="120.0" height="75.0" />
+        </mxCell>
+        <mxCell id="smt" value="SMT chain&lt;br&gt;tenant key + header" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=12;fontStyle=1;" parent="1" vertex="1">
+          <mxGeometry as="geometry" x="690.0" y="260.0" width="125.0" height="65.0" />
+        </mxCell>
+        <mxCell id="kafka" value="workflow-transitions&lt;br&gt;Kafka topic" style="shape=cylinder;whiteSpace=wrap;html=1;fillColor=#fce4d6;strokeColor=#c55a11;fontSize=12;fontStyle=1;" parent="1" vertex="1">
+          <mxGeometry as="geometry" x="850.0" y="250.0" width="120.0" height="80.0" />
+        </mxCell>
+        <mxCell id="queue-builder" value="queue-builder&lt;br&gt;inline rules" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#70ad47;fontSize=12;fontStyle=1;" parent="1" vertex="1">
+          <mxGeometry as="geometry" x="1020.0" y="200.0" width="135.0" height="65.0" />
+        </mxCell>
+        <mxCell id="queue-state" value="QueueState" style="shape=cylinder;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#4472c4;fontSize=12;fontStyle=1;" parent="1" vertex="1">
+          <mxGeometry as="geometry" x="1260.0" y="180.0" width="95.0" height="80.0" />
+        </mxCell>
+        <mxCell id="notifier" value="notifier&lt;br&gt;send then record" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#70ad47;fontSize=12;fontStyle=1;" parent="1" vertex="1">
+          <mxGeometry as="geometry" x="850.0" y="360.0" width="135.0" height="65.0" />
+        </mxCell>
+        <mxCell id="sent-store" value="SentNotifications" style="shape=cylinder;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#4472c4;fontSize=11;fontStyle=1;" parent="1" vertex="1">
+          <mxGeometry as="geometry" x="1050.0" y="360.0" width="105.0" height="80.0" />
+        </mxCell>
+        <mxCell id="task-api" value="task-api&lt;br&gt;Change Tracking + repair reads" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d9eaf7;strokeColor=#4472c4;fontSize=11;fontStyle=1;" parent="1" vertex="1">
+          <mxGeometry as="geometry" x="500.0" y="490.0" width="170.0" height="65.0" />
+        </mxCell>
+        <mxCell id="reconciler" value="queue-reconciler&lt;br&gt;tail + attribution sweep&lt;br&gt;compare / guarded repair" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e2f0d9;strokeColor=#70ad47;fontSize=11;fontStyle=1;" parent="1" vertex="1">
+          <mxGeometry as="geometry" x="720.0" y="490.0" width="170.0" height="70.0" />
+        </mxCell>
+        <mxCell id="pin1" value="1 Grace-window headroom&lt;br&gt;Repair-read storm" style="rounded=1;arcSize=30;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;strokeWidth=2;fontSize=9;fontStyle=1;" parent="1" vertex="1">
+          <mxGeometry as="geometry" x="200" y="200" width="165" height="42" />
+        </mxCell>
+        <mxCell id="pin2" value="2 Scheduled event&lt;br&gt;no active alert or severity" style="rounded=1;arcSize=30;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;strokeWidth=2;fontSize=9;fontStyle=1;" parent="1" vertex="1">
+          <mxGeometry as="geometry" x="1190" y="130" width="215" height="42" />
+        </mxCell>
+        <mxCell id="pin3" value="3 Doomed reconnect loop" style="rounded=1;arcSize=30;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;strokeWidth=2;fontSize=9;fontStyle=1;" parent="1" vertex="1">
+          <mxGeometry as="geometry" x="400" y="210" width="165" height="36" />
+        </mxCell>
+        <mxCell id="pin4sev1" value="4 Systemic poison&lt;br&gt;Parking failure" style="rounded=1;arcSize=30;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;strokeWidth=2;fontSize=9;fontStyle=1;" parent="1" vertex="1">
+          <mxGeometry as="geometry" x="980" y="280" width="160" height="42" />
+        </mxCell>
+        <mxCell id="pin4sev2" value="4 Parked events present" style="rounded=1;arcSize=30;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;strokeWidth=2;fontSize=9;fontStyle=1;" parent="1" vertex="1">
+          <mxGeometry as="geometry" x="990" y="330" width="150" height="34" />
+        </mxCell>
+        <mxCell id="pin5" value="5 Rebalances, spot evictions&lt;br&gt;repair throttling" style="rounded=1;arcSize=30;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;strokeWidth=2;fontSize=9;fontStyle=1;" parent="1" vertex="1">
+          <mxGeometry as="geometry" x="1170" y="280" width="210" height="42" />
+        </mxCell>
+        <mxCell id="pin6" value="6 Loss-rate trend" style="rounded=1;arcSize=30;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;strokeWidth=2;fontSize=9;fontStyle=1;" parent="1" vertex="1">
+          <mxGeometry as="geometry" x="1000" y="160" width="130" height="34" />
+        </mxCell>
+        <mxCell id="pin7" value="7 Tail-drift rate" style="rounded=1;arcSize=30;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;strokeWidth=2;fontSize=9;fontStyle=1;" parent="1" vertex="1">
+          <mxGeometry as="geometry" x="690" y="450" width="125" height="34" />
+        </mxCell>
+        <mxCell id="pin8" value="8 Notifier degraded" style="rounded=1;arcSize=30;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;strokeWidth=2;fontSize=9;fontStyle=1;" parent="1" vertex="1">
+          <mxGeometry as="geometry" x="700" y="370" width="130" height="34" />
+        </mxCell>
+        <mxCell id="pin9" value="9 Attribution mismatch" style="rounded=1;arcSize=30;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;strokeWidth=2;fontSize=9;fontStyle=1;" parent="1" vertex="1">
+          <mxGeometry as="geometry" x="680" y="210" width="140" height="34" />
+        </mxCell>
+        <mxCell id="pin10" value="10 Rebalances, spot evictions&lt;br&gt;repair throttling" style="rounded=1;arcSize=30;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;strokeWidth=2;fontSize=9;fontStyle=1;" parent="1" vertex="1">
+          <mxGeometry as="geometry" x="380" y="120" width="220" height="42" />
+        </mxCell>
+        <mxCell id="pin11" value="11 Partial fleet outage" style="rounded=1;arcSize=30;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;strokeWidth=2;fontSize=9;fontStyle=1;" parent="1" vertex="1">
+          <mxGeometry as="geometry" x="500" y="330" width="150" height="34" />
+        </mxCell>
+        <mxCell id="pin12" value="12 Fleet stream outage" style="rounded=1;arcSize=30;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;strokeWidth=2;fontSize=9;fontStyle=1;" parent="1" vertex="1">
+          <mxGeometry as="geometry" x="820" y="200" width="145" height="34" />
+        </mxCell>
+        <mxCell id="pin13" value="13 Internal topic loss" style="rounded=1;arcSize=30;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;strokeWidth=2;fontSize=9;fontStyle=1;" parent="1" vertex="1">
+          <mxGeometry as="geometry" x="380" y="400" width="140" height="34" />
+        </mxCell>
+        <mxCell id="severity-title" value="Severity and alert catalogue" style="text;html=1;align=left;verticalAlign=middle;fontSize=20;fontStyle=1;fontColor=#1f4e79;" parent="1" vertex="1">
+          <mxGeometry as="geometry" x="50.0" y="590.0" width="500.0" height="40.0" />
+        </mxCell>
+        <mxCell id="severity-key" value="Red: sev1   Amber: sev2   Blue: sev3   Gray: scheduled / suppressed" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#999999;fontSize=12;" parent="1" vertex="1">
+          <mxGeometry as="geometry" x="730.0" y="590.0" width="710.0" height="40.0" />
+        </mxCell>
+        <mxCell id="e-source-capture" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#4472c4;endArrow=block;exitX=1;exitY=0.5;entryX=0;entryY=0.5;exitX=1.0;exitY=0.5;exitDx=0;exitDy=0;exitPerimeter=0;entryX=0.0;entryY=0.5;entryDx=0;entryDy=0;entryPerimeter=0;exitX=1.0;exitY=0.5;exitDx=0;exitDy=0;exitPerimeter=0;entryX=0.0;entryY=0.5;entryDx=0;entryDy=0;entryPerimeter=0;" parent="1" edge="1" source="source" target="capture">
+          <mxGeometry as="geometry" relative="1">
+            <Array as="points">
+              <mxPoint x="20.0" y="110.0" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e-capture-connect" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#9673a6;endArrow=block;exitX=1;exitY=0.5;entryX=0;entryY=0.5;exitX=1.0;exitY=0.5;exitDx=0;exitDy=0;exitPerimeter=0;entryX=0.0;entryY=0.5;entryDx=0;entryDy=0;entryPerimeter=0;exitX=1.0;exitY=0.5;exitDx=0;exitDy=0;exitPerimeter=0;entryX=0.0;entryY=0.5;entryDx=0;entryDy=0;entryPerimeter=0;" parent="1" edge="1" source="capture" target="connect">
+          <mxGeometry as="geometry" relative="1" />
+        </mxCell>
+        <mxCell id="e-connect-smt" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#d79b00;endArrow=block;exitX=1;exitY=0.5;entryX=0;entryY=0.5;exitX=1.0;exitY=0.5;exitDx=0;exitDy=0;exitPerimeter=0;entryX=0.0;entryY=0.5;entryDx=0;entryDy=0;entryPerimeter=0;exitX=1.0;exitY=0.5;exitDx=0;exitDy=0;exitPerimeter=0;entryX=0.0;entryY=0.5;entryDx=0;entryDy=0;entryPerimeter=0;" parent="1" edge="1" source="connect" target="smt">
+          <mxGeometry as="geometry" relative="1" />
+        </mxCell>
+        <mxCell id="e-smt-kafka" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#c55a11;endArrow=block;exitX=1;exitY=0.5;entryX=0;entryY=0.5;exitX=1.0;exitY=0.5;exitDx=0;exitDy=0;exitPerimeter=0;entryX=0.0;entryY=0.5;entryDx=0;entryDy=0;entryPerimeter=0;exitX=1.0;exitY=0.5;exitDx=0;exitDy=0;exitPerimeter=0;entryX=0.0;entryY=0.5;entryDx=0;entryDy=0;entryPerimeter=0;" parent="1" edge="1" source="smt" target="kafka">
+          <mxGeometry as="geometry" relative="1" />
+        </mxCell>
+        <mxCell id="e-kafka-builder" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#70ad47;endArrow=block;exitX=1;exitY=0.35;entryX=0;entryY=0.5;exitX=1.0;exitY=0.35;exitDx=0;exitDy=0;exitPerimeter=0;entryX=0.0;entryY=0.5;entryDx=0;entryDy=0;entryPerimeter=0;exitX=1.0;exitY=0.35;exitDx=0;exitDy=0;exitPerimeter=0;entryX=0.0;entryY=0.5;entryDx=0;entryDy=0;entryPerimeter=0;" parent="1" edge="1" source="kafka" target="queue-builder">
+          <mxGeometry as="geometry" relative="1" />
+        </mxCell>
+        <mxCell id="e-builder-state" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#4472c4;endArrow=block;exitX=1;exitY=0.5;entryX=0;entryY=0.5;exitX=1.0;exitY=0.5;exitDx=0;exitDy=0;exitPerimeter=0;entryX=0.0;entryY=0.5;entryDx=0;entryDy=0;entryPerimeter=0;exitX=1.0;exitY=0.5;exitDx=0;exitDy=0;exitPerimeter=0;entryX=0.0;entryY=0.5;entryDx=0;entryDy=0;entryPerimeter=0;" parent="1" edge="1" source="queue-builder" target="queue-state">
+          <mxGeometry as="geometry" relative="1" />
+        </mxCell>
+        <mxCell id="e-notifier-sent" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#4472c4;endArrow=block;exitX=1;exitY=0.5;entryX=0;entryY=0.5;exitX=1.0;exitY=0.5;exitDx=0;exitDy=0;exitPerimeter=0;entryX=0.0;entryY=0.5;entryDx=0;entryDy=0;entryPerimeter=0;exitX=1.0;exitY=0.5;exitDx=0;exitDy=0;exitPerimeter=0;entryX=0.0;entryY=0.5;entryDx=0;entryDy=0;entryPerimeter=0;" parent="1" edge="1" source="notifier" target="sent-store">
+          <mxGeometry as="geometry" relative="1" />
+        </mxCell>
+        <mxCell id="e-task-reconciler" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#9673a6;fontSize=10;endArrow=block;exitX=1;exitY=0.5;entryX=0;entryY=0.5;exitX=1.0;exitY=0.5;exitDx=0;exitDy=0;exitPerimeter=0;entryX=0.0;entryY=0.5;entryDx=0;entryDy=0;entryPerimeter=0;exitX=1.0;exitY=0.5;exitDx=0;exitDy=0;exitPerimeter=0;entryX=0.0;entryY=0.5;entryDx=0;entryDy=0;entryPerimeter=0;" parent="1" edge="1" source="task-api" target="reconciler">
+          <mxGeometry as="geometry" relative="1" />
+        </mxCell>
+        <mxCell id="catalogue-left" value="&lt;b&gt;1  Capture-scan lag&lt;/b&gt;&lt;br&gt;Grace-window headroom (sev2); Repair-read storm (sev2)&lt;br&gt;&lt;br&gt;&lt;b&gt;2  Environment recreate&lt;/b&gt;&lt;br&gt;Scheduled event; alert suppression window; no active alert or severity&lt;br&gt;&lt;br&gt;&lt;b&gt;3  Entra token edge cases&lt;/b&gt;&lt;br&gt;Doomed reconnect loop (sev2)&lt;br&gt;&lt;br&gt;&lt;b&gt;4  Poison event, head-of-line blocking&lt;/b&gt;&lt;br&gt;Systemic poison (sev1); Parking failure (sev1); Parked events present (sev2)&lt;br&gt;&lt;br&gt;&lt;b&gt;5  Consumer rebalance redelivery&lt;/b&gt;&lt;br&gt;Rebalances, spot evictions, repair throttling (sev3)&lt;br&gt;&lt;br&gt;&lt;b&gt;6  Mid-stream or head gap&lt;/b&gt;&lt;br&gt;Loss-rate trend (sev2)&lt;br&gt;&lt;br&gt;&lt;b&gt;7  Tail loss&lt;/b&gt;&lt;br&gt;Tail-drift rate (sev2)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#999999;align=left;verticalAlign=top;spacing=14;fontSize=11;" parent="1" vertex="1">
+          <mxGeometry as="geometry" x="50.0" y="640.0" width="660.0" height="360.0" />
+        </mxCell>
+        <mxCell id="catalogue-right" value="&lt;b&gt;8  Duplicate side effects&lt;/b&gt;&lt;br&gt;Notifier degraded (sev2)&lt;br&gt;&lt;br&gt;&lt;b&gt;9  Tenant mis-attribution&lt;/b&gt;&lt;br&gt;Attribution mismatch (sev1)&lt;br&gt;&lt;br&gt;&lt;b&gt;10  Connect worker loss&lt;/b&gt;&lt;br&gt;Rebalances, spot evictions, repair throttling (sev3)&lt;br&gt;&lt;br&gt;&lt;b&gt;11  Shared-worker blast radius&lt;/b&gt;&lt;br&gt;Partial fleet outage (sev1)&lt;br&gt;&lt;br&gt;&lt;b&gt;12  Kafka broker loss at build scale&lt;/b&gt;&lt;br&gt;Fleet stream outage (sev1)&lt;br&gt;&lt;br&gt;&lt;b&gt;13  Offset or schema-history topic loss&lt;/b&gt;&lt;br&gt;Internal topic loss (sev1)&lt;br&gt;&lt;br&gt;&lt;b&gt;Catalogue exception&lt;/b&gt;&lt;br&gt;FM2 follows the suppression rule. FM4 lists every matching alert because the catalogue assigns two severities." style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#999999;align=left;verticalAlign=top;spacing=14;fontSize=11;" parent="1" vertex="1">
+          <mxGeometry as="geometry" x="730.0" y="640.0" width="710.0" height="360.0" />
+        </mxCell>
+        <mxCell id="topic-notifier-arrow" style="shape=singleArrow;direction=south;fillColor=#70ad47;strokeColor=#70ad47;whiteSpace=wrap;html=1;" parent="1" vertex="1">
+          <mxGeometry as="geometry" x="900.0" y="320.0" width="22.0" height="40.0" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>
