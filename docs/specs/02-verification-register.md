@@ -12,6 +12,22 @@ its first action and records the outcome on the issue.
 
 ## V1. Standard elastic pool CDC eligibility
 
+### Current state
+
+- Path taken (updated 2026-08-24, issue #31): the Standard DTU pool does not
+  ship. Hari selected the documented vCore path after V1 completed: one
+  General Purpose standard-series pool with two vCores and 32 GB maximum data
+  storage holds the three build-scale tenant databases. Microsoft documents CDC
+  support for elastic pools in every vCore service tier. This design choice does
+  not change V1's historical UNVERIFIABLE result for the Standard DTU pool.
+  Microsoft also recommends that the number of CDC-enabled databases should not
+  exceed the pool's vCore count to avoid increased latency. Three databases on
+  two vCores exceed that recommendation, so the later live load test owns the
+  decision to increase the pool to four vCores. Source:
+  https://learn.microsoft.com/azure/azure-sql/database/change-data-capture-overview?view=azuresql
+
+### Historical evidence
+
 - Flag: VERIFY-BEFORE-APPLY, named in AGENTS.md and blueprint section 3.
 - Owner: infra/disposable.
 - Question: does a database inside an Azure SQL Standard elastic pool support
@@ -21,7 +37,7 @@ its first action and records the outcome on the issue.
 - Consequence if yes: the pool replaces three standalone S3 databases and the
   SQL line in blueprint section 8 drops. The delta is recorded when measured,
   never estimated forward.
-- Fallback if no or unverifiable: ship the baseline, three standalone S3
+- Original fallback recorded by issue #29: ship the baseline, three standalone S3
   databases. This is already the baseline in blueprint section 3, so a refuted
   answer changes nothing that ships. The second fallback, a General Purpose
   2-vCore pool, is only reached if standalone S3 itself proves ineligible.
@@ -42,15 +58,6 @@ its first action and records the outcome on the issue.
   https://learn.microsoft.com/azure/azure-sql/database/change-data-capture-overview?view=azuresql
   and
   https://learn.microsoft.com/azure/azure-sql/database/resource-limits-dtu-elastic-pools?view=azuresql
-- Path taken: the register's fallback applies. The first apply creates the
-  baseline, three standalone S3 databases, which V10 confirms are CDC-eligible;
-  the Standard elastic pool contingency does not ship, and the SQL cost line
-  does not drop. One documented fact bears on the pooling goal and is recorded
-  here for Hari without being acted on: vCore-model elastic pools support CDC in
-  any service tier with no S3-equivalent floor, which is the register's third
-  fallback (a General Purpose vCore pool). Moving off the DTU model to reach
-  documented pool eligibility is a blueprint-level design change and is Hari's,
-  not this ticket's.
 
 ## V2. Entra reconnect behaviour past token lifetime
 

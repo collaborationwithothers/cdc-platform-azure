@@ -49,26 +49,23 @@ https://learn.microsoft.com/azure/aks/use-system-pools
 | Resource | Notes |
 | --- | --- |
 | One logical Azure SQL server, one private endpoint, no public network access | Blueprint section 9. |
-| 3 tenant databases in a Standard elastic pool | The baseline that ships. The pool is provisioned at S3-equivalent per-database capacity. See V1 and V10 in [02-verification-register.md](02-verification-register.md) before the first apply. |
+| 3 tenant databases in a 2-vCore General Purpose standard-series elastic pool | The build-scale pool uses `GP_Gen5` with 32 GB maximum data storage. See V1 in [02-verification-register.md](02-verification-register.md). |
 | QueueState database, S0 | Platform-owned; the tenant databases stay the system of record. |
 | Entra admin on the logical server | So `CREATE USER FROM EXTERNAL PROVIDER` in onboarding can run. |
 
-The Standard elastic pool at S3-equivalent per-database capacity is the baseline,
-and it replaces the standalone databases rather than sitting beside them behind a
-flag. Standalone S3 databases are demoted to a documented fallback, kept only for
-the case where the pool proves CDC-ineligible.
+The vCore pool replaces the three standalone S3 databases. Microsoft documents
+CDC support for elastic pools in every vCore service tier. The earlier Standard
+DTU pool question remains UNVERIFIABLE and that pool does not ship. Verified
+2026-08-24 against
+https://learn.microsoft.com/azure/azure-sql/database/change-data-capture-overview?view=azuresql
 
-CDC eligibility of the pool is not settled here. V1 owns it, and V1 is not yet
-recorded, so this spec does not assert the pool is CDC-eligible. What current
-Microsoft documentation confirms: CDC needs the S3 tier or higher for a
-standalone DTU-model database, and CDC is supported for elastic pools in any
-tier under the vCore model. The documentation is silent on the specific case of
-a DTU-model Standard elastic pool at 100 eDTU per database, which is exactly why
-this is a VERIFY-BEFORE-APPLY flag. SPEC-LEVEL for V1 to resolve: either confirm
-the DTU-model pool is CDC-eligible empirically, or provision the pool under the
-vCore model, where eligibility is documented and unambiguous. Verified 2026-08-24
-against
-https://learn.microsoft.com/azure/azure-sql/database/change-data-capture-overview
+The two-vCore pool is a build-scale cost choice, not a performance claim.
+Microsoft recommends that the number of databases with CDC enabled should not
+exceed the pool's vCore count to avoid increased latency. Three tenant databases
+therefore exceed that recommendation. The later live load test measures capture
+latency and decides whether the pool must increase to four vCores. The maximum
+data storage remains 32 GB so the build does not reserve the service maximum by
+default.
 
 ### Kafka and Connect
 
@@ -309,7 +306,7 @@ not before `validate`.
 | --- | --- | --- | --- |
 | D1 | V1 and V10 answered and recorded on the issue before any database resource is written. | documentation check | 1 file, 40 lines |
 | D2 | VNet, AKS with OIDC issuer and workload identity, node pools, ACR pull assignment, and the AKS federated credential on `id-connect`. | unit | 6 files, 320 lines |
-| D3 | Logical SQL server with private endpoint and DNS zone, 3 tenant databases in a Standard elastic pool at S3-equivalent per-database capacity (standalone S3 as documented fallback), QueueState S0. | unit | 5 files, 280 lines |
+| D3 | Logical SQL server with private endpoint and DNS zone, 3 tenant databases in a 2-vCore `GP_Gen5` elastic pool with 32 GB maximum data storage, QueueState S0. | unit | 9 files, 420 lines |
 | D4 | Onboarding runner and T-SQL for schema including `DebeziumSignal`, CDC, Change Tracking, snapshot isolation, and the TenantInfo claim, proven idempotent against a container. | containers | 8 files, 420 lines |
 | D5 | Onboarding step 5, the Entra database user and grants including INSERT and SELECT on `dbo.DebeziumSignal` only, behind a flag, exercised in the spike. | live | 2 files, 90 lines |
 | D6 | Strimzi operator, Kafka KRaft single broker, topics, users and ACLs. | unit, CRD schema validation | 7 files, 380 lines |
