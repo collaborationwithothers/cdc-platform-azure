@@ -1,0 +1,110 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<mxfile host="drawio-mcp" modified="2026-08-24T04:56:41.000Z" agent="drawio-mcp/1.0" version="24.7.17" type="device" compressed="false">
+  <diagram name="Event pipeline" id="event-pipeline">
+    <mxGraphModel dx="1354" dy="981" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1800" pageHeight="1050" background="none" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="title" value="Event pipeline" style="text;html=1;align=left;verticalAlign=middle;fontSize=24;fontStyle=1;fontColor=#1f4e79;" parent="1" vertex="1">
+          <mxGeometry as="geometry" x="40.0" y="20.0" width="600.0" height="40.0" />
+        </mxCell>
+        <mxCell id="subtitle" value="Transactional outbox CDC relay, with stage 1 capture and stage 2 connector work separated" style="text;html=1;align=left;verticalAlign=middle;fontSize=13;fontColor=#666666;" parent="1" vertex="1">
+          <mxGeometry as="geometry" x="40.0" y="65.0" width="1000.0" height="30.0" />
+        </mxCell>
+        <mxCell id="source-zone" value="Source and capture" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f9ff;strokeColor=#4472c4;strokeWidth=2;verticalAlign=top;align=left;spacingLeft=10;spacingTop=8;fontSize=15;fontStyle=1;connectable=0;" parent="1" vertex="1">
+          <mxGeometry as="geometry" x="40.0" y="120.0" width="350.0" height="580.0" />
+        </mxCell>
+        <mxCell id="pipeline-zone" value="Connector and stream" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff8e6;strokeColor=#d6b656;strokeWidth=2;verticalAlign=top;align=left;spacingLeft=10;spacingTop=8;fontSize=15;fontStyle=1;connectable=0;" parent="1" vertex="1">
+          <mxGeometry as="geometry" x="420.0" y="120.0" width="520.0" height="580.0" />
+        </mxCell>
+        <mxCell id="consumer-zone" value="Consumers and reconciliation" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f1f8f1;strokeColor=#70ad47;strokeWidth=2;verticalAlign=top;align=left;spacingLeft=10;spacingTop=8;fontSize=15;fontStyle=1;connectable=0;" parent="1" vertex="1">
+          <mxGeometry as="geometry" x="970.0" y="120.0" width="490.0" height="580.0" />
+        </mxCell>
+        <mxCell id="task-api" value="task-api&lt;br&gt;transition transaction" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d9eaf7;strokeColor=#4472c4;fontSize=13;fontStyle=1;" parent="1" vertex="1">
+          <mxGeometry as="geometry" x="75.0" y="270.0" width="145.0" height="70.0" />
+        </mxCell>
+        <mxCell id="tenant-db" value="3 tenant databases&lt;br&gt;WorkflowTask + Outbox" style="shape=image;aspect=fixed;html=1;verticalLabelPosition=bottom;verticalAlign=top;align=center;fontSize=11;image=img/lib/azure2/databases/SQL_Database.svg;" parent="1" vertex="1">
+          <mxGeometry as="geometry" x="260.0" y="230.0" width="105.0" height="90.0" />
+        </mxCell>
+        <mxCell id="capture" value="SQL Server capture&lt;br&gt;Stage 1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=13;fontStyle=1;" parent="1" vertex="1">
+          <mxGeometry as="geometry" x="245.0" y="430.0" width="145.0" height="70.0" />
+        </mxCell>
+        <mxCell id="debezium" value="Debezium connector&lt;br&gt;Stage 2" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;fontSize=13;fontStyle=1;" parent="1" vertex="1">
+          <mxGeometry as="geometry" x="455.0" y="430.0" width="145.0" height="70.0" />
+        </mxCell>
+        <mxCell id="smt" value="SMT chain&lt;br&gt;filter, unwrap, re-key, header" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=12;fontStyle=1;" parent="1" vertex="1">
+          <mxGeometry as="geometry" x="640.0" y="430.0" width="165.0" height="70.0" />
+        </mxCell>
+        <mxCell id="topic" value="workflow-transitions&lt;br&gt;keyed topic" style="shape=cylinder;whiteSpace=wrap;html=1;fillColor=#fce4d6;strokeColor=#c55a11;fontSize=13;fontStyle=1;" parent="1" vertex="1">
+          <mxGeometry as="geometry" x="840.0" y="420.0" width="80.0" height="90.0" />
+        </mxCell>
+        <mxCell id="queue-builder" value="queue-builder&lt;br&gt;state projection" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#70ad47;fontSize=13;fontStyle=1;" parent="1" vertex="1">
+          <mxGeometry as="geometry" x="1000.0" y="260.0" width="160.0" height="70.0" />
+        </mxCell>
+        <mxCell id="queue-state" value="QueueState" style="shape=cylinder;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#4472c4;fontSize=13;fontStyle=1;" parent="1" vertex="1">
+          <mxGeometry as="geometry" x="1280.0" y="250.0" width="100.0" height="90.0" />
+        </mxCell>
+        <mxCell id="notifier" value="notifier&lt;br&gt;send then record" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#70ad47;fontSize=13;fontStyle=1;" parent="1" vertex="1">
+          <mxGeometry as="geometry" x="1000.0" y="410.0" width="160.0" height="70.0" />
+        </mxCell>
+        <mxCell id="reconciler" value="queue-reconciler&lt;br&gt;scheduled source sweep" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e2f0d9;strokeColor=#70ad47;fontSize=13;fontStyle=1;" parent="1" vertex="1">
+          <mxGeometry as="geometry" x="1230.0" y="500.0" width="190.0" height="70.0" />
+        </mxCell>
+        <mxCell id="e-task-db" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#4472c4;fontSize=10;endArrow=block;exitX=1;exitY=0.5;entryX=0;entryY=0.5;exitX=1.0;exitY=0.5;exitDx=0;exitDy=0;exitPerimeter=0;entryX=0.0;entryY=0.5;entryDx=0;entryDy=0;entryPerimeter=0;" parent="1" edge="1" source="task-api" target="tenant-db">
+          <mxGeometry as="geometry" relative="1" />
+        </mxCell>
+        <mxCell id="e-db-capture" value="Outbox CDC" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#9673a6;fontSize=10;endArrow=block;exitX=0.5;exitY=1;entryX=0.5;entryY=0;exitX=0.5;exitY=1.0;exitDx=0;exitDy=0;exitPerimeter=0;entryX=0.5;entryY=0.0;entryDx=0;entryDy=0;entryPerimeter=0;" parent="1" edge="1" source="tenant-db" target="capture">
+          <mxGeometry as="geometry" relative="1" />
+        </mxCell>
+        <mxCell id="e-capture-debezium" value="cdc.*" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#9673a6;fontSize=10;endArrow=block;exitX=1;exitY=0.5;entryX=0;entryY=0.5;exitX=1.0;exitY=0.5;exitDx=0;exitDy=0;exitPerimeter=0;entryX=0.0;entryY=0.5;entryDx=0;entryDy=0;entryPerimeter=0;" parent="1" edge="1" source="capture" target="debezium">
+          <mxGeometry as="geometry" relative="1" />
+        </mxCell>
+        <mxCell id="e-debezium-smt" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#d79b00;fontSize=10;endArrow=block;exitX=1;exitY=0.5;entryX=0;entryY=0.5;exitX=1.0;exitY=0.5;exitDx=0;exitDy=0;exitPerimeter=0;entryX=0.0;entryY=0.5;entryDx=0;entryDy=0;entryPerimeter=0;" parent="1" edge="1" source="debezium" target="smt">
+          <mxGeometry as="geometry" relative="1" />
+        </mxCell>
+        <mxCell id="e-smt-topic" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#c55a11;fontSize=10;endArrow=block;exitX=1;exitY=0.5;entryX=0;entryY=0.5;exitX=1.0;exitY=0.5;exitDx=0;exitDy=0;exitPerimeter=0;entryX=0.0;entryY=0.5;entryDx=0;entryDy=0;entryPerimeter=0;" parent="1" edge="1" source="smt" target="topic">
+          <mxGeometry as="geometry" relative="1" />
+        </mxCell>
+        <mxCell id="e-topic-builder" value="projection" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#70ad47;fontSize=10;endArrow=block;exitX=1;exitY=0.5;entryX=0;entryY=0.5;exitX=1.0;exitY=0.5;exitDx=0;exitDy=0;exitPerimeter=0;entryX=0.0;entryY=0.5;entryDx=0;entryDy=0;entryPerimeter=0;" parent="1" edge="1" source="topic" target="queue-builder">
+          <mxGeometry as="geometry" relative="1">
+            <Array as="points">
+              <mxPoint x="950.0" y="465.0" />
+              <mxPoint x="950.0" y="295.0" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e-topic-notifier" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#70ad47;fontSize=10;endArrow=block;exitX=1;exitY=0.5;entryX=0;entryY=0.5;exitX=1.0;exitY=0.5;exitDx=0;exitDy=0;exitPerimeter=0;entryX=0.0;entryY=0.5;entryDx=0;entryDy=0;entryPerimeter=0;" parent="1" edge="1" source="topic" target="notifier">
+          <mxGeometry as="geometry" relative="1">
+            <Array as="points">
+              <mxPoint x="960.0" y="465.0" />
+              <mxPoint x="960.0" y="445.0" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e-builder-state" value="version guarded write" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#4472c4;fontSize=10;endArrow=block;exitX=1;exitY=0.5;entryX=0;entryY=0.5;exitX=1.0;exitY=0.5;exitDx=0;exitDy=0;exitPerimeter=0;entryX=0.0;entryY=0.5;entryDx=0;entryDy=0;entryPerimeter=0;" parent="1" edge="1" source="queue-builder" target="queue-state">
+          <mxGeometry as="geometry" relative="1" />
+        </mxCell>
+        <mxCell id="e-builder-api" value="repair" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#7030a0;dashed=1;fontSize=10;endArrow=block;exitX=0.5;exitY=1;entryX=0.5;entryY=1;exitX=0.5;exitY=1.0;exitDx=0;exitDy=0;exitPerimeter=0;entryX=0.5;entryY=1.0;entryDx=0;entryDy=0;entryPerimeter=0;" parent="1" edge="1" source="queue-builder" target="task-api">
+          <mxGeometry as="geometry" relative="1">
+            <Array as="points">
+              <mxPoint x="1080.0" y="630.0" />
+              <mxPoint x="147.0" y="630.0" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e-reconciler-api" value="source compare and reconcile" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#7030a0;dashed=1;fontSize=10;endArrow=block;exitX=0.5;exitY=1;entryX=0;entryY=0.5;exitX=0.5;exitY=1.0;exitDx=0;exitDy=0;exitPerimeter=0;entryX=0.0;entryY=0.5;entryDx=0;entryDy=0;entryPerimeter=0;" parent="1" edge="1" source="reconciler" target="task-api">
+          <mxGeometry as="geometry" relative="1">
+            <Array as="points">
+              <mxPoint x="1325.0" y="670.0" />
+              <mxPoint x="50.0" y="670.0" />
+              <mxPoint x="50.0" y="305.0" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e-reconciler-state" value="compare projection" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#70ad47;dashed=1;fontSize=10;endArrow=block;exitX=0.5;exitY=0;entryX=0.5;entryY=1;exitX=0.5;exitY=0.0;exitDx=0;exitDy=0;exitPerimeter=0;entryX=0.5;entryY=1.0;entryDx=0;entryDy=0;entryPerimeter=0;" parent="1" edge="1" source="reconciler" target="queue-state">
+          <mxGeometry as="geometry" relative="1" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>
