@@ -2,8 +2,8 @@
 
 The layer that survives teardown. Everything here is cheap, slow to recreate, or
 holds identity that other things federate against. Blueprint section 10 names
-it: resource group, ACR, state storage, Key Vault, Entra app registrations and
-federated credentials.
+it: resource group, ACR, state storage, Key Vault, and the Connect workload
+identity. The CI application is an external bootstrap prerequisite.
 
 Paths owned: `infra/persistent/`, `infra/modules/budget-alerts/`,
 `infra/modules/` shared modules created by this area.
@@ -50,9 +50,15 @@ its state.
 | Log Analytics workspace | Persistent because blueprint section 8 lists Log Analytics retention as standing residue, so it outlives a teardown. Alert rules that target disposable resources live in the disposable layer. |
 | Application Insights component, connected to that workspace | Persistent for the same reason and one more. The .NET services export to it ([observability.md](../observability.md) section 3), and telemetry whose value is comparing this session to the last one is worthless if it dies at teardown. The disposable layer injects its connection string; it does not own the component. |
 | User-assigned managed identity, `id-connect` | The identity Connect pods federate to (blueprint section 9). Created here because it must outlive the cluster; its federated credential is created in the disposable layer, see below. |
-| Entra app registration for CI | The OIDC principal GitHub Actions assumes. Federated credential issued against the GitHub OIDC issuer, which is stable, so it belongs here. |
 | Role assignments | CI principal gets what it needs on the subscription and the persistent resource group. Least privilege is a review point, not a formality. |
 | Budget alerts module | See below. |
+
+The CI app registration, service principal, and GitHub federated credential are
+created outside Terraform before this layer can plan. That bootstrap identity
+is the identity the workflow uses to run Terraform, so asking the same Terraform
+layer to create it would introduce a circular dependency. The exact secretless
+setup and immutable subject are recorded in
+[the CI identity bootstrap runbook](../runbooks/ci-identity-bootstrap.md).
 
 ### Budget alerts
 
@@ -129,7 +135,7 @@ Blocks: infra/disposable entirely, and the identity spike.
 | P1 | Persistent layer declares an empty `azurerm` backend; the CI workflow passes the state backend names through `-backend-config` from Actions variables. Runbook documents creating the three backend resources by hand. | unit, validate | 2 files, 50 lines |
 | P2 | Budget alerts module exists with the three documented thresholds at subscription scope, and a fixture proves the plan contains them. | unit, plan assertion | 5 files, 200 lines |
 | P3 | Persistent layer creates ACR, Key Vault, Log Analytics, the Application Insights component connected to that workspace, and consumes the budget module. `validate` and `tflint` green. | unit | 6 files, 280 lines |
-| P4 | Persistent layer creates the Connect user-assigned identity and the CI app registration with its GitHub OIDC federated credential, and exports the outputs above. | unit | 4 files, 200 lines |
+| P4 | Persistent layer creates and exports the Connect user-assigned identity. The runbook records the external CI app registration and immutable GitHub federated credential that bootstrap Terraform access. | unit | 6 files, 200 lines |
 
 P2 merges before any disposable-layer ticket opens a PR. P3 and P4 are
 independent of each other and can run in parallel across two sessions once P2

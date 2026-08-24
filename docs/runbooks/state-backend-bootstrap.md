@@ -103,9 +103,10 @@ backend names live. Set them on the repository (or environment) so the
    ```
 
 The OIDC login identifiers the `plan` job also needs
-(`AZURE_CLIENT_ID`, `AZURE_TENANT_ID`, `AZURE_SUBSCRIPTION_ID`) are repository
-secrets, set separately as part of the deploy runbook, not here. This runbook
-covers only the state backend.
+(`AZURE_CLIENT_ID`, `AZURE_TENANT_ID`, `AZURE_SUBSCRIPTION_ID`) are `azure-plan`
+environment secrets, set separately through the
+[CI identity bootstrap runbook](ci-identity-bootstrap.md), not here. This
+runbook covers only the state backend.
 
 ## What you have after this
 

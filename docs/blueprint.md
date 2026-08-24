@@ -184,10 +184,12 @@ Runbook stubs, expanded during build:
   backend resource group, storage account, and container are separate from the
   managed resources, and both boundaries use UK South. The persistent
   layer creates its platform resource group, ACR, Key Vault, Log Analytics,
-  Application Insights, Entra app registrations and federated credentials, and
-  budget alerts. The disposable layer creates AKS, Strimzi, Connect, SQL
-  databases, and QueueState. `terraform destroy` of the disposable layer is the
-  default end-of-session state.
+  Application Insights, Connect workload identity, and budget alerts. The CI
+  app registration and GitHub federated credential are bootstrapped outside
+  Terraform because the workflow needs them before it can plan either layer.
+  The disposable layer creates AKS, Strimzi, Connect, SQL databases, and
+  QueueState. `terraform destroy` of the disposable layer is the default
+  end-of-session state.
 - Observe: KQL queries committed to repo: per-stage lag by tenant; grace-window headroom; connector task states and restart counts; inline gap and head-loss detections and tail-drift per tenant per hour; attribution-check status; consumer lag by partition; SentNotifications conflict rate; spend versus budget. Alert rules as code.
 - Tear down: destroy disposable layer; verify residual spend baseline.
 - Recover (after teardown/recreate): re-run onboarding automation (CDC, Change Tracking, identity, TenantInfo) per database; connectors perform initial snapshots; queues rebuild via re-snapshot plus reconciler bootstrap. There is no cross-session replay at build scale; the runbook does not claim one. Exercised every session, so recovery is rehearsed, not theoretical.
