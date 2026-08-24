@@ -124,4 +124,5 @@ jobs:
       - name: terraform plan (no apply)
         env:
           ARM_USE_OIDC: "true"
+          TF_VAR_persistent_resource_group_name: ${{ vars.TF_BACKEND_RESOURCE_GROUP }}
         run: terraform plan -input=false -no-color

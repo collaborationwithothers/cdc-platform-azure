@@ -34,6 +34,12 @@ must arrive as Actions variables. This was chosen over a committed idempotent
 bootstrap script to keep both the creation steps and the identifiers out of the
 repo.
 
+Terraform reads the existing resource group before it plans the resources in
+this layer. The gated workflow maps the backend's resource-group Actions
+variable to `persistent_resource_group_name`, so the backend and the resources
+use the same group without committing its name. Terraform can create and remove
+resources inside the group, but it cannot delete the group that holds its state.
+
 ### Terraform, persistent layer
 
 | Resource | Notes |
