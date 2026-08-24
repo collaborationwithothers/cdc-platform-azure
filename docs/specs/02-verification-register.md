@@ -657,12 +657,12 @@ its first action and records the outcome on the issue.
   WebAssembly or Lua is Alpha. The JWT authorisation policy ADR-010 names is not
   one of those Alpha items, but JWT claim based routing is, so a policy may
   match on a claim's presence and may not route on its value.
-- Carried obligation, owned by G7 (ADR-010 transcription): the ADR-010 dataplane
-  sentence, and any public lab note that repeats it, state the evidence exactly
-  as it stands here. Three component Stable statements, the pair not jointly
-  stated, the exercised path scoped to gateway plus gateway-attached policy. No
-  public claim outruns the documentation. That file is outside this ticket's
-  declared path, so the wording lands with G7 rather than here.
+- ADR-010's dataplane sentence carries the same evidence, edited in this ticket
+  on Hari's instruction: three component Stable statements, the pair not jointly
+  stated, the exercised path scoped to gateway plus gateway-attached policy, and
+  the flip trigger named. No public claim outruns the documentation. Any lab
+  note that repeats the choice states it the same way; G7 checks that when it
+  transcribes the ADR.
 - The Kafka exclusion, which is a design fact and not only a verification
   result: ambient redirection is whole-pod, and there is no per-port opt-out.
   The `traffic.sidecar.istio.io/exclude*Ports` annotations are sidecar-only.
