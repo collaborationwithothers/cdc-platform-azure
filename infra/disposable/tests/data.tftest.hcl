@@ -102,8 +102,8 @@ run "plans_the_private_vcore_data_layer" {
   }
 
   assert {
-    condition     = azurerm_mssql_server.platform.azuread_administrator[0].object_id == data.azurerm_client_config.current.object_id
-    error_message = "The deployment identity must bootstrap the Microsoft Entra administrator."
+    condition     = azurerm_mssql_server.platform.azuread_administrator[0].login_username == "sql-admins" && azurerm_mssql_server.platform.azuread_administrator[0].object_id == "ed0a42c6-80ec-45d4-b1fd-3ecd108d0a9f" && azurerm_mssql_server.platform.azuread_administrator[0].tenant_id == data.azurerm_client_config.current.tenant_id
+    error_message = "The sql-admins group must be the Microsoft Entra administrator in the deployment tenant."
   }
 
   assert {

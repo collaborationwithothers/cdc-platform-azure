@@ -51,7 +51,17 @@ https://learn.microsoft.com/azure/aks/use-system-pools
 | One logical Azure SQL server, one private endpoint, no public network access | Blueprint section 9. |
 | 3 tenant databases in a 2-vCore General Purpose standard-series elastic pool | The build-scale pool uses `GP_Gen5` with 32 GB maximum data storage. See V1 in [02-verification-register.md](02-verification-register.md). |
 | QueueState database, S0 | Platform-owned; the tenant databases stay the system of record. |
-| Entra admin on the logical server | So `CREATE USER FROM EXTERNAL PROVIDER` in onboarding can run. |
+| Existing `sql-admins` group as Entra admin on the logical server | Group members administer the server without a SQL administrator password. The group must belong to the deployment tenant. |
+
+AzureRM identifies the administrator group by its display name, object ID, and
+tenant ID. Entra-only authentication remains enabled. The gated deployment
+identity needs Azure permissions to set both the administrator and Entra-only
+mode. Verified 2026-08-24 against
+https://learn.microsoft.com/azure/azure-sql/database/authentication-aad-overview?view=azuresql
+and
+https://learn.microsoft.com/azure/azure-sql/database/authentication-azure-ad-only-authentication?view=azuresql
+and
+https://registry.terraform.io/providers/hashicorp/azurerm/5.2.0/docs/resources/mssql_server
 
 The vCore pool replaces the three standalone S3 databases. Microsoft documents
 CDC support for elastic pools in every vCore service tier. The earlier Standard

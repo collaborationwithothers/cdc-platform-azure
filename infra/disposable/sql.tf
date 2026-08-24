@@ -14,8 +14,8 @@ resource "azurerm_mssql_server" "platform" {
   public_network_access_enabled = false
 
   azuread_administrator {
-    login_username              = "cdc-platform-deployer"
-    object_id                   = data.azurerm_client_config.current.object_id
+    login_username              = "sql-admins"
+    object_id                   = "ed0a42c6-80ec-45d4-b1fd-3ecd108d0a9f"
     tenant_id                   = data.azurerm_client_config.current.tenant_id
     azuread_authentication_only = true
   }
