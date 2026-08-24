@@ -64,8 +64,8 @@ run "installs_argocd_and_the_root_application" {
   }
 
   assert {
-    condition     = helm_release.argocd.repository == "oci://ghcr.io/argoproj"
-    error_message = "Argo CD must install from the argoproj OCI chart mirror."
+    condition     = helm_release.argocd.repository == "https://argoproj.github.io/argo-helm"
+    error_message = "Argo CD must install from the argo-helm chart repository."
   }
 
   assert {

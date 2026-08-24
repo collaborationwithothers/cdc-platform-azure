@@ -41,11 +41,12 @@ jobs:
 
       - uses: azure/setup-helm@v4
 
-      # The same chart, OCI reference, and version the disposable layer pins in
-      # argocd.tf.
+      # The same chart and version the disposable layer pins in argocd.tf.
       - name: install argo cd
         run: |
-          helm install argocd oci://ghcr.io/argoproj/argo-cd \
+          helm repo add argo https://argoproj.github.io/argo-helm
+          helm repo update argo
+          helm install argocd argo/argo-cd \
             --version 10.4.0 \
             --namespace argocd --create-namespace \
             --wait --timeout 10m

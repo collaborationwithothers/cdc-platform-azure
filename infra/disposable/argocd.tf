@@ -8,13 +8,13 @@
 # https://github.com/argoproj/argo-helm/releases on 2026-08-24. Pinning the
 # chart stops an upgrade from silently changing the install between recreates.
 #
-# The chart is pulled from its OCI mirror, oci://ghcr.io/argoproj, for the same
-# reason strimzi.tf uses an OCI repository: an OCI reference resolves at plan
-# without a cached repository index, so terraform test and the gated plan run
-# with no "helm repo add" step. An https helm repository would need one.
+# The chart comes from the anonymous argo-helm https repository. The argoproj
+# OCI mirror on ghcr.io refuses anonymous pulls (401), so it is not usable here.
+# The plan-time tests mock the helm provider so they never resolve this chart;
+# the pin and the install are exercised live by the gitops-kind workflow.
 resource "helm_release" "argocd" {
   name             = "argocd"
-  repository       = "oci://ghcr.io/argoproj"
+  repository       = "https://argoproj.github.io/argo-helm"
   chart            = "argo-cd"
   version          = "10.4.0"
   namespace        = "argocd"

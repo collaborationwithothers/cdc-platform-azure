@@ -1,6 +1,13 @@
 # Plan-only assertions for the disposable cluster boundary. The provider and
 # persistent remote state are replaced locally, so this test contacts no Azure
 # service and creates no resource.
+
+# The Argo CD release in argocd.tf would otherwise make this plan resolve the
+# argo-helm chart from a live registry. Mocking the helm provider keeps this
+# plan test hermetic; the chart pin and the install are exercised by the
+# gitops-kind workflow.
+mock_provider "helm" {}
+
 mock_provider "azurerm" {
   override_during = plan
 
