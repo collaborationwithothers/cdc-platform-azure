@@ -60,12 +60,21 @@ jobs:
       - uses: hashicorp/setup-terraform@v3
         with:
           terraform_version: "1.15.8"
+      - uses: terraform-linters/setup-tflint@v6
+        with:
+          tflint_version: "v0.64.0"
       - name: terraform fmt
         run: terraform fmt -check -recursive
       - name: terraform init (no backend)
         run: terraform init -backend=false -input=false
       - name: terraform validate
         run: terraform validate -no-color
+      - name: tflint init
+        run: tflint --init
+      - name: tflint
+        run: tflint --format compact
+      - name: workspace link plan test
+        run: terraform test -no-color
 
   module-test:
     name: budget module plan test (no Azure)
