@@ -60,40 +60,64 @@ jobs:
       - name: Render Draw.io diagrams
         shell: bash
         run: |
+          set -euo pipefail
+          shopt -s nullglob
           mkdir -p "$RUNNER_TEMP/drawio-home" "$RUNNER_TEMP/diagram-renders"
+          sources=(docs/diagrams/*.drawio)
+          if (( ${#sources[@]} == 0 )); then
+            echo "No Draw.io sources found."
+            exit 1
+          fi
 
-          docker run --rm \
-            -u "$(id -u):$(id -g)" \
-            -e HOME=/home/drawio \
-            -v /etc/passwd:/etc/passwd:ro \
-            -v "$RUNNER_TEMP/drawio-home:/home/drawio" \
-            -v "$GITHUB_WORKSPACE:/data:ro" \
-            -v "$RUNNER_TEMP/diagram-renders:/output" \
-            -w /data \
-            rlespinasse/drawio-desktop-headless@sha256:b7fe022af559d73240111aaa97b07c516d2201c4837f73f0d5c36d6568ca941e \
-            -x -f svg --embed-svg-images \
-            -o /output/azure-architecture.svg \
-            docs/diagrams/azure-architecture.drawio
+          for source in "${sources[@]}"; do
+            stem="${source%.drawio}"
+            render_name="$(basename "$stem")"
 
-          docker run --rm \
-            -u "$(id -u):$(id -g)" \
-            -e HOME=/home/drawio \
-            -v /etc/passwd:/etc/passwd:ro \
-            -v "$RUNNER_TEMP/drawio-home:/home/drawio" \
-            -v "$GITHUB_WORKSPACE:/data:ro" \
-            -v "$RUNNER_TEMP/diagram-renders:/output" \
-            -w /data \
-            rlespinasse/drawio-desktop-headless@sha256:b7fe022af559d73240111aaa97b07c516d2201c4837f73f0d5c36d6568ca941e \
-            -x -f png \
-            -o /output/azure-architecture.png \
-            docs/diagrams/azure-architecture.drawio
+            docker run --rm \
+              -u "$(id -u):$(id -g)" \
+              -e HOME=/home/drawio \
+              -v /etc/passwd:/etc/passwd:ro \
+              -v "$RUNNER_TEMP/drawio-home:/home/drawio" \
+              -v "$GITHUB_WORKSPACE:/data:ro" \
+              -v "$RUNNER_TEMP/diagram-renders:/output" \
+              -w /data \
+              rlespinasse/drawio-desktop-headless@sha256:b7fe022af559d73240111aaa97b07c516d2201c4837f73f0d5c36d6568ca941e \
+              -x -f svg --theme light --embed-svg-images \
+              -o "/output/${render_name}.svg" \
+              "$source"
+
+            docker run --rm \
+              -u "$(id -u):$(id -g)" \
+              -e HOME=/home/drawio \
+              -v /etc/passwd:/etc/passwd:ro \
+              -v "$RUNNER_TEMP/drawio-home:/home/drawio" \
+              -v "$GITHUB_WORKSPACE:/data:ro" \
+              -v "$RUNNER_TEMP/diagram-renders:/output" \
+              -w /data \
+              rlespinasse/drawio-desktop-headless@sha256:b7fe022af559d73240111aaa97b07c516d2201c4837f73f0d5c36d6568ca941e \
+              -x -f png \
+              -o "/output/${render_name}.png" \
+              "$source"
+          done
 
       - name: Check committed renders are current
         shell: bash
         run: |
-          sed -E 's/ge-svg-[A-Za-z0-9_-]+/ge-svg-deterministic/g' \
-            docs/diagrams/azure-architecture.svg > "$RUNNER_TEMP/azure-architecture.committed.svg"
-          sed -E 's/ge-svg-[A-Za-z0-9_-]+/ge-svg-deterministic/g' \
-            "$RUNNER_TEMP/diagram-renders/azure-architecture.svg" > "$RUNNER_TEMP/azure-architecture.generated.svg"
-          cmp -- "$RUNNER_TEMP/azure-architecture.committed.svg" "$RUNNER_TEMP/azure-architecture.generated.svg"
-          cmp -- docs/diagrams/azure-architecture.png "$RUNNER_TEMP/diagram-renders/azure-architecture.png"
+          set -euo pipefail
+          shopt -s nullglob
+          sources=(docs/diagrams/*.drawio)
+          if (( ${#sources[@]} == 0 )); then
+            echo "No Draw.io sources found."
+            exit 1
+          fi
+
+          for source in "${sources[@]}"; do
+            stem="${source%.drawio}"
+            render_name="$(basename "$stem")"
+            sed -E 's/ge-svg-[A-Za-z0-9_-]+/ge-svg-deterministic/g' \
+              "${stem}.svg" > "$RUNNER_TEMP/${render_name}.committed.svg"
+            sed -E 's/ge-svg-[A-Za-z0-9_-]+/ge-svg-deterministic/g' \
+              "$RUNNER_TEMP/diagram-renders/${render_name}.svg" > "$RUNNER_TEMP/${render_name}.generated.svg"
+            cmp -- "$RUNNER_TEMP/${render_name}.committed.svg" "$RUNNER_TEMP/${render_name}.generated.svg"
+            cmp -- "${stem}.png" "$RUNNER_TEMP/diagram-renders/${render_name}.png"
+          done

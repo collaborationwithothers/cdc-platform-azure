@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<mxfile host="drawio-mcp" modified="2026-08-24T04:07:27.000Z" agent="drawio-mcp/1.0" version="24.7.17" type="device" compressed="false">
+<mxfile host="drawio-mcp" modified="2026-08-24T04:18:04.000Z" agent="drawio-mcp/1.0" version="24.7.17" type="device" compressed="false">
   <diagram name="Azure architecture" id="azure-architecture">
     <mxGraphModel dx="1354" dy="981" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1800" pageHeight="1050" background="none" math="0" shadow="0">
       <root>
@@ -9,67 +9,67 @@
           <mxGeometry as="geometry" x="40.0" y="20.0" width="700.0" height="40.0" />
         </mxCell>
         <mxCell id="subtitle" value="v1 build: three tenant databases, shared Kafka and Connect on AKS" style="text;html=1;align=left;verticalAlign=middle;fontSize=13;fontColor=#666666;" parent="1" vertex="1">
-          <mxGeometry as="geometry" x="40.0" y="70" width="760.0" height="30.0" />
+          <mxGeometry as="geometry" x="40.0" y="70.0" width="760.0" height="30.0" />
         </mxCell>
         <mxCell id="azure" value="Azure subscription" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f9ff;strokeColor=#5b9bd5;strokeWidth=3;verticalAlign=top;align=left;spacingLeft=12;spacingTop=8;fontSize=16;fontStyle=1;connectable=0;" parent="1" vertex="1">
-          <mxGeometry as="geometry" x="40.0" y="120.0" width="1170.0" height="620" />
+          <mxGeometry as="geometry" x="40.0" y="120.0" width="1140.0" height="560.0" />
         </mxCell>
         <mxCell id="aks-zone" value="AKS" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e8f2fc;strokeColor=#4472c4;strokeWidth=2;verticalAlign=top;align=left;spacingLeft=10;spacingTop=8;fontSize=15;fontStyle=1;connectable=0;" parent="1" vertex="1">
-          <mxGeometry as="geometry" x="260.0" y="170.0" width="560.0" height="420.0" />
+          <mxGeometry as="geometry" x="250.0" y="170.0" width="550.0" height="380.0" />
         </mxCell>
         <mxCell id="sql-zone" value="Azure SQL" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#eef7ee;strokeColor=#70ad47;strokeWidth=2;verticalAlign=top;align=left;spacingLeft=10;spacingTop=8;fontSize=15;fontStyle=1;connectable=0;" parent="1" vertex="1">
-          <mxGeometry as="geometry" x="850.0" y="170.0" width="320.0" height="480" />
+          <mxGeometry as="geometry" x="830.0" y="170.0" width="320.0" height="480.0" />
         </mxCell>
         <mxCell id="acr" value="ACR&#10;Connect image" style="shape=image;aspect=fixed;html=1;verticalLabelPosition=bottom;verticalAlign=top;align=center;fontSize=12;image=img/lib/azure2/containers/Container_Registries.svg;" parent="1" vertex="1">
-          <mxGeometry as="geometry" x="75.0" y="210.0" width="100.0" height="85.0" />
+          <mxGeometry as="geometry" x="80.0" y="210.0" width="100.0" height="85.0" />
         </mxCell>
         <mxCell id="key-vault" value="Key Vault&#10;SQL auth fallback" style="shape=image;aspect=fixed;html=1;verticalLabelPosition=bottom;verticalAlign=top;align=center;fontSize=12;image=img/lib/azure2/security/Key_Vaults.svg;" parent="1" vertex="1">
-          <mxGeometry as="geometry" x="75.0" y="400.0" width="100.0" height="85.0" />
+          <mxGeometry as="geometry" x="80.0" y="400.0" width="100.0" height="85.0" />
         </mxCell>
         <mxCell id="entra" value="Microsoft Entra ID" style="shape=image;aspect=fixed;html=1;verticalLabelPosition=bottom;verticalAlign=top;align=center;fontSize=12;image=img/lib/azure2/other/Entra_Identity.svg;" parent="1" vertex="1">
-          <mxGeometry as="geometry" x="1270.0" y="20" width="110.0" height="85.0" />
+          <mxGeometry as="geometry" x="1240.0" y="40.0" width="110.0" height="85.0" />
         </mxCell>
         <mxCell id="app-insights" value="Application Insights" style="shape=image;aspect=fixed;html=1;verticalLabelPosition=bottom;verticalAlign=top;align=center;fontSize=12;image=img/lib/azure2/devops/Application_Insights.svg;" parent="1" vertex="1">
-          <mxGeometry as="geometry" x="1290.0" y="300" width="110.0" height="85.0" />
+          <mxGeometry as="geometry" x="1230.0" y="500.0" width="110.0" height="85.0" />
         </mxCell>
         <mxCell id="log-analytics" value="Log Analytics" style="shape=image;aspect=fixed;html=1;verticalLabelPosition=bottom;verticalAlign=top;align=center;fontSize=12;image=img/lib/azure2/analytics/Log_Analytics_Workspaces.svg;" parent="1" vertex="1">
-          <mxGeometry as="geometry" x="1480.0" y="300" width="110.0" height="85.0" />
+          <mxGeometry as="geometry" x="1400.0" y="500.0" width="110.0" height="85.0" />
         </mxCell>
         <mxCell id="aks-icon" style="shape=image;aspect=fixed;html=1;image=img/lib/azure2/containers/Kubernetes_Services.svg;" parent="1" vertex="1">
-          <mxGeometry as="geometry" x="290.0" y="230.0" width="70.0" height="60.0" />
+          <mxGeometry as="geometry" x="280.0" y="230.0" width="70.0" height="60.0" />
         </mxCell>
         <mxCell id="system-pool" value="System node pool" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#4472c4;fontSize=12;" parent="1" vertex="1">
-          <mxGeometry as="geometry" x="390.0" y="230.0" width="150.0" height="50.0" />
+          <mxGeometry as="geometry" x="380.0" y="230.0" width="150.0" height="50.0" />
         </mxCell>
         <mxCell id="spot-pool" value="Spot node pool" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=12;" parent="1" vertex="1">
-          <mxGeometry as="geometry" x="580.0" y="230.0" width="150.0" height="50.0" />
+          <mxGeometry as="geometry" x="560.0" y="230.0" width="140.0" height="50.0" />
         </mxCell>
         <mxCell id="workload-identity" value="Workload identity&#10;id-connect" style="shape=image;aspect=fixed;html=1;verticalLabelPosition=bottom;verticalAlign=top;align=center;fontSize=11;image=img/lib/azure2/identity/Managed_Identities.svg;" parent="1" vertex="1">
-          <mxGeometry as="geometry" x="740" y="220.0" width="65" height="65.0" />
+          <mxGeometry as="geometry" x="720.0" y="220.0" width="65.0" height="65.0" />
         </mxCell>
         <mxCell id="connect" value="Kafka Connect&#10;Strimzi managed" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d9eaf7;strokeColor=#4472c4;fontSize=13;fontStyle=1;" parent="1" vertex="1">
-          <mxGeometry as="geometry" x="325.0" y="360.0" width="190.0" height="70.0" />
+          <mxGeometry as="geometry" x="320.0" y="320.0" width="190.0" height="70.0" />
         </mxCell>
         <mxCell id="kafka" value="Strimzi Kafka&#10;KRaft" style="shape=cylinder;whiteSpace=wrap;html=1;fillColor=#fce4d6;strokeColor=#c55a11;fontSize=13;fontStyle=1;" parent="1" vertex="1">
-          <mxGeometry as="geometry" x="600.0" y="355.0" width="140.0" height="80.0" />
+          <mxGeometry as="geometry" x="580.0" y="450.0" width="140.0" height="80.0" />
         </mxCell>
         <mxCell id="private-endpoint" value="Private endpoint" style="shape=image;aspect=fixed;html=1;verticalLabelPosition=bottom;verticalAlign=top;align=center;fontSize=11;image=img/lib/azure2/networking/Private_Endpoint.svg;" parent="1" vertex="1">
-          <mxGeometry as="geometry" x="890.0" y="230.0" width="80.0" height="70.0" />
+          <mxGeometry as="geometry" x="860.0" y="230.0" width="80.0" height="70.0" />
         </mxCell>
         <mxCell id="logical-server" value="Logical SQL server" style="shape=image;aspect=fixed;html=1;verticalLabelPosition=bottom;verticalAlign=top;align=center;fontSize=11;image=img/lib/azure2/databases/SQL_Server.svg;" parent="1" vertex="1">
-          <mxGeometry as="geometry" x="1040.0" y="220.0" width="90.0" height="75.0" />
+          <mxGeometry as="geometry" x="1020.0" y="220.0" width="90.0" height="75.0" />
         </mxCell>
         <mxCell id="tenant-a" value="Tenant A&#10;S3 database" style="shape=image;aspect=fixed;html=1;verticalLabelPosition=bottom;verticalAlign=top;align=center;fontSize=10;image=img/lib/azure2/databases/SQL_Database.svg;" parent="1" vertex="1">
-          <mxGeometry as="geometry" x="875.0" y="390.0" width="65.0" height="65.0" />
+          <mxGeometry as="geometry" x="860.0" y="460.0" width="65.0" height="65.0" />
         </mxCell>
         <mxCell id="tenant-b" value="Tenant B&#10;S3 database" style="shape=image;aspect=fixed;html=1;verticalLabelPosition=bottom;verticalAlign=top;align=center;fontSize=10;image=img/lib/azure2/databases/SQL_Database.svg;" parent="1" vertex="1">
-          <mxGeometry as="geometry" x="965.0" y="390.0" width="65.0" height="65.0" />
+          <mxGeometry as="geometry" x="950.0" y="460.0" width="65.0" height="65.0" />
         </mxCell>
         <mxCell id="tenant-c" value="Tenant C&#10;S3 database" style="shape=image;aspect=fixed;html=1;verticalLabelPosition=bottom;verticalAlign=top;align=center;fontSize=10;image=img/lib/azure2/databases/SQL_Database.svg;" parent="1" vertex="1">
-          <mxGeometry as="geometry" x="1055.0" y="390.0" width="65.0" height="65.0" />
+          <mxGeometry as="geometry" x="1040.0" y="460.0" width="65.0" height="65.0" />
         </mxCell>
         <mxCell id="queue-state" value="QueueState&#10;S0 database" style="shape=image;aspect=fixed;html=1;verticalLabelPosition=bottom;verticalAlign=top;align=center;fontSize=10;image=img/lib/azure2/databases/SQL_Database.svg;" parent="1" vertex="1">
-          <mxGeometry as="geometry" x="965.0" y="510" width="70.0" height="65.0" />
+          <mxGeometry as="geometry" x="950.0" y="540.0" width="70.0" height="65.0" />
         </mxCell>
         <mxCell id="e-vault-connect" value="fallback config" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#7030a0;dashed=1;fontSize=10;endArrow=block;" parent="1" edge="1" source="key-vault" target="connect">
           <mxGeometry as="geometry" relative="1" />
@@ -77,19 +77,19 @@
         <mxCell id="e-entra-identity" value="federated credential&#10;AKS OIDC" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#7030a0;dashed=1;fontSize=10;endArrow=block;" parent="1" edge="1" source="entra" target="workload-identity">
           <mxGeometry as="geometry" relative="1" />
         </mxCell>
-        <mxCell id="e-identity-connect" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#7030a0;dashed=1;fontSize=10;endArrow=block;" parent="1" edge="1" source="workload-identity" target="connect">
+        <mxCell id="e-identity-connect" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#7030a0;dashed=1;fontSize=10;endArrow=block;exitX=0.5;exitY=1;entryX=0.5;entryY=0;" parent="1" edge="1" source="workload-identity" target="connect">
           <mxGeometry as="geometry" relative="1" />
         </mxCell>
         <mxCell id="e-connect-kafka" value="CDC events" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#c55a11;fontSize=10;endArrow=block;" parent="1" edge="1" source="connect" target="kafka">
           <mxGeometry as="geometry" relative="1" />
         </mxCell>
-        <mxCell id="e-connect-private" value="CDC read" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#70ad47;fontSize=10;endArrow=block;" parent="1" edge="1" source="connect" target="private-endpoint">
+        <mxCell id="e-connect-private" value="CDC read" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#70ad47;fontSize=10;endArrow=block;exitX=1;exitY=0.5;entryX=0;entryY=0.5;exitX=1.0;exitY=0.5;exitDx=0;exitDy=0;exitPerimeter=0;entryX=0.0;entryY=0.5;entryDx=0;entryDy=0;entryPerimeter=0;" parent="1" edge="1" source="connect" target="private-endpoint">
           <mxGeometry as="geometry" relative="1" />
         </mxCell>
         <mxCell id="e-private-server" value="Private Link" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#70ad47;fontSize=10;endArrow=block;" parent="1" edge="1" source="private-endpoint" target="logical-server">
           <mxGeometry as="geometry" relative="1" />
         </mxCell>
-        <mxCell id="e-aks-insights" value="OpenTelemetry" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#5b9bd5;fontSize=10;endArrow=block;" parent="1" edge="1" source="connect" target="app-insights">
+        <mxCell id="e-aks-insights" value="OpenTelemetry" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#5b9bd5;fontSize=10;endArrow=block;exitX=0.5;exitY=1;entryX=0.5;entryY=0;exitX=0.5;exitY=1.0;exitDx=0;exitDy=0;exitPerimeter=0;entryX=0.5;entryY=0.0;entryDx=0;entryDy=0;entryPerimeter=0;" parent="1" edge="1" source="connect" target="app-insights">
           <mxGeometry as="geometry" relative="1" />
         </mxCell>
         <mxCell id="e-insights-analytics" value="workspace" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#5b9bd5;fontSize=10;endArrow=block;" parent="1" edge="1" source="app-insights" target="log-analytics">
