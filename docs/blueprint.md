@@ -156,9 +156,11 @@ Method requirements before any number is published: load generator committed to 
 
 ## 8. Cost
 
-All figures are estimates dated 2026-08-21, basis: Azure pricing calculator checks pending before first apply; UK South, GBP. The SQL baseline reflects the verified S3-per-database CDC floor.
+The original figures are estimates dated 2026-08-21, based on pending Azure pricing calculator checks for UK South in GBP. The AKS figures below were refreshed from the Azure Retail Prices API on 2026-08-24. The SQL baseline reflects the verified S3-per-database CDC floor.
 
-Build scale, always-on worst case: 3x standalone S3 tenant databases 330 to 360 (baseline that ships); QueueState S0 roughly 12; AKS: 1x B2s-class system node 25 to 30 plus 2x spot D2as-class 40 to 80; disks, Log Analytics, ACR, misc 60 to 90. Total roughly 470 to 570/month. Contingency: if pooled Standard databases are verified CDC-eligible at S3-equivalent per-database capacity, the pool replaces standalone and the SQL line drops; the delta is recorded when verified, not assumed now.
+Build scale, always-on worst case: 3x standalone S3 tenant databases 330 to 360; QueueState S0 roughly 12; disks, Log Analytics, ACR, and miscellaneous resources 60 to 90. AKS compute is an estimated 128 for 2x regular `Standard_D2s_v6` plus 17 for 2x spot `Standard_D2s_v6`. The AKS estimate uses 730 hours at the UK South Linux retail rates returned on 2026-08-24: GBP 0.088/hour regular and GBP 0.0116/hour spot. Spot price and capacity can change. The total estimate is therefore 550 to 610 GBP/month.
+
+Hari reported an existing system pool on this SKU and selected it for build scale. A new cluster still needs live validation because current Microsoft Learn guidance says system nodes require 4 vCPUs. If pooled Standard databases are verified CDC-eligible at S3-equivalent per-database capacity, the pool replaces standalone; the delta is recorded when verified, not assumed now. Price source: https://prices.azure.com/api/retail/prices
 
 Expected with teardown-as-default: standing residue (ACR, Terraform state storage, Log Analytics retention, Key Vault) 30 to 60 plus session compute 60 to 100. Expected actuals 90 to 160/month. Ceiling: 800/month, hard stop.
 
