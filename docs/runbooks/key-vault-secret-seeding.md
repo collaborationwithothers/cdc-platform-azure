@@ -19,22 +19,38 @@ Repeat only to rotate a credential.
 
 - The persistent layer has been applied at least once, so the vault and the two
   placeholder secrets exist.
-- You are signed in with `az login` as an account holding the Key Vault Secrets
-  Officer role on the platform vault. Terraform grants that role to the
-  principal it runs as, not to you, and Subscription Owner is not enough: the
-  vault uses Azure RBAC for its data plane, where control-plane ownership
-  carries no right to read or write a secret.
+- You are signed in with `az login` as an account that can create role
+  assignments on the vault, which means Owner or User Access Administrator.
 
-## Collect the inputs
+## Collect the inputs and grant yourself access
 
-The vault name and the Argo CD client ID come from Terraform outputs, so start
-in the layer directory. Every command below uses one value or the other.
+The vault name, the vault resource ID, and the Argo CD client ID all come from
+Terraform outputs, so start in the layer directory:
 
 ```shell
 cd infra/persistent
 VAULT_NAME=$(terraform output -raw key_vault_uri | sed 's|https://||; s|\..*||')
+VAULT_ID=$(terraform output -raw key_vault_id)
 ARGOCD_CLIENT_ID=$(terraform output -raw argocd_client_id)
 ```
+
+Terraform grants Key Vault Secrets Officer to the principal it applies as, not
+to you. The vault uses Azure RBAC for its data plane, and the Owner role
+carries an empty DataActions list, so owning the subscription gives you no
+right to write a secret. Grant your own account the role, once per vault:
+
+```shell
+az role assignment create \
+  --role "Key Vault Secrets Officer" \
+  --assignee-object-id "$(az ad signed-in-user show --query id --output tsv)" \
+  --assignee-principal-type User \
+  --scope "$VAULT_ID" \
+  --output none
+```
+
+A new assignment takes a minute or two to reach the data plane, so a
+`Forbidden` from the first `az keyvault secret set` below means wait and retry,
+not that the grant failed.
 
 ## Seed the Argo CD OIDC client secret
 
