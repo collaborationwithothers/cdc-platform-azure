@@ -1,28 +1,29 @@
 name: terraform
 
-# This is a public repository. The `plan` job below authenticates to Azure, so
-# it is gated so that no one outside the repo can trigger it or spend money.
+# This is a public repository. The plan jobs below authenticate to Azure, so
+# they are gated so that no one outside the repo can trigger them or spend
+# money.
 # Four layers, in order of importance:
 #
-#   1. `plan` runs only on `workflow_dispatch`, and dispatching a workflow needs
-#      write access to the repo. The public, and anyone opening a pull request
-#      from a fork, does not have it. Fork pull requests also receive no secrets
-#      and no OIDC token from GitHub, so the `validate` job cannot reach Azure
-#      either.
+#   1. The plan jobs run only on `workflow_dispatch`, and dispatching a workflow
+#      needs write access to the repo. The public, and anyone opening a pull
+#      request from a fork, does not have it. Fork pull requests also receive no
+#      secrets and no OIDC token from GitHub, so the `validate` job cannot reach
+#      Azure either.
 #   2. The `azure-plan` environment MUST be configured in repo Settings >
-#      Environments with a required reviewer (Hari) and its deployment branches
-#      restricted to `main`. Environment protection is enforced by GitHub even
-#      if the workflow file is edited on a branch, so it is the real lock. It
-#      cannot be expressed in YAML; it is a one-time repo setting.
+#      Environments with deployment branches `main`, `codex/*`, and `claude/*`,
+#      and no required reviewer. Environment protection is enforced by GitHub
+#      even if the workflow file is edited on a branch, so it is the real lock.
+#      It cannot be expressed in YAML; it is a one-time repo setting.
 #   3. The Azure federated credential for AZURE_CLIENT_ID MUST have its subject
 #      scoped to `repo:<owner>/<repo>:environment:azure-plan`. Azure then refuses
-#      to mint a token for any other trigger (a fork PR, a different branch).
+#      to mint a token outside that environment (a fork PR or an unapproved
+#      branch).
 #      This is created with the CI app registration in the identity ticket (P4),
 #      not here.
-#   4. `plan` runs `terraform plan` only. There is no `apply` or `destroy` in
-#      this workflow; AGENTS.md reserves both for Hari. `plan` is read-only
-#      against Azure and provisions nothing, so it cannot create a billable
-#      resource even if it runs.
+#   4. The plan jobs run `terraform plan` only. There is no `apply` or `destroy`
+#      in this workflow; AGENTS.md reserves both for Hari. A plan provisions
+#      nothing, so these jobs cannot create a billable resource even if they run.
 
 on:
   pull_request:
@@ -103,8 +104,8 @@ jobs:
         working-directory: tests/terraform/budget_plan_test
         run: terraform test -no-color
 
-  plan:
-    name: plan (Hari-dispatched, gated)
+  plan-persistent:
+    name: plan persistent (Hari-dispatched, gated)
     if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -115,6 +116,12 @@ jobs:
     defaults:
       run:
         working-directory: infra/persistent
+    env:
+      ARM_USE_OIDC: "true"
+      ARM_USE_AZUREAD: "true"
+      ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+      ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+      ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
     steps:
       - uses: actions/checkout@v4
       - uses: azure/login@v2
@@ -125,17 +132,43 @@ jobs:
       - uses: hashicorp/setup-terraform@v3
         with:
           terraform_version: "1.15.8"
-      - name: reject state and platform resource-group collision
+      - name: validate backend settings
         env:
           TF_BACKEND_RESOURCE_GROUP: ${{ vars.TF_BACKEND_RESOURCE_GROUP }}
+          TF_BACKEND_STORAGE_ACCOUNT: ${{ vars.TF_BACKEND_STORAGE_ACCOUNT }}
+          TF_BACKEND_CONTAINER: ${{ vars.TF_BACKEND_CONTAINER }}
+          TF_BACKEND_STATE_KEY: ${{ vars.TF_BACKEND_STATE_KEY }}
+          TF_DISPOSABLE_BACKEND_STATE_KEY: ${{ vars.TF_DISPOSABLE_BACKEND_STATE_KEY }}
         run: |
+          for variable_name in \
+            TF_BACKEND_RESOURCE_GROUP \
+            TF_BACKEND_STORAGE_ACCOUNT \
+            TF_BACKEND_CONTAINER \
+            TF_BACKEND_STATE_KEY \
+            TF_DISPOSABLE_BACKEND_STATE_KEY; do
+            if [[ -z "${!variable_name}" ]]; then
+              echo "::error::${variable_name} must be set."
+              exit 1
+            fi
+          done
+
           if [ "$TF_BACKEND_RESOURCE_GROUP" = "rg-cdc-platform-persistent" ]; then
             echo "::error::TF_BACKEND_RESOURCE_GROUP must not name the Terraform-managed platform resource group."
             exit 1
           fi
+
+          for variable_name in TF_BACKEND_STATE_KEY TF_DISPOSABLE_BACKEND_STATE_KEY; do
+            if [[ "${!variable_name}" =~ ^[[:space:]] || "${!variable_name}" =~ [[:space:]]$ ]]; then
+              echo "::error::${variable_name} must not have leading or trailing whitespace."
+              exit 1
+            fi
+          done
+
+          if [ "$TF_BACKEND_STATE_KEY" = "$TF_DISPOSABLE_BACKEND_STATE_KEY" ]; then
+            echo "::error::Persistent and disposable state keys must be different."
+            exit 1
+          fi
       - name: terraform init (backend names from Actions variables)
-        env:
-          ARM_USE_OIDC: "true"
         run: |
           terraform init -input=false \
             -backend-config="resource_group_name=${{ vars.TF_BACKEND_RESOURCE_GROUP }}" \
@@ -143,6 +176,45 @@ jobs:
             -backend-config="container_name=${{ vars.TF_BACKEND_CONTAINER }}" \
             -backend-config="key=${{ vars.TF_BACKEND_STATE_KEY }}"
       - name: terraform plan (no apply)
-        env:
-          ARM_USE_OIDC: "true"
+        run: terraform plan -input=false -no-color
+
+  plan-disposable:
+    name: plan disposable (after persistent succeeds)
+    if: github.event_name == 'workflow_dispatch'
+    needs: plan-persistent
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: azure-plan
+    permissions:
+      id-token: write
+      contents: read
+    defaults:
+      run:
+        working-directory: infra/disposable
+    env:
+      ARM_USE_OIDC: "true"
+      ARM_USE_AZUREAD: "true"
+      ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+      ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+      ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+      TF_VAR_persistent_state: >-
+        {"resource_group_name":"${{ vars.TF_BACKEND_RESOURCE_GROUP }}","storage_account_name":"${{ vars.TF_BACKEND_STORAGE_ACCOUNT }}","container_name":"${{ vars.TF_BACKEND_CONTAINER }}","key":"${{ vars.TF_BACKEND_STATE_KEY }}"}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.15.8"
+      - name: terraform init (disposable backend state key)
+        run: |
+          terraform init -input=false \
+            -backend-config="resource_group_name=${{ vars.TF_BACKEND_RESOURCE_GROUP }}" \
+            -backend-config="storage_account_name=${{ vars.TF_BACKEND_STORAGE_ACCOUNT }}" \
+            -backend-config="container_name=${{ vars.TF_BACKEND_CONTAINER }}" \
+            -backend-config="key=${{ vars.TF_DISPOSABLE_BACKEND_STATE_KEY }}"
+      - name: terraform plan (no apply)
         run: terraform plan -input=false -no-color
