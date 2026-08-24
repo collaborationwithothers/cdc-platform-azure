@@ -36,13 +36,26 @@ teardown-as-default, not a change to the identity design.
 | Resource | Notes |
 | --- | --- |
 | One logical Azure SQL server, one private endpoint, no public network access | Blueprint section 9. |
-| 3 tenant databases, S3-class | The baseline that ships. See V1 and V10 in [02-verification-register.md](02-verification-register.md) before the first apply. |
+| 3 tenant databases in a Standard elastic pool | The baseline that ships. The pool is provisioned at S3-equivalent per-database capacity. See V1 and V10 in [02-verification-register.md](02-verification-register.md) before the first apply. |
 | QueueState database, S0 | Platform-owned; the tenant databases stay the system of record. |
 | Entra admin on the logical server | So `CREATE USER FROM EXTERNAL PROVIDER` in onboarding can run. |
 
-The elastic pool contingency is not built speculatively. The pool variant is
-written only after V1 returns a verified yes, and it replaces the standalone
-databases rather than sitting beside them behind a flag.
+The Standard elastic pool at S3-equivalent per-database capacity is the baseline,
+and it replaces the standalone databases rather than sitting beside them behind a
+flag. Standalone S3 databases are demoted to a documented fallback, kept only for
+the case where the pool proves CDC-ineligible.
+
+CDC eligibility of the pool is not settled here. V1 owns it, and V1 is not yet
+recorded, so this spec does not assert the pool is CDC-eligible. What current
+Microsoft documentation confirms: CDC needs the S3 tier or higher for a
+standalone DTU-model database, and CDC is supported for elastic pools in any
+tier under the vCore model. The documentation is silent on the specific case of
+a DTU-model Standard elastic pool at 100 eDTU per database, which is exactly why
+this is a VERIFY-BEFORE-APPLY flag. SPEC-LEVEL for V1 to resolve: either confirm
+the DTU-model pool is CDC-eligible empirically, or provision the pool under the
+vCore model, where eligibility is documented and unambiguous. Verified 2026-08-24
+against
+https://learn.microsoft.com/azure/azure-sql/database/change-data-capture-overview
 
 ### Kafka and Connect
 
@@ -57,16 +70,18 @@ databases rather than sitting beside them behind a flag.
 Two worker settings, the rebalance delay and the rebalance protocol, are set on
 the `KafkaConnect` resource here but decided in [30-connect.md](30-connect.md),
 which explains what each one changes about how a worker loss behaves. The
-protocol value is set explicitly rather than inherited from a default, because
-V6 exists.
+`connect.protocol` value is set explicitly rather than inherited from a default,
+because V6 exists and refuted relying on the default as doc-backed.
 
 ### Tenant onboarding automation
 
 `tools/onboarding/`. Idempotent T-SQL plus a runner. Per tenant database, in
 order:
 
-1. Create `WorkflowTask`, `Outbox`, `TenantInfo` if absent, per
-   [00-shared-contracts.md](00-shared-contracts.md).
+1. Create `WorkflowTask`, `Outbox`, `TenantInfo`, and `DebeziumSignal` if
+   absent, per [00-shared-contracts.md](00-shared-contracts.md).
+   `DebeziumSignal` is the connector's incremental-snapshot watermarking table;
+   see [30-connect.md](30-connect.md).
 2. Enable CDC on the database, then on `dbo.Outbox` only.
 3. Enable Change Tracking on the database, then on `dbo.WorkflowTask` only,
    with `TRACK_COLUMNS_UPDATED = OFF`. SPEC-LEVEL: column tracking is off
@@ -82,10 +97,23 @@ order:
 
    Retention is per database, not per table, so the value above governs the one
    tracked table. See "Why 7 days" below.
-4. `CREATE USER FROM EXTERNAL PROVIDER` for the Connect identity, plus
-   `db_datareader` and EXECUTE on the `cdc` schema. Read-only, per blueprint
-   section 9.
-5. Write the `TenantInfo` claim row with the canonical tenantId.
+4. Enable snapshot isolation on the database. The changes feed in
+   [20-src-task-api.md](20-src-task-api.md) reads `CHANGETABLE` inside a snapshot
+   transaction, which the engine permits only when the database option is on.
+
+   ```sql
+   ALTER DATABASE [<tenant-db>] SET ALLOW_SNAPSHOT_ISOLATION ON;
+   ```
+5. `CREATE USER FROM EXTERNAL PROVIDER` for the Connect identity, plus
+   `db_datareader` and EXECUTE on the `cdc` schema. This is read-only on every
+   business and CDC table (blueprint section 9). The one exception is
+   `dbo.DebeziumSignal`: the connector identity is granted INSERT and SELECT on
+   that table only, because Debezium must write snapshot watermarks to it even
+   when the snapshot is triggered over the Kafka signal channel. Business tables
+   stay read-only; the signal table is the sole write grant. SPEC-LEVEL: this
+   refines blueprint section 9's read-only connector to read-only on tenant
+   data, since the signal table holds Debezium's own watermarks, not tenant rows.
+6. Write the `TenantInfo` claim row with the canonical tenantId.
 
 #### Why 7 days of change tracking retention
 
@@ -148,7 +176,7 @@ Default 2 days, minimum 1 minute, no documented maximum, units DAYS, HOURS, or
 MINUTES, and the setting is customer-controlled on Azure SQL Database with the
 same syntax as SQL Server.
 
-Steps 1, 2, 3, and 5 are the same source of truth that generates the connector
+Steps 1, 2, 3, and 6 are the same source of truth that generates the connector
 config in the connect/ area. Blueprint failure mode 9 requires exactly that: the
 connector's tenantId constant and the `TenantInfo` claim derive from one input,
 because a provisioning error that writes them independently is the failure the
@@ -237,8 +265,8 @@ mode 9 requires.
 | --- | --- | --- |
 | All Terraform | unit | `fmt -check`, `validate`, `tflint` in CI. |
 | Kafka and Connect manifests | unit | Schema-validate the rendered custom resources against the pinned Strimzi CRDs, offline. No cluster needed. |
-| Onboarding T-SQL, steps 1, 2, 3, 5 | containers | Run the runner against a Testcontainers SQL Server. Assert: tables exist; `sys.databases.is_cdc_enabled`; a capture instance on `dbo.Outbox` and none on `dbo.WorkflowTask`; `sys.change_tracking_tables` contains `WorkflowTask` and nothing else; the `TenantInfo` row holds the expected tenantId. Then run the whole thing a second time and assert nothing changed and nothing threw, which is the actual idempotency claim. |
-| Onboarding step 4 | live | `CREATE USER FROM EXTERNAL PROVIDER` needs a real Entra-backed server. Excluded from the container test by a flag, verified during the identity spike. Labelled `needs-live-test`. |
+| Onboarding T-SQL, steps 1, 2, 3, 4, 6 | containers | Run the runner against a Testcontainers SQL Server. Assert: tables exist, including `dbo.DebeziumSignal`; `sys.databases.is_cdc_enabled`; a capture instance on `dbo.Outbox` and none on `dbo.WorkflowTask`; `sys.change_tracking_tables` contains `WorkflowTask` and nothing else; `sys.databases.snapshot_isolation_state` is on for the database; the `TenantInfo` row holds the expected tenantId. Then run the whole thing a second time and assert nothing changed and nothing threw, which is the actual idempotency claim. |
+| Onboarding step 5 | live | `CREATE USER FROM EXTERNAL PROVIDER` and its grants need a real Entra-backed server. The signal-table INSERT and SELECT grant is part of this step, so it too is verified during the identity spike, not in the container test. Excluded from the container test by a flag. Labelled `needs-live-test`. |
 | KQL queries | unit | Each query parsed and validated offline. Query correctness against real data is verified during the live measurement tickets, not here. |
 | Alert rules cover the catalogue | unit | Assert one rule exists per row of observability.md section 2, matched by name, and that each carries its severity and links its dashboard and runbook anchor. A catalogue row with no rule is a documented alert nobody gets. |
 | No alert references an event nobody emits | unit | Cross-check every event name in the rendered rules against the vocabulary in observability.md section 5. Catches the rename that silently disables an alert, which is the failure the .NET areas test from their side and this one tests from the other. |
@@ -268,9 +296,9 @@ not before `validate`.
 | --- | --- | --- | --- |
 | D1 | V1 and V10 answered and recorded on the issue before any database resource is written. | documentation check | 1 file, 40 lines |
 | D2 | VNet, AKS with OIDC issuer and workload identity, node pools, ACR pull assignment, and the AKS federated credential on `id-connect`. | unit | 6 files, 320 lines |
-| D3 | Logical SQL server with private endpoint and DNS zone, 3 S3 tenant databases, QueueState S0. | unit | 5 files, 280 lines |
-| D4 | Onboarding runner and T-SQL for schema, CDC, Change Tracking, and the TenantInfo claim, proven idempotent against a container. | containers | 8 files, 420 lines |
-| D5 | Onboarding step 4, the Entra database user and grants, behind a flag, exercised in the spike. | live | 2 files, 90 lines |
+| D3 | Logical SQL server with private endpoint and DNS zone, 3 tenant databases in a Standard elastic pool at S3-equivalent per-database capacity (standalone S3 as documented fallback), QueueState S0. | unit | 5 files, 280 lines |
+| D4 | Onboarding runner and T-SQL for schema including `DebeziumSignal`, CDC, Change Tracking, snapshot isolation, and the TenantInfo claim, proven idempotent against a container. | containers | 8 files, 420 lines |
+| D5 | Onboarding step 5, the Entra database user and grants including INSERT and SELECT on `dbo.DebeziumSignal` only, behind a flag, exercised in the spike. | live | 2 files, 90 lines |
 | D6 | Strimzi operator, Kafka KRaft single broker, topics, users and ACLs. | unit, CRD schema validation | 7 files, 380 lines |
 | D7 | KafkaConnect resource with 2 workers, workload identity annotations, explicit connect protocol and rebalance delay. | unit, CRD schema validation | 4 files, 200 lines |
 | D8 | KQL queries and alert rules as code for the nine signals blueprint section 10 names. | unit, offline parse | 10 files, 340 lines |

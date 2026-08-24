@@ -34,18 +34,20 @@ way; only the published rationale depends on the answer.
 
 `connect/smt/`. A small Java project producing one jar.
 
-Blueprint section 3 specifies a four-stage chain in order: an operation filter
-dropping DELETEs, the outbox event router, a re-key to `{tenantId}-{taskId}`,
-and a tenantId header inject. V8 determines which stages exist as stock
-transforms. The current expectation, which V8 confirms or replaces:
+V8 resolved which stages exist as stock transforms. The chain is exactly three
+transforms in order: the outbox event router, a re-key to `{tenantId}-{taskId}`
+(`PrefixKey`), and a tenantId header inject (`InsertHeader`). SPEC-LEVEL where
+this refines the blueprint: blueprint section 3 sketched a four-stage chain with
+a leading operation filter dropping DELETEs; V8 found the outbox event router
+drops outbox DELETE events itself, so no separate delete-filter stage exists and
+the sketch's first stage collapses into the router.
 
-| Stage | Expectation | If not stock |
+| Stage | What runs | Notes |
 | --- | --- | --- |
-| Drop DELETE operations | Possibly covered by the outbox router's own delete handling, otherwise a stock filter | Small custom transform |
-| Outbox event router | Stock, shipped with Debezium | n/a |
-| Promote the outbox `TraceParent` column to a `traceparent` header | Stock, a configuration property on the router above rather than a stage of its own | A fifth stage: a small custom transform reading the column and setting the header |
-| Re-key with a constant prefix from connector config | Not stock. No stock transform prefixes a key with a configured constant. | Custom transform, `PrefixKey`, taking a `prefix` configuration property |
-| Inject a static header | Stock header-insert transform | n/a |
+| Outbox event router | Stock, shipped with Debezium | Unwraps the outbox row into the plain envelope, and drops outbox DELETE events itself, so pruning the outbox never becomes downstream transition traffic. |
+| Promote the outbox `TraceParent` column to a `traceparent` header | Stock, a configuration property on the router above, not a stage of its own | Carried by `transforms.outbox.table.fields.additional.placement`; if the router cannot do it, the fallback is a small custom transform, which changes no contract. |
+| Re-key with a constant prefix from connector config, `PrefixKey` | Custom transform, taking a `prefix` configuration property | Not stock. No stock transform prefixes a key with a configured constant. |
+| Inject a static header, `InsertHeader` | Stock header-insert transform | Sets the `tenantId` header to the configured constant. |
 
 The re-key transform is the one that almost certainly must be written, and it is
 the one that matters most. ADR-005 makes the compound key a correctness
@@ -77,16 +79,17 @@ Shape, SPEC-LEVEL and provisional pending V7:
     "database.hostname": "{sqlServerFqdn}",
     "database.port": "1433",
     "database.names": "{databaseName}",
-    "database.encrypt": "true",
+    "driver.encrypt": "true",
     "driver.authentication": "ActiveDirectoryDefault",
     "table.include.list": "dbo.Outbox",
     "schema.history.internal.kafka.bootstrap.servers": "{bootstrap}",
     "schema.history.internal.kafka.topic": "schema-history-{tenantId}",
-    "signal.enabled.channels": "kafka",
+    "signal.enabled.channels": "source,kafka",
     "signal.kafka.topic": "connect-signals",
     "signal.kafka.bootstrap.servers": "{bootstrap}",
+    "signal.data.collection": "{databaseName}.dbo.DebeziumSignal",
     "errors.max.retries": "10",
-    "transforms": "dropDeletes,outbox,rekey,tenantHeader",
+    "transforms": "outbox,rekey,tenantHeader",
     "transforms.outbox.table.fields.additional.placement": "TraceParent:header:traceparent",
     "transforms.rekey.type": "com.lexfield.connect.PrefixKey",
     "transforms.rekey.prefix": "{tenantId}-",
@@ -96,6 +99,26 @@ Shape, SPEC-LEVEL and provisional pending V7:
 }
 ```
 
+Encryption is a driver pass-through, not a connector property. Debezium forwards
+every `driver.*`-prefixed property to the mssql-jdbc driver unchanged, and the
+driver's own property is `encrypt`, so the setting is `driver.encrypt`, not
+`database.encrypt`. A `database.encrypt` key would be ignored by both.
+
+Incremental snapshots need a writable in-database signaling table. The SQL
+Server connector watermarks each snapshot chunk by writing open and close
+markers into a signaling table in the tenant database, then interleaving those
+markers with the change stream so it can tell a snapshot row from a live one.
+That watermarking is required even when the snapshot is triggered over the Kafka
+signal channel: the Kafka channel only starts the snapshot, and the connector
+still writes its watermarks to the table. So `signal.enabled.channels` is
+`source,kafka` (the source channel is the in-database table, kafka is the
+trigger), `signal.data.collection` points at `dbo.DebeziumSignal`, and each
+tenant database carries that table. It is provisioned by onboarding, which also
+grants the connector identity INSERT and SELECT on it and on nothing else
+writable; see [11-infra-disposable.md](11-infra-disposable.md). This is the one
+place the otherwise read-only connector writes to a tenant database, and the
+grant is scoped to that single table.
+
 The `table.fields.additional.placement` line is the whole of the tracing wiring
 on this side, and it is the reason
 [00-shared-contracts.md](00-shared-contracts.md) gives `TraceParent` its own
@@ -103,7 +126,7 @@ outbox column: promoting a column to a header is configuration, and digging a
 field out of a JSON string would be a second custom transform. Its exact
 property name and value syntax are provisional pending
 [V14](02-verification-register.md); if the router cannot do it, the fallback is
-the fifth transform named in the stage table above, which is small and does not
+the small custom transform named in the stage table above, which does not
 change any contract.
 
 No `database.user`, no `database.password` on the primary path. Blueprint
@@ -178,7 +201,8 @@ The end-to-end container test, `tests/Lexfield.Connect.Tests/`:
 
 1. Start a SQL Server container, a Kafka container, and a Connect container
    running the built image.
-2. Apply the onboarding T-SQL to create the schema and enable CDC on `dbo.Outbox`.
+2. Apply the onboarding T-SQL to create the schema, including `dbo.DebeziumSignal`
+   for snapshot watermarking, and enable CDC on `dbo.Outbox`.
 3. Register a connector through the Connect REST API using the generated
    configuration, with SQL authentication rather than Entra, since a container
    has no Entra. The authentication mode is the only difference from production.
@@ -190,7 +214,7 @@ The end-to-end container test, `tests/Lexfield.Connect.Tests/`:
 | Key equals `{tenantId}-{taskId}` | ADR-005. A regression here corrupts every consumer's version tracking simultaneously. |
 | `tenantId` header present with the configured value | The isolation trust root. |
 | Value is the plain envelope, not a CDC change record | Proves the outbox router unwrapped it. |
-| A DELETE on the outbox row produces no message | Outbox pruning must not become a downstream event (ADR-001). The most likely thing to silently break. |
+| A DELETE on the outbox row produces no message | The outbox event router drops DELETEs itself, so outbox pruning must not become a downstream event (ADR-001). The most likely thing to silently break. |
 | Two tenants with the same taskId produce two distinct keys | The collision ADR-005 exists to prevent, tested rather than argued. |
 | An incremental snapshot signal on `connect-signals` triggers a re-read | V3's behaviour, exercised rather than assumed. |
 | `traceparent` header present and byte-identical to the outbox `TraceParent` column | The trace survives the hop, which is the one place it can be lost silently. A broken trace looks exactly like a working one until an operator needs it at 03:00. |

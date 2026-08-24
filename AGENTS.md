@@ -126,6 +126,9 @@ its checklist did not declare, stop and say so on the issue.
 - ADRs record real reasoning and rejected alternatives, not generic
   explanations. ADRs live in docs/decisions/ and follow the numbering already
   seeded from the blueprint.
+- Diagrams: .drawio sources in docs/diagrams/ using official Azure icons where
+  Azure services appear; CI exports renders and fails on staleness; review
+  judges the render, not the XML.
 
 ### Implementation and governance review are separate
 
@@ -323,7 +326,6 @@ Then:
 Output: verdict (APPROVE or REQUEST CHANGES), numbered findings by severity
 citing file and line, then a short "For Hari to check by hand" section naming
 the one or two highest-leverage manual checks.
-7. Diagrams: .drawio sources in docs/diagrams/ using official Azure icons where Azure services appear; CI exports renders and fails on staleness; review judges the render, not the XML
 
 ### Learning loop
 
