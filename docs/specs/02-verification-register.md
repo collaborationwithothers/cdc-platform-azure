@@ -331,6 +331,16 @@ its first action and records the outcome on the issue.
 
 ## V8. SMT chain realisability from stock transforms
 
+**Update (2026-08-27, ADR-005 reshaped).** The re-key stage is removed from the
+design. The compound key is authored by task-api into the outbox `AggregateId`
+inside the business transaction, and the stock outbox event router keys each
+message from that column via `table.field.event.key` (V7; default `aggregateid`).
+The chain is now two stock transforms, the router and `InsertHeader`, and no
+custom `PrefixKey` transform exists. The finding below, that a constant-prefix
+re-key is not a stock transform, still stands as fact but is moot: nothing
+re-keys. The rest of this entry is retained as the historical evidence behind the
+2026-08-23 outcome.
+
 - Flag: not tagged in the blueprint. Added because blueprint section 3 specifies
   a four-stage SMT chain without saying which stages exist as stock transforms.
 - Owner: connect/.
@@ -518,10 +528,10 @@ its first action and records the outcome on the issue.
 - Consequence if yes: no fifth transform, and the tracing wiring on the connect
   side is one configuration line.
 - Fallback if no or unverifiable: a small custom transform reading the column and
-  setting the header, added to the chain after the router. It is the same shape
-  as `PrefixKey`, which the area is already writing and testing, so the cost is
-  bounded and no contract changes. The header contract, the column, and every
-  consumer stay exactly as specified.
+  setting the header, added to the chain after the router. A bounded cost with no
+  contract change; after the ADR-005 reshape it would be the connect area's only
+  custom transform, and the verified outcome below means it is not needed. The
+  header contract, the column, and every consumer stay exactly as specified.
 - Blocking: the connect area's SMT ticket. Not blocking for the .NET areas,
   which depend on the header existing, not on how it got there.
 - Outcome (2026-08-23, issue #63): VERIFIED (yes), no fifth transform needed.

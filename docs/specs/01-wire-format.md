@@ -50,7 +50,8 @@ Two consequences follow, and both are load-bearing elsewhere in this repo:
 - **Pruning produces events.** The DELETE is itself a change to `dbo.Outbox`, so
   it appears in the change table as a delete operation. Without something
   dropping those, every pruned row would arrive downstream as a spurious event.
-  That is why the SMT chain's first stage is an operation filter (ADR-001).
+  The stock outbox event router drops these delete events itself, so no separate
+  filter transform is needed (ADR-001).
 
 **Shape 2, the Debezium change record.** The connector reads a row from that
 change table and emits a record describing the row change, not the business
@@ -63,7 +64,7 @@ the operation, and source metadata. Illustrative shape, exact fields owned by V7
   "after": {
     "Id": 92841,
     "AggregateType": "WorkflowTask",
-    "AggregateId": "4711",
+    "AggregateId": "lexfield-002-4711",
     "EventType": "TaskTransitioned",
     "Version": 7,
     "Payload": "{\"taskId\":4711,\"from\":\"Assigned\",...}"
@@ -79,8 +80,9 @@ event is a string inside one of its columns. Nothing downstream should have to
 know that.
 
 **Shapes 3 and 4, the SMT chain and the message on the topic.** Worked through
-below, because this is where the compound key and the tenant header are created
-and both are correctness requirements.
+below, because this is where the tenant header is added and the router keys the
+message from the compound id task-api already authored into `AggregateId`, both
+of which are correctness requirements.
 
 ### What an SMT is, and the chain traced through
 
@@ -89,8 +91,9 @@ Connect worker between the connector and the topic. It takes one message and
 returns one message, or returns nothing to drop it. It cannot see any other
 message, cannot join, and cannot count. One in, one out. Blueprint glossary.
 
-Four of them run in order, each fed the previous one's output. They are named in
-the connector config: `transforms: dropDeletes,outbox,rekey,tenantHeader`.
+Two of them run in order, each fed the previous one's output. They are named in
+the connector config: `transforms: outbox,tenantHeader`. Both are stock; the
+platform authors no custom SMT (ADR-005).
 
 Take a real message. Tenant `lexfield-002` is Brightwell LLP; its task 4711
 moves from Assigned to InProgress at version 7. The connector reads the change
@@ -98,47 +101,40 @@ row and hands the chain this:
 
 ```
 key     {"Id": 92841}
-value   {"after": {"Id":92841,"AggregateId":"4711","Version":7,
+value   {"after": {"Id":92841,"AggregateId":"lexfield-002-4711","Version":7,
                    "Payload":"{\"taskId\":4711,\"to\":\"InProgress\",...}",
                    "TraceParent":"00-4bf92f...4736-00f067aa0ba902b7-01"},
          "op":"c"}
 headers (none)
 ```
 
-**1. dropDeletes** reads `op`. It is `c` for create, so the message passes
-through untouched. Had this been the nightly outbox pruning deleting row 92841,
-`op` would be `d` and this transform would return nothing: the message would
-stop here and never reach the topic.
-
-**2. outbox**, the event router, pulls the `Payload` string out of the envelope
-and makes it the message value, sets the key from `AggregateId`, and adds three
-headers from the row.
+**1. outbox**, the event router, pulls the `Payload` string out of the envelope
+and makes it the message value, sets the key from `AggregateId`, and adds the
+outbox columns it is configured to promote as headers. Because task-api authored
+the compound id into `AggregateId`, the key is already `lexfield-002-4711`: the
+router copies it, it does not build it. Had this been the nightly outbox pruning
+deleting row 92841, `op` would be `d`, and the router drops outbox delete events
+itself, so the message would stop here and never reach the topic.
 
 ```
-key     "4711"
+key     "lexfield-002-4711"
 value   {"taskId":4711,"from":"Assigned","to":"InProgress","version":7,...}
 headers eventType=TaskTransitioned, eventId=92841,
         traceparent=00-4bf92f...4736-00f067aa0ba902b7-01
 ```
 
-`traceparent` is the third because the router can map additional outbox columns
+`traceparent` is a promoted column: the router can map additional outbox columns
 onto headers, which is why
 [00-shared-contracts.md](00-shared-contracts.md) puts it in its own column
 rather than inside `Payload`. The property that configures the mapping is
 provisional pending [V14](02-verification-register.md).
 
-The message is now the business event. But the key is `4711`, and Ashworth & Co
-on `lexfield-001` also has a task 4711.
+The message is now the business event, and the key is already the globally unique
+`lexfield-002-4711`. Ashworth & Co on `lexfield-001` has its own task 4711 under
+the key `lexfield-001-4711`, so the two never collide.
 
-**3. rekey** is configured with `prefix = lexfield-002-`. That string comes from
-this connector's configuration, written by provisioning. It prepends it.
-
-```
-key     "lexfield-002-4711"
-```
-
-**4. tenantHeader** is configured with the same constant and adds it as a
-header.
+**2. tenantHeader** adds the tenant id as a header, from this connector's
+configuration.
 
 ```
 key     "lexfield-002-4711"
@@ -149,11 +145,16 @@ headers tenantId=lexfield-002, eventType=TaskTransitioned, eventId=92841,
 
 That is shape 4, the message on `workflow-transitions`.
 
-Notice where `lexfield-002` entered: at steps 3 and 4, from connector
-configuration. The database never supplied it; `AggregateId` said only `4711`.
-That is what makes the attribution check in
-[00-shared-contracts.md](00-shared-contracts.md) able to compare two independent
-statements rather than one statement against itself.
+Notice where `lexfield-002` entered. The key carried it from the database:
+task-api authored `lexfield-002-4711` into `AggregateId` inside the business
+transaction (ADR-005), and the router only copied it. The header carried it
+separately, from connector configuration. That split is what the attribution
+check in [00-shared-contracts.md](00-shared-contracts.md) rests on: the
+reconciler compares the header tenant id, written from connector config, against
+the `TenantInfo` claim in the tenant's own database, two independently written
+statements, so a mis-provisioned connector's wrong header shows up as a
+disagreement. The key never passes through connector config, so it cannot be
+mis-stamped this way at all.
 
 The connect area's container test asserts shape 4, and asserts that a delete on
 the outbox row produces no message at all. Both assertions are meaningless
@@ -183,11 +184,14 @@ The `Payload` column, and therefore the message value on the topic.
 - `traceparent` is deliberately absent for the same reason it is a column rather
   than a payload field: the envelope is what happened, and the trace identifier
   is how the platform followed it. It travels as a header.
-- `tenantId` is deliberately absent. It exists on the message key and in the
-  header, both stamped from connector config, so there is exactly one
-  attribution source. Two sources could disagree, and a disagreement would
-  degrade the failure-mode-9 check from a comparison against source truth into a
-  comparison of a value against itself. SPEC-LEVEL, with that rationale.
+- `tenantId` is deliberately absent from the payload. The tenant id reaches a
+  consumer two ways: as the leading segment of the message key, authored at
+  source inside the compound aggregate id (ADR-005), and as the `tenantId`
+  header, stamped from connector config. The header is the attribution trust
+  root the failure-mode-9 check reads (blueprint section 9); the key's segment is
+  part of the aggregate's global identity, not an attribution source to be
+  parsed. Consumers read tenant from the header only. SPEC-LEVEL, with that
+  rationale.
 
 ## How the value is serialized
 
@@ -268,8 +272,9 @@ recover its offsets and schema history after being replaced.
 | `schema-history-{tenantId}` | 1 | Per-connector schema history. Compacted. |
 | `connect-configs`, `connect-offsets`, `connect-status` | Connect defaults | Connect internal state. Compacted. |
 
-Message key: the string `{tenantId}-{taskId}`, for example `lexfield-001-4711`
-(ADR-005).
+Message key: the string `{tenantId}-{taskId}`, for example `lexfield-001-4711`,
+authored by task-api into the outbox `AggregateId` and copied to the key by the
+router (ADR-005).
 
 Headers, all values UTF-8 strings:
 
@@ -281,8 +286,9 @@ Headers, all values UTF-8 strings:
 | `traceparent` | SMT chain, from the outbox `TraceParent` column | W3C trace context. Consumers continue the trace from it (observability.md section 3). |
 
 Consumers treat a message with a missing or unparseable `tenantId` header as a
-poison event and park it. They never fall back to the key, because a key
-malformed in the same way is the same fault.
+poison event and park it. They never fall back to the key: tenant comes from the
+header, and the compound key is an opaque identity consumers do not split
+(ADR-005).
 
 A missing or unparseable `traceparent` is handled the other way round: the
 consumer starts a new trace with no parent and carries on. The difference is

@@ -98,13 +98,25 @@ UPDATE dbo.WorkflowTask
 -- zero rows affected: roll back, return 409
 
 INSERT INTO dbo.Outbox (AggregateType, AggregateId, EventType, Version, Payload, TraceParent)
-VALUES ('WorkflowTask', @taskId, 'TaskTransitioned', @expectedVersion + 1, @payload, @traceParent);
+VALUES ('WorkflowTask', @aggregateId, 'TaskTransitioned', @expectedVersion + 1, @payload, @traceParent);
 
 COMMIT;
 ```
 
 Both writes or neither. This is the mechanism the whole platform rests on
 (ADR-001), so it is one transaction with no retry loop hiding inside it.
+
+`@aggregateId` is the compound key `{tenantId}-{taskId}`, built in application
+code from the route's tenant id and the task id, and written into `AggregateId`
+inside this same transaction. This is where ADR-005's aggregate identity is
+authored: the key is a property of the contract, not of Connect configuration,
+so the stock outbox router keys straight from this column and no re-key SMT
+exists. The compound string is identity and key only; the payload keeps `taskId`
+as a bare integer, so consumers read the tenant from the header and the local id
+from the payload and never split the string. A unit test asserts the format,
+that the authored id equals `{tenantId}-{taskId}` for given inputs, so a
+formatting regression fails in CI rather than silently corrupting every
+consumer's keys at once.
 
 `@traceParent` is the current activity's W3C identifier, or null when there is no
 active trace. It goes in this statement rather than a following one for the same
