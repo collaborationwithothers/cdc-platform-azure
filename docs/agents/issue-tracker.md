@@ -33,7 +33,8 @@ owns. Rules:
   the template's Paths section; governance review checks it.
 - Areas (coarse path groups tickets should cluster within): infra/persistent,
   infra/disposable, src/task-api, src/queue-builder, src/queue-reconciler,
-  src/notifier, connect/ (images, connector configs, SMT chain), docs/.
+  src/notifier, connect/ (images, connector configs, SMT chain),
+  gitops/ (Argo tree, sync waves, Istio and ingress resources), docs/.
 
 ## Ticket shape
 
