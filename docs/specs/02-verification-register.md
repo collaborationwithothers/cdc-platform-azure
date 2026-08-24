@@ -624,14 +624,45 @@ its first action and records the outcome on the issue.
   `parentRef`)" and "Waypoints: Gateway API Stable Channel (`HTTPRoute`,
   `GRPCRoute`)" Stable. Recorded as PARTIAL because those are three component
   statements rather than one claim about the pair.
-- Mode chosen: ambient, on Istio 1.30.3. The fallback is not taken. The
-  justification is the one ADR-010 gives, node headroom, and nothing found here
-  weakens it. What the check did establish is the boundary: ambient multicluster
-  is still Beta, so nothing may be built on it, and waypoint extension through
-  WebAssembly or Lua is Alpha. The v1 mesh capability ADR-010 names, JWT
-  authorisation policy, is not one of those Alpha items, but JWT claim based
-  routing is, so an authorisation policy may match on a claim's presence and may
-  not route on its value.
+- Mode chosen: ambient, on Istio 1.30.3. The fallback is not taken, and the
+  reason is not that the PARTIAL is weak evidence. It is that the unverified
+  part of the pairing sits outside the path v1 exercises.
+  Walk the exercised surface. Gateway API usage here is north-south only, and in
+  Istio the ingress gateway is a full standalone Envoy deployment under either
+  dataplane mode, so the gateway itself does not change with the choice. The one
+  mesh capability beyond ingress is the JWT authorisation policy attached at
+  that gateway (G6), which is gateway-local policy rather than workload-side L7.
+  The place where ambient and Gateway API genuinely interact in novel ways is
+  east-west: ztunnel enrolment and waypoint proxies carrying workload-level L7
+  policy. v1 enrols no workloads there. Kafka is excluded by design, and the
+  .NET services need no mesh policy in v1.
+  So the three component-level Stable statements cover everything this platform
+  runs, and the pair-level statement that is missing covers things it does not
+  run. Choosing sidecar to hedge would buy insurance against an exposure that
+  does not exist, while paying per-pod proxy overhead on spot nodes, which is
+  the cost ambient was preferred to avoid. Sidecar with zero labelled namespaces
+  would inject nothing anyway, which is a fair measure of how little the choice
+  binds at v1 scope.
+- Flip trigger, so the fallback is a condition rather than a feeling: if G4b's
+  live verification shows gateway or policy misbehaviour attributable to the
+  ambient dataplane, flip to sidecar and record the flip. That is a values
+  change with no contract impact.
+- Boundary of what this row verified: the north-south path and gateway-attached
+  policy only. Any future ticket that proposes enrolling workloads into ambient,
+  whether waypoint L7 policy or ztunnel mTLS for the services, re-opens the
+  verification question for the east-west path rather than inheriting this
+  answer.
+- Also established, and separate from the mode choice: ambient multicluster is
+  still Beta, so nothing may be built on it, and waypoint extension through
+  WebAssembly or Lua is Alpha. The JWT authorisation policy ADR-010 names is not
+  one of those Alpha items, but JWT claim based routing is, so a policy may
+  match on a claim's presence and may not route on its value.
+- Carried obligation, owned by G7 (ADR-010 transcription): the ADR-010 dataplane
+  sentence, and any public lab note that repeats it, state the evidence exactly
+  as it stands here. Three component Stable statements, the pair not jointly
+  stated, the exercised path scoped to gateway plus gateway-attached policy. No
+  public claim outruns the documentation. That file is outside this ticket's
+  declared path, so the wording lands with G7 rather than here.
 - The Kafka exclusion, which is a design fact and not only a verification
   result: ambient redirection is whole-pod, and there is no per-port opt-out.
   The `traffic.sidecar.istio.io/exclude*Ports` annotations are sidecar-only.
