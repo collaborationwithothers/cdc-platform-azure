@@ -14,11 +14,12 @@ Paths owned: `connect/image/`, `connect/smt/`, `connect/connectors/`,
 ### Custom Connect image
 
 `connect/image/`. Blueprint section 3 lists what it bakes in: the Debezium SQL
-Server connector, mssql-jdbc, the azure-identity dependency tree, and the Key
-Vault configuration provider. Built by CI on ubuntu-latest, pushed to the
-persistent ACR. No custom SMT jar is baked in: the chain is stock transforms
-only, because the compound key is authored by task-api at source rather than
-assembled in Connect (ADR-005).
+Server connector, mssql-jdbc, and the azure-identity dependency tree. Built by
+CI on ubuntu-latest, pushed to the persistent ACR. The image bakes in no custom
+jars: no custom SMT, because the compound key is authored by task-api at source
+rather than assembled in Connect (ADR-005), and no Key Vault configuration
+provider, removed with the custom-jar scope cut (2026-08-24). It is the
+connector, the driver, and the azure-identity tree only.
 
 The azure-identity, mssql-jdbc, and MSAL4J version coupling on the Connect
 classpath is named in blueprint section 13 as a learning item, which is another
@@ -128,9 +129,12 @@ the small custom transform named in the stage table above, which does not
 change any contract.
 
 No `database.user`, no `database.password` on the primary path. Blueprint
-section 9 requires zero secrets in connector configurations, and the Key Vault
-configuration provider covers the ADR-006 fail path by config change, not by a
-different template.
+section 9 requires zero secrets in connector configurations. The ADR-006 SQL-auth
+fail path is no longer served by a Key Vault configuration provider baked into
+the image, since that provider was removed with the custom-jar scope cut
+(2026-08-24). How the fallback obtains its secret is OPEN and owned by the
+identity spike, not this template; blueprint section 3 and ADR-006 still describe
+the provider and need the same cut.
 
 The stream-isolated tenant differs in one place only: its routing sends events
 to `workflow-transitions-{tenantId}` instead of `workflow-transitions`. It is
@@ -248,7 +252,7 @@ service areas, which makes it a good early parallel slot.
 | --- | --- | --- | --- |
 | C1 | V3, V6, V7, V8 answered and recorded before any configuration ships. | documentation check | 1 file, 60 lines |
 | C2 | Remove the custom SMT: delete `connect/smt/`, its build, and the image's jar reference (ADR-005 authors the key at source). | containers, the existing C5 chain test | 4 files, 120 lines |
-| C3 | Custom image with the connector, driver, identity libraries, Key Vault provider, and the plugin-list smoke stage. CI builds and pushes it. | unit | 5 files, 260 lines |
+| C3 | Custom image with the connector, driver, identity libraries, and the plugin-list smoke stage. CI builds and pushes it. | unit | 5 files, 260 lines |
 | C4 | Connector configuration template and generator over the tenant manifest, golden-file tested, including the stream-isolated variant. | unit | 6 files, 320 lines |
 | C5 | End-to-end container test: SQL Server to Connect to Kafka, asserting key, headers, envelope, and DELETE suppression. | containers | 5 files, 460 lines |
 | C6 | Incremental snapshot over the Kafka signal channel, exercised in the container test. | containers | 3 files, 220 lines |
