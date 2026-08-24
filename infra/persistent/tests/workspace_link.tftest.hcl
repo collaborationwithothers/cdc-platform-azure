@@ -24,6 +24,34 @@ mock_provider "azurerm" {
   }
 }
 
+# The layer plans Entra objects too, so azuread is mocked here as well: without
+# it, planning would try to reach Microsoft Graph.
+mock_provider "azuread" {
+  override_during = plan
+
+  mock_data "azuread_client_config" {
+    defaults = {
+      object_id = "00000000-0000-0000-0000-00000000000a"
+    }
+  }
+
+  mock_data "azuread_application_published_app_ids" {
+    defaults = {
+      result = {
+        MicrosoftGraph = "00000003-0000-0000-c000-000000000000"
+      }
+    }
+  }
+
+  mock_resource "azuread_service_principal" {
+    defaults = {
+      oauth2_permission_scope_ids = {
+        "User.Read" = "00000000-0000-0000-0000-00000000000b"
+      }
+    }
+  }
+}
+
 run "links_application_insights_to_the_layer_workspace" {
   command = plan
 
