@@ -544,3 +544,168 @@ its first action and records the outcome on the issue.
   3.6.1.Final; no version pinned in the repo yet, so C3 pins 3.6.x or
   re-verifies. Source:
   https://debezium.io/documentation/reference/3.6/transformations/outbox-event-router.html
+
+## V15. Istio version pin and Gateway API conformance
+
+- Flag: not tagged in the blueprint. Added because ADR-010 makes Istio's Gateway
+  API implementation the single north-south entry, and AGENTS.md forbids
+  shipping a remembered version or API-shape claim.
+- Owner: gitops/.
+- Question: which Istio version does the platform pin, which Gateway API version
+  does that release implement, and is its support for `Gateway`, `HTTPRoute`,
+  and `ReferenceGrant` conformant and stable rather than experimental?
+- Consequence if the resources are not stable: the ingress design in ADR-010
+  rests on an experimental API, and the manifests wait until it is not.
+- Fallback: Istio's own `Gateway` and `VirtualService` resources, which are
+  stable and which ADR-010 rejected on the grounds that Gateway API is the
+  direction of travel. Costs the rewrite of the gateway manifests, not the
+  design.
+- Outcome (2026-08-24, issue #131): VERIFIED, with one part PARTIAL. Pin Istio
+  1.30.3, the current stable release. Istio's supported-release policy is
+  "Support provided until 6 weeks after the N+2 minor release", which leaves
+  1.30 and 1.29 supported today. Istio 1.30 is "officially supported on
+  Kubernetes versions 1.32 to 1.36".
+  Istio 1.30 implements Gateway API v1.5.1: "Istio 1.30 upgrades its Gateway API
+  dependency to `v1.5.1` and reads `TLSRoute` and `ReferenceGrant` from the
+  Standard channel". The Gateway API project lists "Istio passes conformance for
+  v1.5.1", and the published report records core success on the GATEWAY-HTTP,
+  GATEWAY-GRPC, GATEWAY-TLS, and MESH-HTTP profiles.
+  Per resource: `Gateway` is Stable ("Kubernetes Gateway APIs for ingress
+  (`Gateway` `parentRef`)"), `HTTPRoute` is Stable ("Waypoints: Gateway API
+  Stable Channel (`HTTPRoute`, `GRPCRoute`)"), and `ReferenceGrant` is PARTIAL:
+  Istio reads it from the Standard channel as of 1.30, but the conformance
+  report carries no per-feature line for it, so its support is covered only by
+  the passing core profiles. The fallback is not taken; all three resources ship.
+- Two constraints the manifest tickets (G4a, G4b) must carry, both from the same
+  upgrade notes. Pin the Gateway API CRDs at v1.5.1 and the Standard channel,
+  not at upstream latest, which is already v1.6.1; Istio 1.30 was tested against
+  v1.5.1. Apply those CRDs before Istio itself, because otherwise "`TLSRoute`
+  and `ReferenceGrant` resources will become invisible to istiod. Existing TLS
+  passthrough `Gateway` listeners will silently report
+  `status.listeners[].attachedRoutes: 0` and the Envoy listener will not be
+  programmed." A silent zero is the failure mode to avoid, so the CRD wave
+  precedes the Istio wave.
+- One AKS-specific constraint, which applies to every `Gateway` resource:
+  "If you are using Gateway API with AKS, you might also need add the following
+  configuration to the `Gateway` resource: `infrastructure: annotations:
+  service.beta.kubernetes.io/port_<http[s] port>_health-probe_protocol: tcp`",
+  because Azure Load Balancer health checks fail when the root path does not
+  return 200.
+  Sources: https://istio.io/latest/docs/releases/supported-releases/ ,
+  https://istio.io/latest/news/releases/1.30.x/announcing-1.30/upgrade-notes/ ,
+  https://gateway-api.sigs.k8s.io/implementations/ ,
+  https://istio.io/latest/docs/releases/feature-stages/ , and
+  https://istio.io/latest/docs/setup/platform-setup/azure/
+
+## V16. Ambient dataplane GA status and the mode this platform runs
+
+- Flag: not tagged in the blueprint. ADR-010 states the dataplane mode is
+  "pinned by the verification ticket, not memory", with ambient preferred for
+  node headroom and sidecar as the fallback.
+- Owner: gitops/.
+- Question: is the ambient dataplane generally available, from which version,
+  and is it GA in combination with Gateway API ingress, which is what this
+  platform needs? Separately, how is a workload excluded from interception,
+  since Kafka traffic stays outside the mesh and Strimzi's mTLS owns it?
+- Consequence if ambient is not GA: the node-headroom argument does not survive
+  running a beta dataplane under the whole platform.
+- Fallback: sidecar mode. Costs the per-pod proxy memory that ambient was chosen
+  to avoid, and changes no manifest other than the injection labels.
+- Outcome (2026-08-24, issue #131): VERIFIED for ambient itself, PARTIAL for the
+  combination. Ambient reached GA in Istio 1.24: "Istio's ambient data plane
+  mode has reached General Availability, with the ztunnel, waypoints and APIs
+  being marked as Stable by the Istio TOC." The feature-stages page marks
+  ztunnel and waypoints as Stable.
+  The combination of ambient with Gateway API ingress carries no single
+  statement grading it GA. What is separately Stable is enough to proceed and is
+  quoted rather than inferred: the GA announcement lists "Connecting Istio
+  ingress gateways to ambient workloads" among the Stable capabilities, and the
+  feature-stages page marks both "Kubernetes Gateway APIs for ingress (`Gateway`
+  `parentRef`)" and "Waypoints: Gateway API Stable Channel (`HTTPRoute`,
+  `GRPCRoute`)" Stable. Recorded as PARTIAL because those are three component
+  statements rather than one claim about the pair.
+- Mode chosen: ambient, on Istio 1.30.3. The fallback is not taken. The
+  justification is the one ADR-010 gives, node headroom, and nothing found here
+  weakens it. What the check did establish is the boundary: ambient multicluster
+  is still Beta, so nothing may be built on it, and waypoint extension through
+  WebAssembly or Lua is Alpha. The v1 mesh capability ADR-010 names, JWT
+  authorisation policy, is not one of those Alpha items, but JWT claim based
+  routing is, so an authorisation policy may match on a claim's presence and may
+  not route on its value.
+- The Kafka exclusion, which is a design fact and not only a verification
+  result: ambient redirection is whole-pod, and there is no per-port opt-out.
+  The `traffic.sidecar.istio.io/exclude*Ports` annotations are sidecar-only.
+  Redirection is established by istio-cni entering the pod network namespace, so
+  the Strimzi namespace is excluded wholesale with
+  `istio.io/dataplane-mode=none`, or through the CNI agent's `excludeNamespaces`.
+  G4a and G4b carry that as a namespace-level exclusion, not a port list.
+  Sources: https://istio.io/latest/blog/2024/ambient-reaches-ga/ ,
+  https://istio.io/latest/docs/releases/feature-stages/ ,
+  https://istio.io/latest/docs/ambient/usage/add-workloads/ , and
+  https://istio.io/latest/docs/ambient/architecture/traffic-redirection/
+
+## V17. The ESO path from Key Vault to a Kubernetes Secret under workload identity
+
+- Flag: not tagged in the blueprint. ADR-010 makes External Secrets Operator the
+  only route by which secret material reaches the cluster, and blueprint section
+  9 requires zero secrets in the repository, so the shape of that route is
+  load-bearing rather than incidental.
+- Owner: gitops/.
+- Question: what is the exact `SecretStore` shape for the Azure Key Vault
+  provider under workload identity, what must exist on the Azure side to
+  federate it, and which Key Vault role does the identity need?
+- Consequence if the path needs a stored credential: ADR-010's secrets decision
+  fails on its own terms, because the point of ESO here is that Terraform state
+  and the repository never carry secret material.
+- Fallback: none that preserves the decision. A credential-bearing store would
+  be a different design, and the manifests wait rather than ship one.
+- Outcome (2026-08-24, issue #131): VERIFIED for the whole path; no stored
+  credential is required anywhere. Recorded against ESO v2.9.0, API group
+  `external-secrets.io/v1`.
+  Cluster side. `kind: SecretStore` or `ClusterSecretStore`, with
+  `spec.provider.azurekv` carrying `authType: WorkloadIdentity`, `vaultUrl`, and
+  `serviceAccountRef` naming a ServiceAccount annotated
+  `azure.workload.identity/client-id`. Under this auth type both `tenantId` and
+  `authSecretRef` are documented optional, which is what makes the path
+  secretless. ESO documents two modes and prefers this one: referencing a
+  ServiceAccount is "usually the recommended approach", against mounting the
+  controller's own, which "grants _everyone_ who is able to create a secret
+  store or reference a correctly configured one the ability to read secrets"
+  and is "usually not recommended".
+  Azure side. A federated identity credential on a user-assigned managed
+  identity, with `issuer` set to the AKS OIDC issuer URL, `audience`
+  `api://AzureADTokenExchange` ("This field is mandatory. The recommended value
+  is"), and `subject` in Kubernetes' documented format:
+  `system:serviceaccount:<SERVICE_ACCOUNT_NAMESPACE>:<SERVICE_ACCOUNT_NAME>`.
+  Role. `Key Vault Secrets User` is sufficient: ESO names "the Key Vault Secrets
+  User and Key Vault Certificate User RBAC roles", and the Certificate User half
+  is needed only for certificate objects. All three secrets this platform
+  hydrates are plain Key Vault secrets.
+- One trap the manifest review must catch: `authType` defaults to
+  `ServicePrincipal`. Omitting the field does not fail; it silently selects the
+  credential-bearing path. G4a asserts the field is present and set to
+  `WorkloadIdentity` rather than relying on it looking right.
+- Two rows carried at PARTIAL, neither blocking. The
+  `azure.workload.identity/tenant-id` annotation is documented by ESO but was not
+  found on Microsoft Learn, so the tenant is supplied by that annotation or by
+  `spec.provider.azurekv.tenantId`, which is a plain GUID and not secret either
+  way. And a `ClusterSecretStore` appears to need `serviceAccountRef.namespace`
+  set explicitly, since the API type says namespace is "Ignored if referent is
+  not cluster-scoped"; that reading comes from the type comment plus a worked
+  example rather than from prose.
+- One row UNVERIFIABLE, and it blocks an assumption rather than a manifest:
+  whether the ESO controller pod still needs the label
+  `azure.workload.identity/use: "true"` when running in referenced-ServiceAccount
+  mode. ESO attaches that label only to the mounted mode and does not say it is
+  unnecessary in the other. G4a settles it against the kind cluster its
+  verification already uses, and does not ship it as a guess.
+- Scope note: this path now carries more than ADR-010 lists. The 2026-08-24
+  scope correction on issue #65 re-shaped the SQL-auth fallback onto
+  ESO-hydrated Kubernetes Secrets read through Kafka's built-in file and env
+  configuration providers, so the Connect fallback depends on this row too, not
+  only the Cloudflare token and the Argo OIDC client secret.
+  Sources: https://external-secrets.io/latest/provider/azure-key-vault/ ,
+  https://external-secrets.io/latest/api/spec/ ,
+  https://learn.microsoft.com/entra/workload-id/workload-identity-federation-create-trust ,
+  https://learn.microsoft.com/azure/aks/workload-identity-deploy-cluster , and
+  https://learn.microsoft.com/azure/key-vault/general/rbac-guide
