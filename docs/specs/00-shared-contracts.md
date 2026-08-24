@@ -95,7 +95,7 @@ CREATE TABLE dbo.WorkflowTask (
 CREATE TABLE dbo.Outbox (
     Id            bigint IDENTITY(1,1) NOT NULL PRIMARY KEY,
     AggregateType nvarchar(64)  NOT NULL,   -- always 'WorkflowTask' in v1
-    AggregateId   nvarchar(64)  NOT NULL,   -- the taskId, as text
+    AggregateId   nvarchar(64)  NOT NULL,   -- compound key '{tenantId}-{taskId}', authored at insert
     EventType     nvarchar(64)  NOT NULL,   -- always 'TaskTransitioned' in v1
     Version       int           NOT NULL,   -- mirrors WorkflowTask.Version
     Payload       nvarchar(max) NOT NULL,   -- JSON, see event envelope
@@ -115,50 +115,49 @@ CREATE TABLE dbo.TenantInfo (
 `State` is one of Created, Assigned, InProgress, Submitted, QA, Completed,
 Delivered, from blueprint section 2.
 
-### Why `AggregateId` holds the bare taskId
+### Aggregate identity
 
 Task ids are per-tenant IDENTITY integers, so tenant `lexfield-001` and tenant
-`lexfield-002` each have a task numbered 4711. Once both streams share one
-topic, a message key of `4711` would put two different tenants' tasks under one
-key, and every consumer tracking versions per key would see one task jumping
-between two unrelated version sequences. ADR-005 solves that with the compound
-key `lexfield-001-4711`.
+`lexfield-002` each have a task numbered 4711. The bare `4711` names a row only
+inside one tenant's database. The moment its events leave that database for any
+shared medium, a topic, a log store, a webhook, an audit export, `4711` is
+ambiguous and `lexfield-002-4711` is the identity. So `AggregateId` holds the
+compound key `{tenantId}-{taskId}`: it is the globally unique name of the
+aggregate, not a bare id (ADR-005).
 
-The question this column answers is narrower: **where does the tenantId half of
-that key come from?** There are two places it could:
+**Authored at insert, inside the business transaction.** task-api writes the
+compound id into `AggregateId` in the same transaction as the state change and
+the `Version`. The format is part of the contract: the tenant id, a hyphen, then
+the local integer. A writer that gets it wrong is a contract violation, so a
+task-api unit test asserts the format and it cannot drift silently.
 
-- **From connector configuration.** Provisioning writes the tenant id into
-  connector 2's config, and an SMT stamps it onto every message that connector
-  produces. This is what the blueprint chooses.
-- **From the outbox row.** task-api writes `lexfield-002-4711` into
-  `AggregateId`, and the outbox router uses that column as the key directly. No
-  re-key transform needed.
+**Consumed by the stock router as the message key.** The outbox event router
+keys each message directly from this column, its `table.field.event.key` setting
+names `AggregateId`, so no custom re-key transform exists. Kafka then hashes that
+string for partition placement, but that is a consumer of the identity, not its
+author: a different transport tomorrow (Service Bus sessions, Event Grid
+subjects) would want exactly the same globally unique id.
 
-`AggregateId` holds the bare taskId because the blueprint chooses the first.
-Blueprint section 9 states it directly: "the tenantId a connector stamps into
-keys and headers is per-connector provisioning config, not code". ADR-005 places
-the re-key in the SMT chain. This column follows from those; it is not an
-independent decision.
+**The payload's `taskId` stays a bare integer.** The compound string is identity
+and key, never a parse target. A consumer that needs the tenant reads the
+`tenantId` header; a consumer that needs the local task id reads the integer
+`taskId` from the payload. Nobody downstream splits `lexfield-002-4711` back into
+parts. This is the rule the design most wants held: the compound id is a name,
+not a struct to be decoded.
 
-What the choice buys is the check in failure mode 9. The mis-provisioning it
-guards against is concrete: connector 2 is pointed at tenant 2's database but
-configured with tenant 1's id, so tenant 2's work appears in tenant 1's queues.
-The reconciler catches it because the id on the wire and the `TenantInfo` claim
-inside the source database are written by two different steps of provisioning,
-so a bug in one shows up as a disagreement with the other. Blueprint section 9:
-"Code-level boundary tests cannot catch a mis-provisioned constant."
-
-**The honest counterargument**, recorded because a reviewer will think of it.
-Putting the compound key in `AggregateId` would be simpler: no custom re-key
-transform, and the label would always match the data it came from, because
-task-api writes both in the same transaction. It would remove this class of
-mis-provisioning rather than detect it. What it would cost is independence: the
-label and the claim would both trace back to the tenant manifest through
-application code, so comparing them would be much closer to checking one source
-against itself, and the platform would be trusting its own code to label every
-tenant correctly with no outside check. The blueprint takes the second position.
-This spec implements it and does not reopen it, but the trade is real and it is
-worth Hari knowing it was noticed rather than missed.
+**Why this, and not a bare id re-keyed in the pipeline.** An earlier design kept
+the bare id in this column and re-keyed to the compound form in a custom SMT fed
+by per-connector config, on the premise that a compound key in the contract was
+Kafka leakage. That premise is wrong: the compound id is the aggregate's global
+name, and true leakage, encoding partition counts, topic names, or broker
+structure into the contract, is absent here. Authoring the id at source costs one
+thing, stated honestly: the format is now contract, so changing it is a migration
+rather than a config change, which the format unit test guards. It buys three:
+key correctness lives in the business transaction next to every other invariant
+and is unit-tested in .NET; the platform's only custom Java artifact disappears;
+and failure mode 9's blast radius shrinks, because a mis-provisioned connector
+can still mis-stamp the `tenantId` header but can no longer mis-key a stream
+(ADR-005).
 
 ### Why `TraceParent` is a column and not a payload field
 

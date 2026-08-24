@@ -14,9 +14,11 @@ Paths owned: `connect/image/`, `connect/smt/`, `connect/connectors/`,
 ### Custom Connect image
 
 `connect/image/`. Blueprint section 3 lists what it bakes in: the Debezium SQL
-Server connector, mssql-jdbc, the azure-identity dependency tree, the Key Vault
-configuration provider, and, added here, the custom SMT jar. Built by CI on
-ubuntu-latest, pushed to the persistent ACR.
+Server connector, mssql-jdbc, the azure-identity dependency tree, and the Key
+Vault configuration provider. Built by CI on ubuntu-latest, pushed to the
+persistent ACR. No custom SMT jar is baked in: the chain is stock transforms
+only, because the compound key is authored by task-api at source rather than
+assembled in Connect (ADR-005).
 
 The azure-identity, mssql-jdbc, and MSAL4J version coupling on the Connect
 classpath is named in blueprint section 13 as a learning item, which is another
@@ -30,36 +32,33 @@ stated reason in blueprint section 3 rests on an open Strimzi issue rather than
 documentation, so V5 owns confirming or refuting it. The image exists either
 way; only the published rationale depends on the answer.
 
-### Custom SMT project
+### SMT chain (two stock transforms)
 
-`connect/smt/`. A small Java project producing one jar.
-
-V8 resolved which stages exist as stock transforms. The chain is exactly three
-transforms in order: the outbox event router, a re-key to `{tenantId}-{taskId}`
-(`PrefixKey`), and a tenantId header inject (`InsertHeader`). SPEC-LEVEL where
-this refines the blueprint: blueprint section 3 sketched a four-stage chain with
-a leading operation filter dropping DELETEs; V8 found the outbox event router
-drops outbox DELETE events itself, so no separate delete-filter stage exists and
-the sketch's first stage collapses into the router.
+The chain is two stock transforms; the platform authors no custom SMT (ADR-005).
+The key is not assembled in Connect at all: task-api writes the compound key
+`{tenantId}-{taskId}` into the outbox `AggregateId` column inside the business
+transaction, and the stock outbox event router keys each message directly from
+that column via `table.field.event.key`.
 
 | Stage | What runs | Notes |
 | --- | --- | --- |
-| Outbox event router | Stock, shipped with Debezium | Unwraps the outbox row into the plain envelope, and drops outbox DELETE events itself, so pruning the outbox never becomes downstream transition traffic. |
+| Outbox event router | Stock, shipped with Debezium | Unwraps the outbox row into the plain envelope, keys the message from `AggregateId` via `table.field.event.key`, and drops outbox DELETE events itself, so pruning the outbox never becomes downstream transition traffic. |
 | Promote the outbox `TraceParent` column to a `traceparent` header | Stock, a configuration property on the router above, not a stage of its own | Carried by `transforms.outbox.table.fields.additional.placement`; if the router cannot do it, the fallback is a small custom transform, which changes no contract. |
-| Re-key with a constant prefix from connector config, `PrefixKey` | Custom transform, taking a `prefix` configuration property | Not stock. No stock transform prefixes a key with a configured constant. |
 | Inject a static header, `InsertHeader` | Stock header-insert transform | Sets the `tenantId` header to the configured constant. |
 
-The re-key transform is the one that almost certainly must be written, and it is
-the one that matters most. ADR-005 makes the compound key a correctness
-requirement, not a convenience: per-tenant IDENTITY integers collide across
-tenants, so a key of the bare taskId would interleave two tenants' tasks under
-one key and corrupt version tracking in every consumer at once.
+Why the key is authored at source rather than re-keyed here. ADR-005 makes the
+compound key the aggregate's global identity, written where every other invariant
+is written, the business transaction, so the router only has to read it. This
+removes the one custom Java artifact the design would otherwise carry, and it
+makes the key path immune to mis-provisioning: a connector configured with the
+wrong tenant id can still stamp the wrong `tenantId` header, which the
+reconciler's attribution check catches, but it can no longer mis-key a stream,
+because the key comes from the tenant's own database (failure mode 9).
 
-The prefix comes from connector configuration, never from the outbox row.
-Blueprint section 9 makes the tenantId constant the isolation trust root
-precisely because it is configuration, and the reconciler's attribution check is
-built to compare that configuration against source truth. Taking it from the row
-instead would leave the check comparing a value against itself.
+The `tenantId` header constant still comes from connector configuration, and
+blueprint section 9 keeps that the isolation trust root the reconciler compares
+against source truth. The key does not: it is contract, authored at source, and
+sits outside that trust root.
 
 ### Connector configuration template and generator
 
@@ -89,10 +88,9 @@ Shape, SPEC-LEVEL and provisional pending V7:
     "signal.kafka.bootstrap.servers": "{bootstrap}",
     "signal.data.collection": "{databaseName}.dbo.DebeziumSignal",
     "errors.max.retries": "10",
-    "transforms": "outbox,rekey,tenantHeader",
+    "transforms": "outbox,tenantHeader",
+    "transforms.outbox.table.field.event.key": "AggregateId",
     "transforms.outbox.table.fields.additional.placement": "TraceParent:header:traceparent",
-    "transforms.rekey.type": "com.lexfield.connect.PrefixKey",
-    "transforms.rekey.prefix": "{tenantId}-",
     "transforms.tenantHeader.header": "tenantId",
     "transforms.tenantHeader.value.literal": "{tenantId}"
   }
@@ -123,7 +121,7 @@ The `table.fields.additional.placement` line is the whole of the tracing wiring
 on this side, and it is the reason
 [00-shared-contracts.md](00-shared-contracts.md) gives `TraceParent` its own
 outbox column: promoting a column to a header is configuration, and digging a
-field out of a JSON string would be a second custom transform. Its exact
+field out of a JSON string would be a custom transform. Its exact
 property name and value syntax are provisional pending
 [V14](02-verification-register.md); if the router cannot do it, the fallback is
 the small custom transform named in the stage table above, which does not
@@ -206,12 +204,13 @@ The end-to-end container test, `tests/Lexfield.Connect.Tests/`:
 3. Register a connector through the Connect REST API using the generated
    configuration, with SQL authentication rather than Entra, since a container
    has no Entra. The authentication mode is the only difference from production.
-4. Insert an outbox row directly.
+4. Insert an outbox row directly, with `AggregateId` set to the compound key
+   `{tenantId}-{taskId}`, as task-api would author it.
 5. Consume from `workflow-transitions` and assert the message.
 
 | Assertion | Why it matters |
 | --- | --- |
-| Key equals `{tenantId}-{taskId}` | ADR-005. A regression here corrupts every consumer's version tracking simultaneously. |
+| Key equals `{tenantId}-{taskId}`, read from `AggregateId` | ADR-005. The router keys from the aggregate id task-api authored at source; a regression here corrupts every consumer's version tracking simultaneously. |
 | `tenantId` header present with the configured value | The isolation trust root. |
 | Value is the plain envelope, not a CDC change record | Proves the outbox router unwrapped it. |
 | A DELETE on the outbox row produces no message | The outbox event router drops DELETEs itself, so outbox pruning must not become a downstream event (ADR-001). The most likely thing to silently break. |
@@ -222,19 +221,19 @@ The end-to-end container test, `tests/Lexfield.Connect.Tests/`:
 
 | Deliverable | Method |
 | --- | --- |
-| Custom SMT unit behaviour | unit, Java test on the transform in isolation |
+| Router keying from `AggregateId` | containers, asserted by the full-chain test above |
 | Image classpath | unit, plugin-list smoke stage in the build |
 | Connector config generator | unit, golden-file test: the generated config is compared against a checked-in expected file, so any change to the output shows up as a diff a reviewer must approve |
 | Full chain | containers, the test above |
 | Entra authentication on the chain | live, the identity spike |
 
 The container test is slow and it is worth it: it is the only place the SMT
-chain, the thing ADR-005 calls load-bearing, is proven rather than reasoned
-about.
+chain and the router's keying from `AggregateId`, the compound-key contract
+ADR-005 defines, are proven rather than reasoned about.
 
 ## Dependencies
 
-Blocked by: V7 and V8 for the configuration and transform tickets. The onboarding
+Blocked by: V7 and V8 for the connector configuration ticket. The onboarding
 T-SQL from D4, because the container test applies it.
 
 Blocks: infra/disposable's `KafkaConnect` deployment ticket, which needs an image
@@ -248,11 +247,12 @@ service areas, which makes it a good early parallel slot.
 | # | Behavior | Verification | Size forecast |
 | --- | --- | --- | --- |
 | C1 | V3, V6, V7, V8 answered and recorded before any configuration ships. | documentation check | 1 file, 60 lines |
-| C2 | Custom SMT project with `PrefixKey`, unit tested, producing a jar. | unit | 6 files, 280 lines |
-| C3 | Custom image with the connector, driver, identity libraries, Key Vault provider, SMT jar, and the plugin-list smoke stage. CI builds and pushes it. | unit | 5 files, 260 lines |
+| C2 | Remove the custom SMT: delete `connect/smt/`, its build, and the image's jar reference (ADR-005 authors the key at source). | containers, the existing C5 chain test | 4 files, 120 lines |
+| C3 | Custom image with the connector, driver, identity libraries, Key Vault provider, and the plugin-list smoke stage. CI builds and pushes it. | unit | 5 files, 260 lines |
 | C4 | Connector configuration template and generator over the tenant manifest, golden-file tested, including the stream-isolated variant. | unit | 6 files, 320 lines |
 | C5 | End-to-end container test: SQL Server to Connect to Kafka, asserting key, headers, envelope, and DELETE suppression. | containers | 5 files, 460 lines |
 | C6 | Incremental snapshot over the Kafka signal channel, exercised in the container test. | containers | 3 files, 220 lines |
 
-C1 is verification-only and blocks C4, C5, and C6. C2 and C3 can proceed
-immediately after C1 and are independent of each other.
+C1 is verification-only and blocks C4, C5, and C6. C3 can proceed immediately
+after C1. C2 is the custom-SMT removal from the ADR-005 reshape, tracked as its
+own ticket and depending only on that decision.
