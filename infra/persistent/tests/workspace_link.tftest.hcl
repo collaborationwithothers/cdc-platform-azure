@@ -17,14 +17,6 @@ mock_provider "azurerm" {
     }
   }
 
-  mock_data "azurerm_resource_group" {
-    defaults = {
-      id       = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-cdc-platform-persistent"
-      name     = "rg-cdc-platform-persistent"
-      location = "uksouth"
-    }
-  }
-
   mock_resource "azurerm_log_analytics_workspace" {
     defaults = {
       id = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-cdc-platform-persistent/providers/Microsoft.OperationalInsights/workspaces/log-cdc-platform-00000000"
@@ -35,12 +27,22 @@ mock_provider "azurerm" {
 run "links_application_insights_to_the_layer_workspace" {
   command = plan
 
-  variables {
-    persistent_resource_group_name = "rg-cdc-platform-persistent"
-  }
-
   assert {
     condition     = azurerm_application_insights.platform.workspace_id == azurerm_log_analytics_workspace.platform.id
     error_message = "Application Insights must reference the Log Analytics workspace created by this layer."
+  }
+}
+
+run "creates_the_platform_resource_group" {
+  command = plan
+
+  assert {
+    condition     = azurerm_resource_group.persistent.name == "rg-cdc-platform-persistent"
+    error_message = "The persistent layer must create its platform resource group instead of reusing the state backend group."
+  }
+
+  assert {
+    condition     = azurerm_resource_group.persistent.location == "uksouth"
+    error_message = "The persistent platform resource group must be created in UK South."
   }
 }

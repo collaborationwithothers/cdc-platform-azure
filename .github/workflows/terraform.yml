@@ -121,6 +121,14 @@ jobs:
       - uses: hashicorp/setup-terraform@v3
         with:
           terraform_version: "1.15.8"
+      - name: reject state and platform resource-group collision
+        env:
+          TF_BACKEND_RESOURCE_GROUP: ${{ vars.TF_BACKEND_RESOURCE_GROUP }}
+        run: |
+          if [ "$TF_BACKEND_RESOURCE_GROUP" = "rg-cdc-platform-persistent" ]; then
+            echo "::error::TF_BACKEND_RESOURCE_GROUP must not name the Terraform-managed platform resource group."
+            exit 1
+          fi
       - name: terraform init (backend names from Actions variables)
         env:
           ARM_USE_OIDC: "true"
@@ -133,5 +141,4 @@ jobs:
       - name: terraform plan (no apply)
         env:
           ARM_USE_OIDC: "true"
-          TF_VAR_persistent_resource_group_name: ${{ vars.TF_BACKEND_RESOURCE_GROUP }}
         run: terraform plan -input=false -no-color
