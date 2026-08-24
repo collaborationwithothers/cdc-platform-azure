@@ -371,6 +371,34 @@ its first action and records the outcome on the issue.
 - Fallback if refuted: the recovery runbook adds re-enabling CDC after any
   point-in-time restore, and blueprint failure mode 2's note is corrected. Costs
   a runbook step, not a design change.
+- Outcome (2026-08-24, issue #72): VERIFIED. Point-in-time restore retains CDC
+  as long as the restore target is not a subcore service objective, and subcore
+  is exactly the set of tiers that cannot run CDC in the first place. So on the
+  S3-or-above targets this platform restores to, CDC survives the restore, and
+  the fallback above is not taken: no re-enable step, and blueprint failure mode
+  2's note stands uncorrected.
+
+  Quote: "If you enabled CDC on Azure SQL Database as a SQL user,
+  point-in-time-restore (PITR) retains CDC in the restored database, unless it's
+  restored to a subcore SLO. If restored to a subcore SLO, CDC artifacts aren't
+  available." The subcore set is the same one V10 records: "CDC is supported for
+  databases in the S3 tier or higher. Subcore tiers (Basic, S0, S1, S2) aren't
+  supported for CDC." On the vCore model the page states CDC is supported at any
+  service tier, so the subcore check bites only on the DTU model. Source:
+  https://learn.microsoft.com/azure/azure-sql/database/change-data-capture-overview?view=azuresql
+
+  Two caveats the recovery runbook (issue #90) must carry, because the platform
+  designs for Entra workload identity (ADR-006):
+  - The quoted rule is scoped to CDC enabled by a SQL user. When CDC is enabled
+    by a Microsoft Entra user, the same page states PITR to a subcore SLO is not
+    possible at all: "Restore the database to the same or higher SLO as the
+    source, and then disable CDC if necessary." That is a blocked restore, not a
+    silent CDC drop, so the runbook rule "always restore to the same or higher
+    SLO" (S3 floor) satisfies both the SQL-user and the Entra-user cases.
+  - Database copy and geo-restore are not addressed by this page. CDC survival
+    on those paths is undocumented, neither confirmed nor refuted; a recovery
+    path that uses copy or geo-restore must verify it separately before relying
+    on it (a new register row), per AGENTS.md.
 
 ## V10. Azure SQL CDC requires S3 or above on the DTU model
 
