@@ -323,6 +323,7 @@ Then:
 Output: verdict (APPROVE or REQUEST CHANGES), numbered findings by severity
 citing file and line, then a short "For Hari to check by hand" section naming
 the one or two highest-leverage manual checks.
+7. Diagrams: .drawio sources in docs/diagrams/ using official Azure icons where Azure services appear; CI exports renders and fails on staleness; review judges the render, not the XML
 
 ### Learning loop
 
