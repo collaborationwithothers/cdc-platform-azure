@@ -1,0 +1,6 @@
+apiVersion: v2
+name: cdc-kafka-resources
+description: Build-scale Strimzi resources for the CDC platform
+type: application
+version: 0.1.0
+appVersion: "4.3.1"
