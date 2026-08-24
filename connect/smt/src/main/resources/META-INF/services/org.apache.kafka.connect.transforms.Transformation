@@ -1,0 +1,5 @@
+# The worker default, plugin.discovery hybrid_warn, would find this transform by
+# scanning the plugin path and warn that it had to. A worker set to service_load
+# or hybrid_fail reads only this file, and a plugin missing from it stops worker
+# startup. https://kafka.apache.org/40/kafka-connect/user-guide/
+com.lexfield.connect.PrefixKey
