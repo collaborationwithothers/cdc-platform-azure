@@ -6,6 +6,8 @@ on:
       - "docs/**"
       - "scripts/ci/check_ascii.py"
       - "scripts/ci/test_check_ascii.py"
+      - "scripts/ci/check_runbook_anchors.py"
+      - "tests/ci/test_check_runbook_anchors.py"
       - ".github/workflows/docs.yml"
   push:
     branches: [main]
@@ -31,3 +33,17 @@ jobs:
 
       - name: Check ASCII punctuation across docs
         run: python3 scripts/ci/check_ascii.py docs
+
+  runbook-anchors:
+    name: runbook anchors
+    # AGENTS.md: workflows run on ubuntu-latest only.
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Test the runbook-anchor check
+        run: python3 -m unittest tests/ci/test_check_runbook_anchors.py -v
+
+      - name: Check runbook anchors
+        run: python3 scripts/ci/check_runbook_anchors.py
