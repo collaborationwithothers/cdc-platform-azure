@@ -71,10 +71,82 @@ order:
 3. Enable Change Tracking on the database, then on `dbo.WorkflowTask` only,
    with `TRACK_COLUMNS_UPDATED = OFF`. SPEC-LEVEL: column tracking is off
    because the reconciler needs changed task ids, not changed columns.
+
+   ```sql
+   ALTER DATABASE [<tenant-db>]
+   SET CHANGE_TRACKING = ON (CHANGE_RETENTION = 7 DAYS, AUTO_CLEANUP = ON);
+
+   ALTER TABLE dbo.WorkflowTask
+   ENABLE CHANGE_TRACKING WITH (TRACK_COLUMNS_UPDATED = OFF);
+   ```
+
+   Retention is per database, not per table, so the value above governs the one
+   tracked table. See "Why 7 days" below.
 4. `CREATE USER FROM EXTERNAL PROVIDER` for the Connect identity, plus
    `db_datareader` and EXECUTE on the `cdc` schema. Read-only, per blueprint
    section 9.
 5. Write the `TenantInfo` claim row with the canonical tenantId.
+
+#### Why 7 days of change tracking retention
+
+SPEC-LEVEL. `CHANGE_RETENTION` decides how far back a stored watermark stays
+usable. The reconciler keeps a sync version between sweeps and asks task-api for
+changes since it; once that version falls outside the window, incremental
+catch-up is no longer possible and the reconciler must bootstrap from a full
+enumeration instead.
+
+Stated rather than inherited, because the default is 2 days and 2 days puts the
+boundary in an awkward place:
+
+```
+reconciler stops   Friday 18:00
+reconciler starts  Monday 09:00
+elapsed            63 hours
+
+at CHANGE_RETENTION = 2 DAYS (48 h, the default): watermark expired
+at CHANGE_RETENTION = 7 DAYS:                     watermark still usable
+```
+
+A long weekend is a normal thing to happen and a poor thing to discover as a
+threshold. 7 days clears it with room, and the storage cost is small because
+change tracking records changed keys and versions rather than row contents, so
+the side tables grow with transition volume and not with table size. At build
+scale the databases live in the disposable layer and are destroyed at the end of
+a session, so the practical cost there is nil.
+
+Two things this number does not do, both worth stating because it is easy to
+read a retention value as a safety guarantee.
+
+It does not prevent data loss on expiry. V4 in
+[02-verification-register.md](02-verification-register.md) established that a
+stale watermark raises no error: `CHANGETABLE` returns a shorter list and says
+nothing. What prevents loss is the handler comparing `@since` against
+`CHANGE_TRACKING_MIN_VALID_VERSION` and answering 410 Gone, specified in
+[20-src-task-api.md](20-src-task-api.md). Retention length only moves when that
+check fires. Raising it is not an alternative to the check.
+
+It is not an expiry guarantee in the other direction either. Microsoft documents
+`CHANGE_RETENTION` as the minimum period for keeping change tracking
+information, and cleanup runs on an engine-internal thread that wakes every 30
+minutes and can fall behind on a high-change table. Records may therefore
+outlive the window. Nothing may rely on them being gone.
+
+The counterargument, recorded because a reviewer will reach it: a longer window
+means more retained rows in the side tables and `sys.syscommittab`, and the
+same documentation describes cleanup struggling to keep up on hot tables. It
+stands because 7 days is modest and the setting is per database, so a tenant
+that ever proves hot can be lowered on its own without touching the other 399.
+Azure SQL Database has no SQL Server Agent, so the documented remedy if cleanup
+does fall behind is a scheduled call to `sp_flush_CT_internal_table_on_demand`,
+which belongs in a runbook rather than in this value.
+
+Verified 2026-08-23 against
+https://learn.microsoft.com/sql/t-sql/statements/alter-database-transact-sql-set-options
+and
+https://learn.microsoft.com/sql/relational-databases/track-changes/cleanup-and-troubleshoot-change-tracking-sql-server
+Default 2 days, minimum 1 minute, no documented maximum, units DAYS, HOURS, or
+MINUTES, and the setting is customer-controlled on Azure SQL Database with the
+same syntax as SQL Server.
 
 Steps 1, 2, 3, and 5 are the same source of truth that generates the connector
 config in the connect/ area. Blueprint failure mode 9 requires exactly that: the
