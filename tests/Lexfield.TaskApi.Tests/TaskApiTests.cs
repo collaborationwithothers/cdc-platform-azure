@@ -116,8 +116,8 @@ public sealed class TaskApiTests(SqlServerFixture sql)
         using var client = context.Factory.CreateClient();
         using var healthClient = new HttpClient();
 
-        Assert.Equal("ok\n", await healthClient.GetStringAsync($"http://localhost:{context.HealthPort}/healthz"));
-        Assert.Equal("ready\n", await healthClient.GetStringAsync($"http://localhost:{context.HealthPort}/readyz"));
+        Assert.Equal("ok\n", await healthClient.GetStringAsync("http://localhost:8080/healthz"));
+        Assert.Equal("ready\n", await healthClient.GetStringAsync("http://localhost:8080/readyz"));
     }
 
     private async Task<TestContext> CreateContextAsync()
@@ -126,9 +126,8 @@ public sealed class TaskApiTests(SqlServerFixture sql)
         var databaseA = await sql.CreateTenantDatabaseAsync($"TaskApiA{suffix}", "tenant-a");
         var databaseB = await sql.CreateTenantDatabaseAsync($"TaskApiB{suffix}", "tenant-b");
         var key = Convert.ToBase64String(System.Security.Cryptography.RandomNumberGenerator.GetBytes(32));
-        var port = GetFreePort();
-        var factory = new TaskApiFactory(databaseA, databaseB, key, port);
-        return new TestContext(factory, databaseA, databaseB, key, port);
+        var factory = new TaskApiFactory(databaseA, databaseB, key);
+        return new TestContext(factory, databaseA, databaseB, key);
     }
 
     private static string CreateToken(string tenantId, string key)
@@ -145,24 +144,16 @@ public sealed class TaskApiTests(SqlServerFixture sql)
         return new JwtSecurityTokenHandler().WriteToken(token);
     }
 
-    private static int GetFreePort()
-    {
-        using var listener = new System.Net.Sockets.TcpListener(IPAddress.Loopback, 0);
-        listener.Start();
-        return ((System.Net.IPEndPoint)listener.LocalEndpoint).Port;
-    }
-
     private sealed record TestContext(
         TaskApiFactory Factory,
         string TenantA,
         string TenantB,
-        string SigningKey,
-        int HealthPort) : IAsyncDisposable
+        string SigningKey) : IAsyncDisposable
     {
         public ValueTask DisposeAsync() => Factory.DisposeAsync();
     }
 
-    private sealed class TaskApiFactory(string tenantA, string tenantB, string signingKey, int healthPort)
+    private sealed class TaskApiFactory(string tenantA, string tenantB, string signingKey)
         : WebApplicationFactory<Program>
     {
         protected override void ConfigureWebHost(IWebHostBuilder builder)
@@ -173,8 +164,7 @@ public sealed class TaskApiTests(SqlServerFixture sql)
                     ["Tenants:tenant-a"] = tenantA,
                     ["Tenants:tenant-b"] = tenantB,
                     ["Authentication:Authority"] = "https://issuer.test",
-                    ["Authentication:Audience"] = "lexfield-task-api",
-                    ["Lexfield:Observability:Port"] = healthPort.ToString()
+                    ["Authentication:Audience"] = "lexfield-task-api"
                 }));
             builder.ConfigureTestServices(services => services.PostConfigure<JwtBearerOptions>(
                 JwtBearerDefaults.AuthenticationScheme,

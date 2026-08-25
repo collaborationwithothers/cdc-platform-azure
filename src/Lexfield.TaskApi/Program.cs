@@ -8,18 +8,17 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.Data.SqlClient;
 var builder = WebApplication.CreateBuilder(args);
 builder.AddLexfieldObservability("TaskApi");
-var authority = builder.Configuration["Authentication:Authority"]
-    ?? throw new InvalidOperationException("Authentication:Authority is required.");
-var audience = builder.Configuration["Authentication:Audience"]
-    ?? throw new InvalidOperationException("Authentication:Audience is required.");
-builder.Services.AddSingleton(new TenantCatalog(builder.Configuration.GetSection("Tenants")));
+builder.Services.AddSingleton(provider => new TenantCatalog(
+    provider.GetRequiredService<IConfiguration>().GetSection("Tenants")));
 builder.Services.AddSingleton<IAuthorizationHandler, TenantRouteHandler>();
 builder.Services
     .AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
-    .AddJwtBearer(options =>
+    .AddJwtBearer();
+builder.Services.AddOptions<JwtBearerOptions>(JwtBearerDefaults.AuthenticationScheme)
+    .Configure<IConfiguration>((options, configuration) =>
     {
-        options.Authority = authority;
-        options.Audience = audience;
+        options.Authority = configuration["Authentication:Authority"];
+        options.Audience = configuration["Authentication:Audience"];
         options.RequireHttpsMetadata = true;
     });
 builder.Services.AddAuthorization(options => options.AddPolicy(
