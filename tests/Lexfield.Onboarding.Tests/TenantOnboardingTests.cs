@@ -106,12 +106,12 @@ public sealed class TenantOnboardingTests(SqlServerFixture sql)
 
     private sealed record ContractSnapshot(
         List<string> CdcTables,
+        bool CdcEnabled,
         List<string> ChangeTrackingTables,
         int ChangeTrackingRetentionDays,
         bool SnapshotIsolationEnabled,
         bool OutboxTraceParentNullable,
         bool DebeziumSignalExists,
         string TenantId,
-        DateTime TenantClaimedAt,
-        bool CdcEnabled);
+        DateTime TenantClaimedAt);
 }
