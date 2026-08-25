@@ -76,6 +76,15 @@ public sealed class ConnectorGeneratorTests
         Assert.Equal("tenant-{tenantId}", config["database.names"]);
     }
 
+    [Fact]
+    public void NullManifestEntryIsRejectedAsInputError()
+    {
+        using var run = Generate("[null]");
+
+        Assert.Equal(2, run.ExitCode);
+        Assert.Contains("must be a JSON object", run.Error);
+    }
+
     private static GenerationRun Generate(string manifest)
     {
         var root = Path.Combine(Path.GetTempPath(), $"lexfield-connectors-{Guid.NewGuid():N}");

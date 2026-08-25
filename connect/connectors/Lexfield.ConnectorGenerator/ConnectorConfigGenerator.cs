@@ -32,7 +32,7 @@ public static class ConnectorConfigGenerator
 
     private static void Generate(GeneratorOptions options)
     {
-        var tenants = JsonSerializer.Deserialize<List<TenantManifestEntry>>(
+        var tenants = JsonSerializer.Deserialize<List<TenantManifestEntry?>>(
             File.ReadAllText(options.Manifest), ManifestOptions)
             ?? throw new InvalidOperationException("The tenant manifest must contain a JSON array.");
         Validate(tenants);
@@ -45,7 +45,7 @@ public static class ConnectorConfigGenerator
         }
 
         var template = ReadTemplate();
-        foreach (var tenant in tenants)
+        foreach (var tenant in tenants.Cast<TenantManifestEntry>())
         {
             var topic = tenant.StreamIsolated
                 ? $"workflow-transitions-{tenant.TenantId}"
@@ -84,10 +84,14 @@ public static class ConnectorConfigGenerator
             Required("--bootstrap-servers"), Required("--output-dir"));
     }
 
-    private static void Validate(IReadOnlyCollection<TenantManifestEntry> tenants)
+    private static void Validate(IReadOnlyCollection<TenantManifestEntry?> tenants)
     {
         foreach (var tenant in tenants)
         {
+            if (tenant is null)
+            {
+                throw new ArgumentException("Each tenant manifest entry must be a JSON object.");
+            }
             if (string.IsNullOrWhiteSpace(tenant.TenantId) || string.IsNullOrWhiteSpace(tenant.Database))
             {
                 throw new ArgumentException("Tenant id and database must not be blank.");
@@ -97,7 +101,7 @@ public static class ConnectorConfigGenerator
                 throw new ArgumentException("Tenant id must not contain a path separator.");
             }
         }
-        var duplicate = tenants.GroupBy(tenant => tenant.TenantId, StringComparer.Ordinal)
+        var duplicate = tenants.Cast<TenantManifestEntry>().GroupBy(tenant => tenant.TenantId, StringComparer.Ordinal)
             .FirstOrDefault(group => group.Count() > 1)?.Key;
         if (duplicate is not null)
         {
