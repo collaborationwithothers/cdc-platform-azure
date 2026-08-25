@@ -64,7 +64,7 @@ public sealed class TenantOnboardingTests(SqlServerFixture sql)
             await ReadScalarAsync<int>(
                 connection,
                 "SELECT CASE WHEN retention_period = 7 AND retention_period_units = 3 THEN 7 ELSE 0 END FROM sys.change_tracking_databases WHERE database_id = DB_ID();"),
-            await ReadScalarAsync<int>(
+            await ReadScalarAsync<byte>(
                 connection,
                 "SELECT snapshot_isolation_state FROM sys.databases WHERE database_id = DB_ID();") == 1,
             await ReadScalarAsync<string>(
