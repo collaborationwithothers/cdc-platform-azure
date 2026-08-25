@@ -4,7 +4,7 @@ using Microsoft.Extensions.Hosting;
 
 namespace Lexfield.Observability;
 
-internal sealed record LexfieldEndpointOptions(string ServiceName, int Port);
+internal sealed record LexfieldEndpointOptions(int Port);
 
 internal sealed class LexfieldEndpointHostedService : IHostedService, IDisposable
 {
@@ -12,11 +12,7 @@ internal sealed class LexfieldEndpointHostedService : IHostedService, IDisposabl
     private readonly CancellationTokenSource _stopping = new();
     private HttpListener? _listener;
     private Task? _serveTask;
-
-    public LexfieldEndpointHostedService(LexfieldEndpointOptions options)
-    {
-        _options = options;
-    }
+    public LexfieldEndpointHostedService(LexfieldEndpointOptions options) => _options = options;
 
     public Task StartAsync(CancellationToken cancellationToken)
     {
@@ -26,7 +22,6 @@ internal sealed class LexfieldEndpointHostedService : IHostedService, IDisposabl
         _serveTask = ServeAsync(_stopping.Token);
         return Task.CompletedTask;
     }
-
     public async Task StopAsync(CancellationToken cancellationToken)
     {
         _stopping.Cancel();
@@ -37,7 +32,6 @@ internal sealed class LexfieldEndpointHostedService : IHostedService, IDisposabl
             await _serveTask.WaitAsync(cancellationToken);
         }
     }
-
     public void Dispose()
     {
         _stopping.Cancel();
@@ -74,7 +68,6 @@ internal sealed class LexfieldEndpointHostedService : IHostedService, IDisposabl
         {
             "/healthz" => (200, "text/plain; charset=utf-8", "ok\n"),
             "/readyz" => (200, "text/plain; charset=utf-8", "ready\n"),
-            "/metrics" => (200, "text/plain; version=0.0.4; charset=utf-8", MetricsBody()),
             _ => (404, "text/plain; charset=utf-8", "not found\n")
         };
 
@@ -93,14 +86,5 @@ internal sealed class LexfieldEndpointHostedService : IHostedService, IDisposabl
         {
             context.Response.Close();
         }
-    }
-
-    private string MetricsBody()
-    {
-        var service = _options.ServiceName.Replace("\\", "\\\\", StringComparison.Ordinal)
-            .Replace("\"", "\\\"", StringComparison.Ordinal);
-        return $"# HELP lexfield_observability_up The observability endpoint is accepting requests.\n" +
-            $"# TYPE lexfield_observability_up gauge\n" +
-            $"lexfield_observability_up{{service=\"{service}\"}} 1\n";
     }
 }

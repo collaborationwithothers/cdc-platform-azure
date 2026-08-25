@@ -69,13 +69,13 @@ domain has and most systems lack: one KQL filter on those three fields returns a
 task's whole life across four services, which is the investigation an operator
 actually runs.
 
-**4. Two endpoints on a fixed internal port.** `/healthz` and `/readyz`, and
-`/metrics` in Prometheus text form. The metrics endpoint is not how production
-telemetry travels; the distro pushes metrics to Application Insights. It exists
-because the container tests and the fleet density lab need to read counters with
-no Azure present, and a counter nothing can read during a test is a counter that
-silently stops working. The two workers, reconciler and notifier, run a minimal
-HTTP listener for these three routes and nothing else.
+**4. Two endpoints on a fixed internal port.** `/healthz` and `/readyz` are the
+only endpoints in the generic worker listener. There is no service scrape
+endpoint: metric emission is verified in-process with the stable OpenTelemetry
+in-memory reader. If a future lab needs a scrape, a separate ticket uses OTLP
+with stable exporters into a lab collector or Prometheus native OTLP ingestion.
+The two workers, reconciler and notifier, run this minimal HTTP listener and
+nothing else.
 
 **Levels.** Warning and above are reserved for conditions that appear in the
 alert catalogue, observability.md section 2. A warning nobody alerts on trains
@@ -280,7 +280,7 @@ which this area owns and answers before the changes feed ticket writes code.
 | # | Behavior | Verification | Size forecast |
 | --- | --- | --- | --- |
 | T1 | Solution, `global.json`, `Lexfield.Contracts`, `Lexfield.TestSupport` with SQL Server and Kafka fixtures, and one smoke test proving a container starts and the schema applies. | containers | 9 files, 380 lines |
-| T1b | `Lexfield.Observability`: the distro registration, the sampler settings, the log enricher, and the three endpoints, with the enricher's field guarantee tested. Wave 0, alongside T1, because the other three areas consume it. | unit | 7 files, 340 lines |
+| T1b | `Lexfield.Observability`: the distro registration, the sampler settings, the log enricher, and the two health endpoints, with the enricher and in-process metric guarantees tested. Wave 0, alongside T1, because the other three areas consume it. | unit | 8 files, 480 lines |
 | T2 | V4 answered and recorded before T5 starts. | documentation check | 1 file, 40 lines |
 | T3 | task-api host, tenant catalog, authorisation, health endpoints, create-task endpoint. | containers | 8 files, 400 lines |
 | T4 | Transition endpoint with optimistic concurrency and the transactional outbox write, plus the state machine table. | containers | 7 files, 460 lines |

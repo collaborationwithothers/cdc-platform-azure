@@ -9,7 +9,6 @@ internal sealed class LexfieldLogEnricherProvider : ILoggerProvider, ISupportExt
     private readonly string _serviceName;
     private readonly object _writeLock = new();
     private IExternalScopeProvider _scopeProvider = new LoggerExternalScopeProvider();
-
     public LexfieldLogEnricherProvider(string serviceName)
     {
         _serviceName = serviceName;
@@ -23,22 +22,18 @@ internal sealed class LexfieldLogEnricherProvider : ILoggerProvider, ISupportExt
             _scopeProvider,
             _writeLock);
     }
-
     public void SetScopeProvider(IExternalScopeProvider scopeProvider)
     {
         _scopeProvider = scopeProvider;
     }
-
     public void Dispose() { }
 }
-
 internal sealed class LexfieldLogEnricherLogger : ILogger
 {
     private readonly string _serviceName;
     private readonly string _categoryName;
     private readonly IExternalScopeProvider _scopeProvider;
     private readonly object _writeLock;
-
     public LexfieldLogEnricherLogger(
         string serviceName,
         string categoryName,
@@ -56,12 +51,10 @@ internal sealed class LexfieldLogEnricherLogger : ILogger
     {
         return _scopeProvider.Push(state);
     }
-
     public bool IsEnabled(LogLevel logLevel)
     {
         return logLevel != LogLevel.None;
     }
-
     public void Log<TState>(
         LogLevel logLevel,
         EventId eventId,
@@ -73,7 +66,6 @@ internal sealed class LexfieldLogEnricherLogger : ILogger
         {
             return;
         }
-
         var values = new Dictionary<string, object?>(StringComparer.OrdinalIgnoreCase);
         AddValues(values, state);
         _scopeProvider.ForEachScope(static (scope, target) => AddValues(target, scope), values);
@@ -83,27 +75,25 @@ internal sealed class LexfieldLogEnricherLogger : ILogger
             ["timestamp"] = DateTimeOffset.UtcNow,
             ["service"] = _serviceName,
             ["level"] = logLevel.ToString(),
-            ["eventName"] = GetValue(values, "eventName") ?? eventId.Name ?? _categoryName,
+            ["eventName"] = values.GetValueOrDefault("eventName") ?? eventId.Name ?? _categoryName,
             ["traceparent"] = GetTraceParent(),
-            ["tenantId"] = GetValue(values, "tenantId") ?? "unknown"
+            ["tenantId"] = values.GetValueOrDefault("tenantId") ?? "unknown"
         };
 
-        CopyIfPresent(values, line, "taskId");
-        CopyIfPresent(values, line, "version");
+        if (values.TryGetValue("taskId", out var taskId) && taskId is not null) line["taskId"] = taskId;
+        if (values.TryGetValue("version", out var version) && version is not null) line["version"] = version;
         line["message"] = formatter(state, exception);
 
         if (exception is not null)
         {
             line["exception"] = exception.ToString();
         }
-
         var json = JsonSerializer.Serialize(line);
         lock (_writeLock)
         {
             Console.Out.WriteLine(json);
         }
     }
-
     private static void AddValues(Dictionary<string, object?> target, object? state)
     {
         if (state is IEnumerable<KeyValuePair<string, object?>> pairs)
@@ -114,12 +104,6 @@ internal sealed class LexfieldLogEnricherLogger : ILogger
             }
         }
     }
-
-    private static object? GetValue(Dictionary<string, object?> values, string key)
-    {
-        return values.TryGetValue(key, out var value) ? value : null;
-    }
-
     private static string GetTraceParent()
     {
         var activity = Activity.Current;
@@ -133,16 +117,5 @@ internal sealed class LexfieldLogEnricherLogger : ILogger
         return activity.IdFormat == ActivityIdFormat.W3C && activity.Id.Count('-') == 2
             ? $"{activity.Id}-{(activity.Recorded ? "01" : "00")}"
             : activity.Id;
-    }
-
-    private static void CopyIfPresent(
-        Dictionary<string, object?> source,
-        Dictionary<string, object?> target,
-        string key)
-    {
-        if (source.TryGetValue(key, out var value) && value is not null)
-        {
-            target[key] = value;
-        }
     }
 }
