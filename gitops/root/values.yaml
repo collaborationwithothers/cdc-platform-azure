@@ -1,0 +1,8 @@
+# The root chart consumes the values interface passed by the bootstrap chart.
+# It has no templates yet, so these values do not create child Applications.
+
+externalSecrets:
+  provider: disabled
+  identityClientId: ""
+  tenantId: ""
+  vaultUrl: ""

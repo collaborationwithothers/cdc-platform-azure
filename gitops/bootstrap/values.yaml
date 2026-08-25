@@ -1,7 +1,6 @@
-# The root Application that makes the gitops/ tree an app-of-apps: it points at
-# the tree and every leaf under it is itself an Argo Application. The tree is
-# empty until the scaffold ticket adds platform/ and workloads/; until then the
-# root Application manages zero resources and reports Synced.
+# The root Application sources gitops/root as a Helm chart. The chart is empty
+# until later tickets add child Applications, so the root manages zero resources
+# and reports Synced in this ticket.
 
 # Where Argo watches. repoURL is the public repository. targetRevision is the
 # branch or tag Argo follows; the kind CI job overrides both to the branch under
@@ -9,12 +8,17 @@
 # against whatever is on main.
 repoURL: https://github.com/collaborationwithothers/cdc-platform-azure.git
 targetRevision: main
-treePath: gitops
+rootChartPath: gitops/root
 
-# bootstrap/ is excluded because it holds this Application's own Helm chart.
-# Argo reads a directory source as plain manifests, so an unexcluded Chart.yaml
-# or a Helm-templated file would fail to parse. The glob is relative to treePath.
-excludeGlob: bootstrap/**
+# These values cross the Terraform-to-Argo boundary through
+# spec.source.helm.valuesObject. The provider selects one of the three
+# External Secrets Operator adapters. The other fields are non-secret values;
+# they stay empty until an environment supplies them.
+externalSecrets:
+  provider: disabled
+  identityClientId: ""
+  tenantId: ""
+  vaultUrl: ""
 
 # Argo objects. The root Application and its children live in the argocd
 # namespace, which the Argo CD install creates.
