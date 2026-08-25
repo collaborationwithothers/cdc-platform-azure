@@ -1,9 +1,18 @@
 # Build-scale Kafka
 
-Terraform pins the Strimzi operator at 1.2.0. This chart creates the Kafka
-resources for one disposable build session and pins the broker at Kafka 4.3.1.
-Those pins stop an upgrade from silently changing the resource schema or
-broker behavior.
+Terraform installs Argo CD and the `root` Application. `root` creates
+`workloads`, which creates the `strimzi` Application. `strimzi` then installs
+the operator and applies this chart. The chain gives Argo CD one delivery path
+from the Git repository to Kafka.
+
+The `strimzi` Application pins the operator at 1.2.0. This chart creates the
+Kafka resources for one disposable build session and pins the broker at Kafka
+4.3.1. Those pins stop an upgrade from silently changing the resource schema
+or broker behavior.
+
+Terraform does not apply this chart. It stays under `infra/disposable/` to
+avoid mixing the delivery migration with a file move; Argo CD is its only
+delivery owner.
 
 The cluster has one node acting as both the KRaft metadata controller and the
 broker, with replication factor 1. This is a build-scale economy with no high
@@ -48,11 +57,8 @@ certificates. Kafka access control lists (ACLs) enforce the per-identity
 operations above. Topic auto-creation is disabled because every v1 topic is
 committed.
 
-## Offline validation
+## Container verification
 
-The `strimzi-schema` workflow renders this chart without a cluster. It checks
-the Strimzi 1.2.0 CRD release checksum, then validates every rendered Strimzi
-resource against the structural OpenAPI schemas in that pinned release. This
-offline check does not run the extra admission checks that Kubernetes executes
-when a resource is submitted to a live cluster, including Common Expression
-Language (CEL) rules.
+The `gitops-kind` workflow lets Argo CD install both sources on a kind cluster.
+It waits for the operator, broker, all 11 topics, and all four users. It also
+checks that every committed user still has access control list entries.

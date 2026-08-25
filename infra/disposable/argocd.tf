@@ -1,7 +1,15 @@
 # The disposable layer's delivery job ends here (ADR-010). Terraform installs
 # Argo CD and applies one root Application; Argo converges the rest of the
-# platform from the gitops/ tree. The helm provider is configured in strimzi.tf
-# and shared across the layer.
+# platform from the gitops/ tree.
+
+provider "helm" {
+  kubernetes = {
+    host                   = try(azurerm_kubernetes_cluster.platform.kube_config[0].host, "")
+    client_certificate     = try(base64decode(azurerm_kubernetes_cluster.platform.kube_config[0].client_certificate), "")
+    client_key             = try(base64decode(azurerm_kubernetes_cluster.platform.kube_config[0].client_key), "")
+    cluster_ca_certificate = try(base64decode(azurerm_kubernetes_cluster.platform.kube_config[0].cluster_ca_certificate), "")
+  }
+}
 
 # Chart argo-cd 10.4.0 installs Argo CD v3.5.1. This is the current release of
 # the argo-helm chart, verified against
