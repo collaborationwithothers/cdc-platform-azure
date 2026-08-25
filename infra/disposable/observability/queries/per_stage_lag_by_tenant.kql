@@ -1,0 +1,26 @@
+// Bad reading: a tenant's commit, receive, or apply stage is missing or its lag rises.
+let transitionEvents =
+    AppTraces
+    | where TimeGenerated > ago(1h)
+    | extend eventName = tostring(Properties.eventName),
+             tenantId = tostring(Properties.tenantId),
+             taskId = tostring(Properties.taskId),
+             version = toint(Properties.version)
+    | where eventName in (
+        "TaskApi.TransitionCommitted",
+        "QueueBuilder.EventReceived",
+        "QueueBuilder.EventApplied")
+    | project OperationId, tenantId, taskId, version, eventName, observedAt = TimeGenerated;
+transitionEvents
+| summarize
+    committedAt = minif(observedAt, eventName == "TaskApi.TransitionCommitted"),
+    receivedAt = minif(observedAt, eventName == "QueueBuilder.EventReceived"),
+    appliedAt = minif(observedAt, eventName == "QueueBuilder.EventApplied")
+    by OperationId, tenantId, taskId, version
+| where isnotempty(OperationId) and isnotempty(tenantId)
+| extend commitToReceiveMs = datetime_diff("millisecond", receivedAt, committedAt),
+         receiveToApplyMs = datetime_diff("millisecond", appliedAt, receivedAt),
+         commitToApplyMs = datetime_diff("millisecond", appliedAt, committedAt)
+| project tenantId, taskId, version, committedAt, receivedAt, appliedAt,
+          commitToReceiveMs, receiveToApplyMs, commitToApplyMs
+| order by tenantId asc, taskId asc, version asc

@@ -1,0 +1,8 @@
+// Bad reading: SentNotifications record conflicts increase for a tenant.
+AppMetrics
+| where TimeGenerated > ago(24h)
+| where Name == "notifier.record_conflict"
+| extend tenantId = tostring(Properties.tenantId)
+| summarize conflicts = sum(Sum) by tenantId, bin(TimeGenerated, 1h)
+| project TimeGenerated, tenantId, conflicts, conflictsPerHour = conflicts
+| order by TimeGenerated asc, tenantId asc

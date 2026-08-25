@@ -1,0 +1,29 @@
+// Bad reading: a Connect pod is not running, a task state is failed, or restarts rise.
+let podSnapshots =
+    KubePodInventory
+    | summarize arg_max(TimeGenerated, ContainerStatus, ContainerStatusReason,
+                        PodStatus, ContainerRestartCount, PodRestartCount)
+        by Name, ContainerName, Namespace
+    | project PodName = Name, ContainerName, Namespace, ContainerStatus,
+              ContainerStatusReason, PodStatus, ContainerRestartCount,
+              PodRestartCount;
+let taskStateLines =
+    ContainerLogV2
+    | where TimeGenerated > ago(1h)
+    | extend logText = tostring(LogMessage)
+    | where logText has_any ("RUNNING", "FAILED", "PAUSED", "UNASSIGNED")
+    | extend taskState = case(
+        logText has "RUNNING", "RUNNING",
+        logText has "FAILED", "FAILED",
+        logText has "PAUSED", "PAUSED",
+        logText has "UNASSIGNED", "UNASSIGNED",
+        "UNKNOWN")
+    | summarize arg_max(TimeGenerated, taskState) by PodName, PodNamespace
+    | project PodName, PodNamespace, taskState;
+podSnapshots
+| join kind=leftouter taskStateLines on $left.PodName == $right.PodName,
+                                       $left.Namespace == $right.PodNamespace
+| project PodName, Namespace, ContainerName, ContainerStatus,
+          ContainerStatusReason, PodStatus, ContainerRestartCount,
+          PodRestartCount, taskState
+| order by Namespace asc, PodName asc, ContainerName asc

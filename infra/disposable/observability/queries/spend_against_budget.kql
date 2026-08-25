@@ -1,0 +1,8 @@
+// Bad reading: workspace ingestion usage rises toward the configured spend guardrail.
+// Usage is measured in MiB; billed currency remains a Cost Management boundary.
+Usage
+| where TimeGenerated > ago(31d)
+| summarize workspaceUsageMiB = sum(Quantity)
+    by DataType, QuantityUnit, bin(StartTime, 1d)
+| project StartTime, DataType, QuantityUnit, workspaceUsageMiB
+| order by StartTime asc, DataType asc

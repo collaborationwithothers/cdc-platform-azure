@@ -1,0 +1,16 @@
+// Bad reading: inline gap or head-loss detections increase for any tenant.
+AppTraces
+| where TimeGenerated > ago(1h)
+| extend eventName = tostring(Properties.eventName),
+         tenantId = tostring(Properties.tenantId),
+         taskId = tostring(Properties.taskId),
+         version = toint(Properties.version)
+| where eventName in ("QueueBuilder.GapDetected", "QueueBuilder.HeadLossDetected")
+| summarize
+    gapDetections = countif(eventName == "QueueBuilder.GapDetected"),
+    headLossDetections = countif(eventName == "QueueBuilder.HeadLossDetected"),
+    affectedTasks = dcountif(taskId, isnotempty(taskId))
+    by tenantId, bin(TimeGenerated, 1h)
+| project TimeGenerated, tenantId, gapDetections, headLossDetections,
+          affectedTasks
+| order by TimeGenerated asc, tenantId asc
