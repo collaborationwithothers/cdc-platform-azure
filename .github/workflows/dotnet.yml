@@ -3,6 +3,7 @@ name: dotnet
 on:
   pull_request:
     paths:
+      - "connect/connectors/**"
       - "global.json"
       - "src/**"
       - "tests/**"

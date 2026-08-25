@@ -11,7 +11,7 @@ From the repository root, obtain the manifest path, Azure SQL server host name,
 and Kafka bootstrap address from the deployment outputs. Then run:
 
 ```text
-python3 connect/connectors/generate.py \
+dotnet run --project connect/connectors/Lexfield.ConnectorGenerator/Lexfield.ConnectorGenerator.csproj -- \
   --manifest <tenant-manifest.json> \
   --sql-server-fqdn <server.database.windows.net> \
   --bootstrap-servers <bootstrap-host:9092> \
@@ -54,7 +54,7 @@ and [Kafka 4.3 stock transforms](https://kafka.apache.org/43/generated/connect_t
 Run the golden-file tests from the repository root:
 
 ```text
-python3 -m unittest discover -s connect/connectors/tests -p 'test_*.py'
+dotnet test connect/connectors/Lexfield.ConnectorGenerator.Tests/Lexfield.ConnectorGenerator.Tests.csproj
 ```
 
 The test generates all three build-scale configurations and compares their
