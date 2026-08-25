@@ -15,23 +15,7 @@ GOLDEN = FIXTURES_DIR / "connector-configs.golden"
 class ConnectorGeneratorTests(unittest.TestCase):
     def test_three_tenants_match_the_golden_snapshot(self) -> None:
         with tempfile.TemporaryDirectory() as output_dir:
-            result = subprocess.run(
-                [
-                    sys.executable,
-                    str(CONNECTORS_DIR / "generate.py"),
-                    "--manifest",
-                    str(MANIFEST),
-                    "--sql-server-fqdn",
-                    "sql.lexfield.test",
-                    "--bootstrap-servers",
-                    "kafka:9092",
-                    "--output-dir",
-                    output_dir,
-                ],
-                check=False,
-                capture_output=True,
-                text=True,
-            )
+            result = run_generator(MANIFEST, Path(output_dir))
 
             self.assertEqual("", result.stderr)
             self.assertEqual(0, result.returncode)
@@ -84,30 +68,60 @@ class ConnectorGeneratorTests(unittest.TestCase):
             self.assertNotIn("PrefixKey", serialized)
             self.assertNotIn("rekey", serialized.lower())
 
+    def test_existing_connector_files_are_not_silently_preserved(self) -> None:
+        with tempfile.TemporaryDirectory() as output_dir:
+            first = run_generator(MANIFEST, Path(output_dir))
+            self.assertEqual(0, first.returncode)
+
+            second = run_generator(MANIFEST, Path(output_dir))
+
+            self.assertNotEqual(0, second.returncode)
+            self.assertIn("already contains generated connector files", second.stderr)
+
+    def test_manifest_values_are_not_reprocessed_as_placeholders(self) -> None:
+        tenant = {
+            "tenantId": "lexfield-{databaseName}",
+            "database": "tenant-{tenantId}",
+            "streamIsolated": False,
+        }
+
+        config = render_one(tenant)
+
+        self.assertEqual(
+            "lexfield-{databaseName}",
+            config["transforms.tenantHeader.value.literal"],
+        )
+        self.assertEqual("tenant-{tenantId}", config["database.names"])
+
 
 def render_one(tenant: dict[str, object]) -> dict[str, str]:
     with tempfile.TemporaryDirectory() as output_dir:
         manifest_path = Path(output_dir) / "manifest.json"
         manifest_path.write_text(json.dumps([tenant]))
-        subprocess.run(
-            [
-                sys.executable,
-                str(CONNECTORS_DIR / "generate.py"),
-                "--manifest",
-                str(manifest_path),
-                "--sql-server-fqdn",
-                "sql.lexfield.test",
-                "--bootstrap-servers",
-                "kafka:9092",
-                "--output-dir",
-                output_dir,
-            ],
-            check=True,
-            capture_output=True,
-            text=True,
-        )
+        result = run_generator(manifest_path, Path(output_dir))
+        result.check_returncode()
         config_path = Path(output_dir) / f"tenant-{tenant['tenantId']}-outbox.json"
         return json.loads(config_path.read_text())["config"]
+
+
+def run_generator(manifest_path: Path, output_dir: Path) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        [
+            sys.executable,
+            str(CONNECTORS_DIR / "generate.py"),
+            "--manifest",
+            str(manifest_path),
+            "--sql-server-fqdn",
+            "sql.lexfield.test",
+            "--bootstrap-servers",
+            "kafka:9092",
+            "--output-dir",
+            str(output_dir),
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
 
 
 def snapshot(output_dir: Path) -> str:

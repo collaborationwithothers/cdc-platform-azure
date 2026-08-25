@@ -1,9 +1,9 @@
 # Connector configuration generator
 
-The generator turns the tenant manifest into one Kafka Connect registration
-body per tenant. It reads the same `tenantId`, `database`, and `streamIsolated`
-fields as the onboarding runner, so database setup and connector routing cannot
-silently use different tenant lists.
+The generator turns a tenant manifest into one Kafka Connect registration body
+per tenant. Give this command and the onboarding runner the same manifest path.
+The tools do not enforce that pairing, so the operator owns keeping that one
+file as the source for both database setup and connector routing.
 
 ## Generate the files
 
@@ -19,6 +19,9 @@ python3 connect/connectors/generate.py \
 ```
 
 The command writes `tenant-<tenantId>-outbox.json` for each manifest entry.
+The output directory must not contain files from an earlier generator run. The
+generator refuses to overwrite them, so a tenant removed from the manifest
+cannot survive as a stale connector file.
 Register each complete file as the request body for Kafka Connect's connector
 creation endpoint. Do not commit a deployment manifest or generated files.
 

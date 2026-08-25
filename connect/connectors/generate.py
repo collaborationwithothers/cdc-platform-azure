@@ -2,12 +2,17 @@
 
 import argparse
 import json
+import re
+import sys
 from pathlib import Path
 from typing import Any
 
 
 TEMPLATE_PATH = Path(__file__).with_name("connector-template.json")
 REQUIRED_FIELDS = {"tenantId": str, "database": str, "streamIsolated": bool}
+PLACEHOLDER_PATTERN = re.compile(
+    r"\{(tenantId|databaseName|sqlServerFqdn|bootstrapServers|routingTopic)\}"
+)
 
 
 def parse_args() -> argparse.Namespace:
@@ -45,9 +50,7 @@ def load_manifest(path: Path) -> list[dict[str, Any]]:
 
 def replace_placeholders(value: Any, replacements: dict[str, str]) -> Any:
     if isinstance(value, str):
-        for placeholder, replacement in replacements.items():
-            value = value.replace(f"{{{placeholder}}}", replacement)
-        return value
+        return PLACEHOLDER_PATTERN.sub(lambda match: replacements[match.group(1)], value)
     if isinstance(value, list):
         return [replace_placeholders(item, replacements) for item in value]
     if isinstance(value, dict):
@@ -88,6 +91,10 @@ def generate(
     template = json.loads(TEMPLATE_PATH.read_text())
     tenants = load_manifest(manifest_path)
     output_dir.mkdir(parents=True, exist_ok=True)
+    existing = sorted(output_dir.glob("tenant-*-outbox.json"))
+    if existing:
+        names = ", ".join(path.name for path in existing)
+        raise ValueError(f"Output directory already contains generated connector files: {names}")
 
     for tenant in tenants:
         connector = render_connector(template, tenant, sql_server_fqdn, bootstrap_servers)
@@ -97,12 +104,16 @@ def generate(
 
 def main() -> int:
     args = parse_args()
-    generate(
-        args.manifest,
-        args.sql_server_fqdn,
-        args.bootstrap_servers,
-        args.output_dir,
-    )
+    try:
+        generate(
+            args.manifest,
+            args.sql_server_fqdn,
+            args.bootstrap_servers,
+            args.output_dir,
+        )
+    except (OSError, ValueError) as error:
+        print(f"error: {error}", file=sys.stderr)
+        return 2
     return 0
 
 
