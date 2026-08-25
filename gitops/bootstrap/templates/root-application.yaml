@@ -1,0 +1,25 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: {{ .Values.rootApplicationName | quote }}
+  namespace: {{ .Values.argocdNamespace | quote }}
+  finalizers:
+    # Deleting the root Application also prunes the children it created, rather
+    # than orphaning them.
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: {{ .Values.project | quote }}
+  source:
+    repoURL: {{ .Values.repoURL | quote }}
+    targetRevision: {{ .Values.targetRevision | quote }}
+    path: {{ .Values.treePath | quote }}
+    directory:
+      recurse: true
+      exclude: {{ .Values.excludeGlob | quote }}
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: {{ .Values.argocdNamespace | quote }}
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true

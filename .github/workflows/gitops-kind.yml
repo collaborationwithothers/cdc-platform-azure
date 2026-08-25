@@ -1,0 +1,76 @@
+name: gitops-kind
+
+# The disposable-layer verification for the GitOps bootstrap is "containers":
+# Argo CD runs against a kind cluster in CI, with no Azure. This job installs
+# Argo CD from the pinned chart, applies the one root Application pointed at the
+# branch under test, and waits for it to report Synced.
+
+on:
+  pull_request:
+    paths:
+      - "gitops/**"
+      - "infra/disposable/argocd.tf"
+      - ".github/workflows/gitops-kind.yml"
+  push:
+    branches: [main]
+    paths:
+      - "gitops/**"
+      - "infra/disposable/argocd.tf"
+      - ".github/workflows/gitops-kind.yml"
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+concurrency:
+  group: gitops-kind-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  argocd-root-synced:
+    name: argo cd root application syncs on kind
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      # kind v0.31.0 ships with this action release; it creates the cluster and
+      # writes the kubeconfig the later steps use.
+      - name: create kind cluster
+        uses: helm/kind-action@v1.14.0
+
+      - uses: azure/setup-helm@v4
+
+      # The same chart and version the disposable layer pins in argocd.tf.
+      - name: install argo cd
+        run: |
+          helm repo add argo https://argoproj.github.io/argo-helm
+          helm repo update argo
+          helm install argocd argo/argo-cd \
+            --version 10.4.0 \
+            --namespace argocd --create-namespace \
+            --wait --timeout 10m
+
+      # Render the committed root Application, overriding the ref to the branch
+      # under test so Argo syncs this pull request's tree rather than main's.
+      - name: apply the root application at the branch under test
+        run: |
+          helm template argocd-root gitops/bootstrap \
+            --set repoURL=https://github.com/${{ github.repository }}.git \
+            --set targetRevision=${{ github.head_ref || github.ref_name }} \
+            | kubectl apply --namespace argocd -f -
+
+      # With automated sync the root Application reconciles on its own. The tree
+      # is empty in this ticket, so Synced means zero managed resources.
+      - name: wait for the root application to report Synced
+        run: |
+          kubectl wait --namespace argocd \
+            --for=jsonpath='{.status.sync.status}'=Synced \
+            application/root --timeout=300s
+
+      - name: dump argo state on failure
+        if: failure()
+        run: |
+          kubectl --namespace argocd get applications -o yaml || true
+          kubectl --namespace argocd describe application root || true
+          kubectl --namespace argocd get pods || true

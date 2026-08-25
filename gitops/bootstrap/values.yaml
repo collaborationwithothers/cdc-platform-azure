@@ -1,0 +1,23 @@
+# The root Application that makes the gitops/ tree an app-of-apps: it points at
+# the tree and every leaf under it is itself an Argo Application. The tree is
+# empty until the scaffold ticket adds platform/ and workloads/; until then the
+# root Application manages zero resources and reports Synced.
+
+# Where Argo watches. repoURL is the public repository. targetRevision is the
+# branch or tag Argo follows; the kind CI job overrides both to the branch under
+# test so it can prove sync against the commit in the pull request rather than
+# against whatever is on main.
+repoURL: https://github.com/collaborationwithothers/cdc-platform-azure.git
+targetRevision: main
+treePath: gitops
+
+# bootstrap/ is excluded because it holds this Application's own Helm chart.
+# Argo reads a directory source as plain manifests, so an unexcluded Chart.yaml
+# or a Helm-templated file would fail to parse. The glob is relative to treePath.
+excludeGlob: bootstrap/**
+
+# Argo objects. The root Application and its children live in the argocd
+# namespace, which the Argo CD install creates.
+rootApplicationName: root
+argocdNamespace: argocd
+project: default
