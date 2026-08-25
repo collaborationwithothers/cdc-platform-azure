@@ -23,7 +23,8 @@ builder.Services.AddOptions<JwtBearerOptions>(JwtBearerDefaults.AuthenticationSc
     })
     .Validate(options => !string.IsNullOrWhiteSpace(options.Authority)
         && !string.IsNullOrWhiteSpace(options.Audience),
-        "Authentication:Authority and Authentication:Audience are required.");
+        "Authentication:Authority and Authentication:Audience are required.")
+    .ValidateOnStart();
 builder.Services.AddAuthorization(options => options.AddPolicy(
     "TenantRoute",
     policy =>
@@ -69,24 +70,31 @@ app.MapPost(
             await connection.OpenAsync(cancellationToken);
             await using var transaction = await connection.BeginTransactionAsync(cancellationToken);
             var commitAttempted = false;
-            async Task RollbackSafelyAsync()
+            async Task RollbackSafelyAsync(Exception original)
             {
                 try { await transaction.RollbackAsync(CancellationToken.None); }
-                catch (Exception rollbackFailure)
+                catch (Exception rollbackFailure) { original.Data["RollbackFailure"] = rollbackFailure; }
+            }
+            void TryLogEvent(string eventName, int taskId)
+            {
+                try
                 {
-                    logger.LogError(rollbackFailure, "Task rollback failed for tenant {tenantId}", tenantId);
+                    using (logger.BeginScope(new Dictionary<string, object?>
+                    {
+                        ["eventName"] = eventName,
+                        ["tenantId"] = tenantId,
+                        ["taskId"] = taskId,
+                        ["version"] = 1
+                    })) logger.LogInformation("Task API event");
+                }
+                catch
+                {
                 }
             }
-            void LogEvent(string eventName, int taskId)
-            {
-                using (logger.BeginScope(new Dictionary<string, object?>
-                {
-                    ["eventName"] = eventName, ["tenantId"] = tenantId, ["taskId"] = taskId, ["version"] = 1
-                })) logger.LogInformation("Task API event");
-            }
+            var taskId = 0;
             try
             {
-                var taskId = await connection.ExecuteScalarAsync<int>(new CommandDefinition(
+                taskId = await connection.ExecuteScalarAsync<int>(new CommandDefinition(
                     """
                     INSERT dbo.WorkflowTask (State, Version, TeamId, AssigneeId, CreatedAt, UpdatedAt, UpdatedBy)
                     VALUES (@State, @Version, @TeamId, @AssigneeId, @At, @At, @UpdatedBy);
@@ -121,23 +129,22 @@ app.MapPost(
                     cancellationToken: cancellationToken));
                 commitAttempted = true;
                 await transaction.CommitAsync(cancellationToken);
-                LogEvent("TaskApi.TransitionCommitted", taskId);
-                LogEvent("TaskApi.OutboxWritten", taskId);
-                return Results.Created(
-                    $"/tenants/{tenantId}/tasks/{taskId}",
-                    new CreateTaskResponse(taskId, 1));
             }
-            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            catch (OperationCanceledException cancellation) when (cancellationToken.IsCancellationRequested)
             {
-                if (!commitAttempted) await RollbackSafelyAsync();
+                if (!commitAttempted) await RollbackSafelyAsync(cancellation);
                 throw;
             }
             catch (Exception failure)
             {
-                logger.LogError(failure, "Task creation failed for tenant {tenantId}", tenantId);
-                if (!commitAttempted) await RollbackSafelyAsync();
-                return Results.Problem(statusCode: StatusCodes.Status500InternalServerError);
+                if (!commitAttempted) await RollbackSafelyAsync(failure);
+                throw;
             }
+            TryLogEvent("TaskApi.TransitionCommitted", taskId);
+            TryLogEvent("TaskApi.OutboxWritten", taskId);
+            return Results.Created(
+                $"/tenants/{tenantId}/tasks/{taskId}",
+                new CreateTaskResponse(taskId, 1));
         })
     .RequireAuthorization("TenantRoute");
 
