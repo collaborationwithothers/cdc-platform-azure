@@ -66,14 +66,15 @@ public static class OperatorScript
 }
 
 /// <summary>
-/// The check that needs no cluster: a script called without its arguments names
-/// them and fails, rather than acting on a tenant id it was never given.
+/// The checks that need no cluster: every script refuses to run without its
+/// arguments, and the notifier script refuses a verb the notifier cannot honour.
 /// </summary>
 public sealed class OperatorScriptArgumentTests
 {
     [Theory]
     [InlineData("pause-connector.sh", "<tenantId>")]
     [InlineData("resume-connector.sh", "<tenantId>")]
+    [InlineData("notifier-control.sh", "<retry|skip> <partition> <offset> <reason>")]
     public async Task Names_its_required_arguments_and_fails_when_called_with_none(
         string script,
         string expectedArguments)
@@ -82,6 +83,51 @@ public sealed class OperatorScriptArgumentTests
 
         Assert.NotEqual(0, result.ExitCode);
         Assert.Contains(expectedArguments, result.Output);
+    }
+
+    [Fact]
+    public async Task Notifier_control_refuses_a_verb_the_notifier_does_not_have()
+    {
+        var result = await OperatorScript.RunAsync(
+            "notifier-control.sh", ["park", "7", "4102", "operator typed the wrong verb"]);
+
+        Assert.NotEqual(0, result.ExitCode);
+        Assert.Contains("action must be retry or skip", result.Output);
+    }
+
+    [Fact]
+    public async Task Notifier_control_writes_the_control_message_the_notifier_reads()
+    {
+        // A stub on PATH stands in for the Kafka CLI, so the assertion is on the
+        // message and the destination rather than on a broker's acknowledgement.
+        var binDirectory = Directory.CreateTempSubdirectory("kafka-bin").FullName;
+        var recording = Path.Combine(binDirectory, "recorded.txt");
+        var stub = Path.Combine(binDirectory, "kafka-console-producer.sh");
+        await File.WriteAllTextAsync(stub, $"""
+            #!/usr/bin/env bash
+            echo "$@" > "{recording}"
+            cat >> "{recording}"
+            """);
+        if (!OperatingSystem.IsWindows())
+        {
+            File.SetUnixFileMode(stub, UnixFileMode.UserRead | UnixFileMode.UserExecute);
+        }
+
+        var result = await OperatorScript.RunAsync(
+            "notifier-control.sh",
+            ["skip", "7", "4102", "malformed payload from the 09:40 deploy"],
+            new Dictionary<string, string> { ["KAFKA_BIN_DIR"] = binDirectory });
+
+        Assert.Equal(0, result.ExitCode);
+        var recorded = (await File.ReadAllLinesAsync(recording)).ToArray();
+        Assert.Contains("--topic notifier-control", recorded[0]);
+        using var message = JsonDocument.Parse(recorded[1]);
+        Assert.Equal("skip", message.RootElement.GetProperty("action").GetString());
+        Assert.Equal(7, message.RootElement.GetProperty("partition").GetInt32());
+        Assert.Equal(4102, message.RootElement.GetProperty("offset").GetInt32());
+        Assert.Equal(
+            "malformed payload from the 09:40 deploy",
+            message.RootElement.GetProperty("reason").GetString());
     }
 }
 
