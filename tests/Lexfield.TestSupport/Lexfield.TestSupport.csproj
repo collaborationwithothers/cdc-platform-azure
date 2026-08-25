@@ -18,6 +18,12 @@
 
   <ItemGroup>
     <ProjectReference Include="../../src/Lexfield.Contracts/Lexfield.Contracts.csproj" />
+    <ProjectReference Include="../../tools/onboarding/Lexfield.Onboarding.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Compile Include="../Lexfield.Onboarding.Tests/**/*.cs"
+             Link="OnboardingTests/%(RecursiveDir)%(Filename)%(Extension)" />
   </ItemGroup>
 
   <ItemGroup>
