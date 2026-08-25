@@ -2,9 +2,11 @@
   <Project Path="../connect/connectors/Lexfield.ConnectorGenerator/Lexfield.ConnectorGenerator.csproj" />
   <Project Path="../connect/connectors/Lexfield.ConnectorGenerator.Tests/Lexfield.ConnectorGenerator.Tests.csproj" />
   <Project Path="../tests/Lexfield.TestSupport/Lexfield.TestSupport.csproj" />
+  <Project Path="../tools/loadgen/Lexfield.LoadGen.csproj" />
   <Project Path="Lexfield.Contracts/Lexfield.Contracts.csproj" />
   <Project Path="Lexfield.Observability/Lexfield.Observability.csproj" />
   <Project Path="Lexfield.TaskApi/Lexfield.TaskApi.csproj" />
   <Project Path="../tests/Lexfield.Observability.Tests/Lexfield.Observability.Tests.csproj" />
   <Project Path="../tests/Lexfield.TaskApi.Tests/Lexfield.TaskApi.Tests.csproj" />
+  <Project Path="../tests/Lexfield.LoadGen.Tests/Lexfield.LoadGen.Tests.csproj" />
 </Solution>
