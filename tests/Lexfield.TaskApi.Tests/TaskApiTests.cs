@@ -41,6 +41,10 @@ public sealed class TaskApiTests(SqlServerFixture sql)
         var response = await client.PostAsJsonAsync("/tenants/tenant-b/tasks", new { actor = "user:1" });
 
         Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+        client.DefaultRequestHeaders.Authorization =
+            new("Bearer", CreateToken("tenant-x", context.SigningKey));
+        response = await client.PostAsJsonAsync("/tenants/tenant-x/tasks", new { actor = "user:1" });
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
     }
 
     [Fact]
@@ -51,8 +55,19 @@ public sealed class TaskApiTests(SqlServerFixture sql)
         client.DefaultRequestHeaders.Authorization =
             new("Bearer", CreateToken("tenant-a", context.SigningKey));
 
-        var response = await client.PostAsJsonAsync(
-            "/tenants/tenant-a/tasks", new { actor = "user:1", teamId = "team-a" });
+        var output = new StringWriter();
+        var originalOutput = Console.Out;
+        HttpResponseMessage response;
+        try
+        {
+            Console.SetOut(output);
+            response = await client.PostAsJsonAsync(
+                "/tenants/tenant-a/tasks", new { actor = "spoofed", teamId = "team-a" });
+        }
+        finally
+        {
+            Console.SetOut(originalOutput);
+        }
         var body = await response.Content.ReadFromJsonAsync<CreateResponse>();
 
         Assert.Equal(HttpStatusCode.Created, response.StatusCode);
@@ -79,6 +94,11 @@ public sealed class TaskApiTests(SqlServerFixture sql)
         Assert.Contains("\"to\":\"Created\"", outbox.Payload);
         Assert.Contains("\"version\":1", outbox.Payload);
         Assert.Equal(0, await tenantB.ExecuteScalarAsync<int>("SELECT COUNT(*) FROM dbo.WorkflowTask"));
+        Assert.Contains("\"eventName\":\"TaskApi.TransitionCommitted\"", output.ToString());
+        Assert.Contains("\"eventName\":\"TaskApi.OutboxWritten\"", output.ToString());
+        Assert.Contains("\"tenantId\":\"tenant-a\"", output.ToString());
+        Assert.Contains("\"taskId\":", output.ToString());
+        Assert.Contains("\"version\":1", output.ToString());
     }
 
     [Fact]
@@ -116,18 +136,27 @@ public sealed class TaskApiTests(SqlServerFixture sql)
         using var client = context.Factory.CreateClient();
         using var healthClient = new HttpClient();
 
-        Assert.Equal("ok\n", await healthClient.GetStringAsync("http://localhost:8080/healthz"));
-        Assert.Equal("ready\n", await healthClient.GetStringAsync("http://localhost:8080/readyz"));
+        Assert.Equal("ok\n", await healthClient.GetStringAsync($"http://localhost:{context.HealthPort}/healthz"));
+        Assert.Equal("ready\n", await healthClient.GetStringAsync($"http://localhost:{context.HealthPort}/readyz"));
     }
 
     private async Task<TestContext> CreateContextAsync()
     {
         var suffix = Guid.NewGuid().ToString("N")[..8];
-        var databaseA = await sql.CreateTenantDatabaseAsync($"TaskApiA{suffix}", "tenant-a");
-        var databaseB = await sql.CreateTenantDatabaseAsync($"TaskApiB{suffix}", "tenant-b");
+        var databaseNameA = $"TaskApiA{suffix}";
+        var databaseNameB = $"TaskApiB{suffix}";
+        var databaseA = await sql.CreateTenantDatabaseAsync(databaseNameA, "tenant-a");
+        var databaseB = await sql.CreateTenantDatabaseAsync(databaseNameB, "tenant-b");
         var key = Convert.ToBase64String(System.Security.Cryptography.RandomNumberGenerator.GetBytes(32));
-        var factory = new TaskApiFactory(databaseA, databaseB, key);
-        return new TestContext(factory, databaseA, databaseB, key);
+        var manifest = Path.GetTempFileName();
+        await File.WriteAllTextAsync(manifest, $$"""
+            [{"tenantId":"tenant-a","database":"{{databaseNameA}}","streamIsolated":false},{"tenantId":"tenant-b","database":"{{databaseNameB}}","streamIsolated":false}]
+            """);
+        var port = GetFreePort();
+        var originalPort = Environment.GetEnvironmentVariable("Lexfield__Observability__Port");
+        Environment.SetEnvironmentVariable("Lexfield__Observability__Port", port.ToString());
+        var factory = new TaskApiFactory(databaseA, databaseB, key, manifest, port, databaseNameA, databaseNameB);
+        return new TestContext(factory, databaseA, databaseB, key, manifest, port, originalPort);
     }
 
     private static string CreateToken(string tenantId, string key)
@@ -144,16 +173,32 @@ public sealed class TaskApiTests(SqlServerFixture sql)
         return new JwtSecurityTokenHandler().WriteToken(token);
     }
 
+    private static int GetFreePort()
+    {
+        using var listener = new System.Net.Sockets.TcpListener(IPAddress.Loopback, 0);
+        listener.Start();
+        return ((System.Net.IPEndPoint)listener.LocalEndpoint).Port;
+    }
+
     private sealed record TestContext(
         TaskApiFactory Factory,
         string TenantA,
         string TenantB,
-        string SigningKey) : IAsyncDisposable
+        string SigningKey,
+        string ManifestPath,
+        int HealthPort,
+        string? OriginalPort) : IAsyncDisposable
     {
-        public ValueTask DisposeAsync() => Factory.DisposeAsync();
+        public async ValueTask DisposeAsync()
+        {
+            await Factory.DisposeAsync();
+            Environment.SetEnvironmentVariable("Lexfield__Observability__Port", OriginalPort);
+            File.Delete(ManifestPath);
+        }
     }
 
-    private sealed class TaskApiFactory(string tenantA, string tenantB, string signingKey)
+    private sealed class TaskApiFactory(
+        string tenantA, string tenantB, string signingKey, string manifest, int healthPort, string databaseNameA, string databaseNameB)
         : WebApplicationFactory<Program>
     {
         protected override void ConfigureWebHost(IWebHostBuilder builder)
@@ -161,16 +206,18 @@ public sealed class TaskApiTests(SqlServerFixture sql)
             builder.ConfigureAppConfiguration((_, configuration) => configuration.AddInMemoryCollection(
                 new Dictionary<string, string?>
                 {
-                    ["Tenants:tenant-a"] = tenantA,
-                    ["Tenants:tenant-b"] = tenantB,
+                    ["TenantManifest:Path"] = manifest,
+                    [$"ConnectionStrings:{databaseNameA}"] = tenantA,
+                    [$"ConnectionStrings:{databaseNameB}"] = tenantB,
                     ["Authentication:Authority"] = "https://issuer.test",
-                    ["Authentication:Audience"] = "lexfield-task-api"
+                    ["Authentication:Audience"] = "lexfield-task-api",
+                    ["Lexfield:Observability:Port"] = healthPort.ToString()
                 }));
             builder.ConfigureTestServices(services => services.PostConfigure<JwtBearerOptions>(
                 JwtBearerDefaults.AuthenticationScheme,
                 options =>
                 {
-                    options.Authority = null;
+                    options.Authority = "https://issuer.test";
                     options.ConfigurationManager = null;
                     options.RequireHttpsMetadata = false;
                     options.TokenValidationParameters = new TokenValidationParameters

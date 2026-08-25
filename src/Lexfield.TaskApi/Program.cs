@@ -9,7 +9,7 @@ using Microsoft.Data.SqlClient;
 var builder = WebApplication.CreateBuilder(args);
 builder.AddLexfieldObservability("TaskApi");
 builder.Services.AddSingleton(provider => new TenantCatalog(
-    provider.GetRequiredService<IConfiguration>().GetSection("Tenants")));
+    provider.GetRequiredService<IConfiguration>()));
 builder.Services.AddSingleton<IAuthorizationHandler, TenantRouteHandler>();
 builder.Services
     .AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
@@ -20,7 +20,10 @@ builder.Services.AddOptions<JwtBearerOptions>(JwtBearerDefaults.AuthenticationSc
         options.Authority = configuration["Authentication:Authority"];
         options.Audience = configuration["Authentication:Audience"];
         options.RequireHttpsMetadata = true;
-    });
+    })
+    .Validate(options => !string.IsNullOrWhiteSpace(options.Authority)
+        && !string.IsNullOrWhiteSpace(options.Audience),
+        "Authentication:Authority and Authentication:Audience are required.");
 builder.Services.AddAuthorization(options => options.AddPolicy(
     "TenantRoute",
     policy =>
@@ -39,6 +42,7 @@ app.MapPost(
             string tenantId,
             CreateTaskRequest? request,
             TenantCatalog catalog,
+            ILogger<Program> logger,
             CancellationToken cancellationToken) =>
         {
             var connectionString = catalog.GetConnectionString(tenantId);
@@ -46,8 +50,7 @@ app.MapPost(
             {
                 return Results.NotFound();
             }
-            var actor = request?.Actor
-                ?? http.User.FindFirstValue(ClaimTypes.NameIdentifier)
+            var actor = http.User.FindFirstValue(ClaimTypes.NameIdentifier)
                 ?? http.User.FindFirstValue("sub")
                 ?? "unknown";
             var at = DateTimeOffset.UtcNow;
@@ -65,6 +68,22 @@ app.MapPost(
             await using var connection = new SqlConnection(connectionString);
             await connection.OpenAsync(cancellationToken);
             await using var transaction = await connection.BeginTransactionAsync(cancellationToken);
+            var commitAttempted = false;
+            async Task RollbackSafelyAsync()
+            {
+                try { await transaction.RollbackAsync(CancellationToken.None); }
+                catch (Exception rollbackFailure)
+                {
+                    logger.LogError(rollbackFailure, "Task rollback failed for tenant {tenantId}", tenantId);
+                }
+            }
+            void LogEvent(string eventName, int taskId)
+            {
+                using (logger.BeginScope(new Dictionary<string, object?>
+                {
+                    ["eventName"] = eventName, ["tenantId"] = tenantId, ["taskId"] = taskId, ["version"] = 1
+                })) logger.LogInformation("Task API event");
+            }
             try
             {
                 var taskId = await connection.ExecuteScalarAsync<int>(new CommandDefinition(
@@ -100,14 +119,23 @@ app.MapPost(
                     },
                     transaction,
                     cancellationToken: cancellationToken));
+                commitAttempted = true;
                 await transaction.CommitAsync(cancellationToken);
+                LogEvent("TaskApi.TransitionCommitted", taskId);
+                LogEvent("TaskApi.OutboxWritten", taskId);
                 return Results.Created(
                     $"/tenants/{tenantId}/tasks/{taskId}",
                     new CreateTaskResponse(taskId, 1));
             }
-            catch
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
             {
-                await transaction.RollbackAsync(CancellationToken.None);
+                if (!commitAttempted) await RollbackSafelyAsync();
+                throw;
+            }
+            catch (Exception failure)
+            {
+                logger.LogError(failure, "Task creation failed for tenant {tenantId}", tenantId);
+                if (!commitAttempted) await RollbackSafelyAsync();
                 return Results.Problem(statusCode: StatusCodes.Status500InternalServerError);
             }
         })
@@ -115,20 +143,28 @@ app.MapPost(
 
 app.Run();
 public partial class Program;
-public sealed record CreateTaskRequest(string? Actor, string? TeamId, string? AssigneeId);
+public sealed record CreateTaskRequest(string? TeamId, string? AssigneeId);
 public sealed record CreateTaskResponse(int TaskId, int Version);
 public sealed class TenantCatalog
 {
     private readonly IReadOnlyDictionary<string, string> _connections;
-    public TenantCatalog(IConfigurationSection section)
+    public TenantCatalog(IConfiguration configuration)
     {
-        _connections = section.GetChildren()
-            .Where(child => !string.IsNullOrWhiteSpace(child.Value))
-            .ToDictionary(child => child.Key, child => child.Value!, StringComparer.Ordinal);
+        var path = configuration["TenantManifest:Path"]
+            ?? throw new InvalidOperationException("TenantManifest:Path is required.");
+        var entries = JsonSerializer.Deserialize<List<TenantManifestEntry>>(
+            File.ReadAllText(path), new JsonSerializerOptions { PropertyNameCaseInsensitive = true })
+            ?? throw new InvalidOperationException("Tenant manifest must contain an array.");
+        _connections = entries.ToDictionary(
+            entry => entry.TenantId,
+            entry => configuration.GetConnectionString(entry.Database)
+                ?? throw new InvalidOperationException($"ConnectionStrings:{entry.Database} is required."),
+            StringComparer.Ordinal);
     }
     public string? GetConnectionString(string tenantId) =>
         _connections.GetValueOrDefault(tenantId);
 }
+public sealed record TenantManifestEntry(string TenantId, string Database, bool StreamIsolated);
 public sealed class TenantRouteRequirement : IAuthorizationRequirement;
 public sealed class TenantRouteHandler : AuthorizationHandler<TenantRouteRequirement>
 {
