@@ -1,4 +1,6 @@
 <Solution>
   <Project Path="../tests/Lexfield.TestSupport/Lexfield.TestSupport.csproj" />
   <Project Path="Lexfield.Contracts/Lexfield.Contracts.csproj" />
+  <Project Path="Lexfield.Observability/Lexfield.Observability.csproj" />
+  <Project Path="../tests/Lexfield.Observability.Tests/Lexfield.Observability.Tests.csproj" />
 </Solution>
