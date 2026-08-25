@@ -72,7 +72,7 @@ actually runs.
 **4. Two endpoints on a fixed internal port.** `/healthz` and `/readyz` are the
 only endpoints in the generic worker listener. There is no service scrape
 endpoint: metric emission is verified in-process with the stable OpenTelemetry
-in-memory reader. If a future lab needs a scrape, a separate ticket uses OTLP
+in-memory reader. If a future lab needs a scrape, a separate ticket uses OpenTelemetry Protocol (OTLP)
 with stable exporters into a lab collector or Prometheus native OTLP ingestion.
 The two workers, reconciler and notifier, run this minimal HTTP listener and
 nothing else.
