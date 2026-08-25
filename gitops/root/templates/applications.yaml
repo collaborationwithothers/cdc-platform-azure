@@ -1,0 +1,82 @@
+{{- $provider := .Values.externalSecrets.provider | default "disabled" -}}
+{{- $validProviders := list "disabled" "fake" "azureKeyVault" -}}
+{{- if not (has $provider $validProviders) -}}
+{{- fail (printf "externalSecrets.provider must be one of disabled, fake, or azureKeyVault; got %s" $provider) -}}
+{{- end -}}
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: eso
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: {{ .Values.syncWaves.eso | quote }}
+spec:
+  project: default
+  source:
+    repoURL: {{ .Values.eso.repository | quote }}
+    chart: {{ .Values.eso.chart | quote }}
+    targetRevision: {{ .Values.eso.version | quote }}
+    helm:
+      valuesObject:
+        installCRDs: true
+        extraObjects:
+          {{- if eq $provider "azureKeyVault" }}
+          - apiVersion: v1
+            kind: ServiceAccount
+            metadata:
+              name: {{ .Values.eso.serviceAccount | quote }}
+              namespace: {{ .Values.eso.namespace | quote }}
+              annotations:
+                azure.workload.identity/client-id: {{ .Values.externalSecrets.identityClientId | quote }}
+          - apiVersion: external-secrets.io/v1
+            kind: SecretStore
+            metadata:
+              name: azure-key-vault
+              namespace: {{ .Values.eso.namespace | quote }}
+            spec:
+              provider:
+                azurekv:
+                  authType: WorkloadIdentity
+                  tenantId: {{ .Values.externalSecrets.tenantId | quote }}
+                  vaultUrl: {{ .Values.externalSecrets.vaultUrl | quote }}
+                  serviceAccountRef:
+                    name: {{ .Values.eso.serviceAccount | quote }}
+          {{- else if eq $provider "fake" }}
+          - apiVersion: external-secrets.io/v1
+            kind: SecretStore
+            metadata:
+              name: fake
+              namespace: {{ .Values.eso.namespace | quote }}
+            spec:
+              provider:
+                fake:
+                  data:
+                    - key: /eso/probe
+                      value: hydrated-by-eso
+          - apiVersion: external-secrets.io/v1
+            kind: ExternalSecret
+            metadata:
+              name: eso-probe
+              namespace: {{ .Values.eso.namespace | quote }}
+            spec:
+              refreshInterval: 1m
+              secretStoreRef:
+                name: fake
+                kind: SecretStore
+              target:
+                name: eso-probe
+                creationPolicy: Owner
+              data:
+                - secretKey: probe
+                  remoteRef:
+                    key: /eso/probe
+          {{- end }}
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: {{ .Values.eso.namespace | quote }}
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
