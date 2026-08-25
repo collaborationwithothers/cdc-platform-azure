@@ -18,7 +18,7 @@ other. `fmt`, `validate`, `plan`, and `tflint` only.
 | VNet with an AKS subnet and a private endpoint subnet | SPEC-LEVEL address space, documented in the module. |
 | AKS cluster | OIDC issuer enabled, workload identity enabled. Without both, the ADR-006 primary path cannot exist. |
 | System node pool | 2x `Standard_D2s_v6`, regular capacity. This is the build-scale shape Hari selected on 2026-08-24. The live-validation boundary below applies. |
-| User node pool | 2x `Standard_D2s_v6` spot. Spot is deliberate: blueprint failure mode 10 uses eviction as a recurring chaos drill, so it is a test surface, not only a discount. |
+| User node pool | 2x `Standard_D2s_v6`, regular capacity. This avoids a separate Spot quota and involuntary eviction dependency. It costs more and removes automatic Spot eviction as a failure test, so node-loss drills must be triggered deliberately. |
 | Private DNS zone for Azure SQL, linked to the VNet | Required for the cluster to resolve the private endpoint. |
 | `AcrPull` role assignment, cluster kubelet identity onto the persistent ACR | Lives here because it is destroyed with the cluster. |
 | Federated credential on `id-connect` against the AKS OIDC issuer | SPEC-LEVEL placement, see below. |

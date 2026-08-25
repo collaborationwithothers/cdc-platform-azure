@@ -98,13 +98,23 @@ run "plans_the_build_scale_cluster" {
   }
 
   assert {
-    condition     = azurerm_kubernetes_cluster_node_pool.workloads.priority == "Spot"
-    error_message = "The user pool must use Spot capacity."
+    condition     = azurerm_kubernetes_cluster_node_pool.workloads.priority == "Regular"
+    error_message = "The user pool must use regular capacity."
+  }
+
+  assert {
+    condition     = azurerm_kubernetes_cluster_node_pool.workloads.eviction_policy == null
+    error_message = "The regular user pool must not carry a Spot eviction policy."
+  }
+
+  assert {
+    condition     = azurerm_kubernetes_cluster_node_pool.workloads.spot_max_price == null
+    error_message = "The regular user pool must not carry a Spot maximum price."
   }
 
   assert {
     condition     = azurerm_kubernetes_cluster_node_pool.workloads.mode == "User"
-    error_message = "Spot capacity must stay in a user node pool."
+    error_message = "Application workloads must stay in a user node pool."
   }
 
   assert {
