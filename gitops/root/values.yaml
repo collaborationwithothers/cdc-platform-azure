@@ -1,8 +1,28 @@
 # The root chart consumes the values interface passed by the bootstrap chart.
-# It has no templates yet, so these values do not create child Applications.
+# The root Application creates the ESO child first. The selected adapter is
+# rendered into that child Application's Helm values.
 
 externalSecrets:
   provider: disabled
   identityClientId: ""
   tenantId: ""
   vaultUrl: ""
+
+eso:
+  repository: https://charts.external-secrets.io
+  chart: external-secrets
+  version: 2.9.0
+  namespace: external-secrets
+  serviceAccount: external-secrets-key-vault
+
+# Every later Application belongs to one of these waves. Only ESO is rendered
+# until its platform and workload owners add their own content.
+syncWaves:
+  eso: "0"
+  istio: "1"
+  gateway: "2"
+  certManager: "2"
+  externalDns: "2"
+  strimzi: "3"
+  connect: "4"
+  services: "4"
