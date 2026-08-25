@@ -39,7 +39,7 @@ public sealed class TenantOnboardingTests(SqlServerFixture sql)
             Assert.Equal(["WorkflowTask"], first.ChangeTrackingTables);
             Assert.True(first.SnapshotIsolationEnabled);
             Assert.True(first.OutboxTraceParentNullable);
-            Assert.True(first.DebeziumSignalExists);
+            Assert.True(first.DebeziumSignalExists && first.CdcEnabled && second.CdcEnabled);
             Assert.Equal(tenantId, first.TenantId);
             Assert.Equal(7, first.ChangeTrackingRetentionDays);
         }
@@ -58,6 +58,7 @@ public sealed class TenantOnboardingTests(SqlServerFixture sql)
                 connection,
                 "SELECT OBJECT_NAME(source_object_id) FROM cdc.change_tables ORDER BY 1;",
                 reader => reader.GetString(0)),
+            await ReadScalarAsync<byte>(connection, "SELECT is_cdc_enabled FROM sys.databases WHERE database_id = DB_ID();") == 1,
             await ReadRowsAsync(
                 connection,
                 "SELECT t.name FROM sys.change_tracking_tables ct JOIN sys.tables t ON t.object_id = ct.object_id ORDER BY t.name;",
@@ -111,5 +112,6 @@ public sealed class TenantOnboardingTests(SqlServerFixture sql)
         bool OutboxTraceParentNullable,
         bool DebeziumSignalExists,
         string TenantId,
-        DateTime TenantClaimedAt);
+        DateTime TenantClaimedAt,
+        bool CdcEnabled);
 }
