@@ -85,6 +85,14 @@ public sealed class ConnectorGeneratorTests
         Assert.Contains("must be a JSON object", run.Error);
     }
 
+    [Fact]
+    public void OmittedIsolationDefaultsToSharedRouting()
+    {
+        using var run = Generate("""[{"tenantId":"lexfield-004","database":"tenant-004"}]""");
+        Assert.Equal(0, run.ExitCode);
+        Assert.Equal("workflow-transitions", ReadConfig(run.Output, "lexfield-004")["transforms.outbox.route.topic.replacement"]);
+    }
+
     private static GenerationRun Generate(string manifest)
     {
         var root = Path.Combine(Path.GetTempPath(), $"lexfield-connectors-{Guid.NewGuid():N}");

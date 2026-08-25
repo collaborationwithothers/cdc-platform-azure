@@ -6,10 +6,7 @@ namespace Lexfield.ConnectorGenerator;
 
 public static class ConnectorConfigGenerator
 {
-    private static readonly JsonSerializerOptions ManifestOptions = new(JsonSerializerDefaults.Web)
-    {
-        RespectRequiredConstructorParameters = true,
-    };
+    private static readonly JsonSerializerOptions ManifestOptions = new(JsonSerializerDefaults.Web);
     private static readonly JsonSerializerOptions OutputOptions = new() { WriteIndented = true };
     private static readonly Regex PlaceholderPattern = new(
         @"\{(tenantId|databaseName|sqlServerFqdn|bootstrapServers|routingTopic)\}",
