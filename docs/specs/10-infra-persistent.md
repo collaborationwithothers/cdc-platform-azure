@@ -50,7 +50,8 @@ its state.
 | Log Analytics workspace | Persistent because blueprint section 8 lists Log Analytics retention as standing residue, so it outlives a teardown. Alert rules that target disposable resources live in the disposable layer. |
 | Application Insights component, connected to that workspace | Persistent for the same reason and one more. The .NET services export to it ([observability.md](../observability.md) section 3), and telemetry whose value is comparing this session to the last one is worthless if it dies at teardown. The disposable layer injects its connection string; it does not own the component. |
 | User-assigned managed identity, `id-connect` | The identity Connect pods federate to (blueprint section 9). Created here because it must outlive the cluster; its federated credential is created in the disposable layer, see below. |
-| Role assignments | CI principal gets what it needs on the subscription and the persistent resource group. Least privilege is a review point, not a formality. |
+| User-assigned managed identity, `id-external-secrets` | The identity External Secrets Operator uses to read secret contents from the platform Key Vault. It lives here because the disposable cluster is destroyed and recreated between sessions, while this identity must keep the same principal for the next cluster's federation. |
+| Role assignments | CI principal gets what it needs on the subscription and the persistent resource group. The ESO principal gets the `Key Vault Secrets User` role at the platform Key Vault scope. Microsoft documents that this role reads secret contents on vaults using Azure role-based access control. Least privilege is a review point, not a formality. |
 | Budget alerts module | See below. |
 
 The CI app registration, service principal, and GitHub federated credential are
@@ -98,11 +99,20 @@ app_insights_connection_string  string, sensitive
 connect_identity_client_id    string
 connect_identity_principal_id string
 connect_identity_id           string
+eso_identity_client_id        string
+eso_identity_principal_id     string
+eso_identity_id               string
 persistent_resource_group     string
 ```
 
 `connect_identity_id` is exported because the disposable layer creates the AKS
 federated credential against it.
+
+The ESO identity outputs are non-sensitive identifiers. The disposable layer
+uses the client ID for workload identity configuration and the resource ID for
+the federated credential, while the Key Vault role assignment remains in this
+persistent layer. Keeping both resources here preserves secret access when the
+disposable cluster is recreated.
 
 `app_insights_connection_string` is marked sensitive and is never committed. It
 reaches workloads the same way every other value from this layer does, through
