@@ -16,7 +16,11 @@ public sealed class TenantOnboardingRunner
         _connectionStringResolver = connectionStringResolver;
     }
 
-    public async Task RunAsync(string manifestPath, CancellationToken cancellationToken = default)
+    public async Task RunAsync(
+        string manifestPath,
+        string? connectorIdentity = null,
+        Action<string>? log = null,
+        CancellationToken cancellationToken = default)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(manifestPath);
 
@@ -31,14 +35,22 @@ public sealed class TenantOnboardingRunner
             throw new InvalidDataException("The tenant manifest must contain a JSON array.");
         }
 
-        await RunAsync(tenants, cancellationToken);
+        await RunAsync(tenants, connectorIdentity, log, cancellationToken);
     }
 
     public async Task RunAsync(
         IEnumerable<TenantManifestEntry> tenants,
+        string? connectorIdentity = null,
+        Action<string>? log = null,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(tenants);
+        log ??= _ => { };
+
+        if (connectorIdentity is null)
+        {
+            log("Connector grant step skipped: no connector identity supplied.");
+        }
 
         foreach (var tenant in tenants)
         {
@@ -50,6 +62,12 @@ public sealed class TenantOnboardingRunner
                 connection,
                 tenant.TenantId,
                 cancellationToken);
+
+            if (connectorIdentity is not null)
+            {
+                await ConnectorGrantScript.ApplyAsync(connection, connectorIdentity, cancellationToken);
+                log($"Connector grant applied for '{tenant.Database}'.");
+            }
         }
     }
 
@@ -87,6 +105,40 @@ public static class TenantOnboardingScript
     private static string LoadSql()
     {
         var assembly = typeof(TenantOnboardingScript).Assembly;
+        using var stream = assembly.GetManifestResourceStream(ResourceName)
+            ?? throw new InvalidOperationException($"Embedded resource '{ResourceName}' was not found.");
+        using var reader = new StreamReader(stream);
+        return reader.ReadToEnd();
+    }
+}
+
+public static class ConnectorGrantScript
+{
+    private const string ResourceName = "Lexfield.Onboarding.connector-grants.sql";
+
+    public static string Sql => LoadSql();
+
+    public static async Task ApplyAsync(
+        SqlConnection connection,
+        string connectorIdentity,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(connection);
+        ArgumentException.ThrowIfNullOrWhiteSpace(connectorIdentity);
+
+        await using var command = connection.CreateCommand();
+        command.CommandText = Sql;
+        command.CommandTimeout = 120;
+
+        var identityParameter = command.Parameters.Add("@ConnectorIdentity", System.Data.SqlDbType.NVarChar, 128);
+        identityParameter.Value = connectorIdentity;
+
+        await command.ExecuteNonQueryAsync(cancellationToken);
+    }
+
+    private static string LoadSql()
+    {
+        var assembly = typeof(ConnectorGrantScript).Assembly;
         using var stream = assembly.GetManifestResourceStream(ResourceName)
             ?? throw new InvalidOperationException($"Embedded resource '{ResourceName}' was not found.");
         using var reader = new StreamReader(stream);

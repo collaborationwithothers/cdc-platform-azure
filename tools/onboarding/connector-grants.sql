@@ -1,5 +1,5 @@
--- Applied by the separate live identity ticket, not by the onboarding runner.
-DECLARE @ConnectorIdentity sysname = N'<connector-identity>';
+-- Applied by the onboarding runner when a connector identity is supplied at
+-- run time; skipped by default so the container test needs no Entra tenant.
 DECLARE @quotedIdentity sysname = QUOTENAME(@ConnectorIdentity);
 
 IF NOT EXISTS (
