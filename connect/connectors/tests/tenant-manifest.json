@@ -1,0 +1,17 @@
+[
+  {
+    "tenantId": "lexfield-001",
+    "database": "tenant-001",
+    "streamIsolated": false
+  },
+  {
+    "tenantId": "lexfield-002",
+    "database": "tenant-002",
+    "streamIsolated": false
+  },
+  {
+    "tenantId": "lexfield-003",
+    "database": "tenant-003",
+    "streamIsolated": true
+  }
+]
