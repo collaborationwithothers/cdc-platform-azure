@@ -1,35 +1,57 @@
 # Load generator
 
-Produces the stream of events a load run will issue: how many per second, and
-which synthetic tenant each one belongs to. Every event carries a client-side
-issue time, which is stage zero of the three-stage latency breakdown blueprint
-section 7 requires. Blueprint section 7 also makes a committed generator a
-precondition for publishing any latency number, so this is a deliverable rather
-than something written during a measurement session.
+Drives task transitions through task-api's HTTP surface at a rate you set,
+spread across as many synthetic tenants as you ask for. Every event carries a
+client-side issue time, which is stage zero of the three-stage latency breakdown
+blueprint section 7 requires. Blueprint section 7 also makes a committed
+generator a precondition for publishing any latency number, so this is a
+deliverable rather than something written during a measurement session.
 
-At this stage the generator prints the stream rather than posting it to
-task-api. Posting arrives in the next change on this ticket. What is settled
-here is the shape of a run, which is the part a measurement has to be able to
-state and repeat.
-
-Everything it names is synthetic and labelled as such: tenants are
-`synthetic-tenant-0001` upwards.
+Everything it writes is synthetic and labelled as such: tenants are
+`synthetic-tenant-0001` upwards, and the actor on every event is
+`synthetic:loadgen`.
 
 ## Running it
 
-    dotnet run --project tools/loadgen -- --tenants 400 --distribution hot:8:0.8 --rate 50 --events 5000
+    export LEXFIELD_LOADGEN_TOKEN=<a bearer token task-api accepts>
+    dotnet run --project tools/loadgen -- \
+      --base-address https://task-api.example \
+      --tenants 400 --distribution hot:8:0.8 --rate 50 --events 5000
 
 | Option | Default | Meaning |
 | --- | --- | --- |
+| `--base-address` | `http://localhost:5000` | task-api base address |
 | `--tenants` | 3 | how many synthetic tenants the run draws from |
 | `--distribution` | `uniform` | `uniform`, or `hot:COUNT:SHARE` |
 | `--rate` | 10 | events per second |
 | `--events` | 100 | events to issue, then stop |
 | `--seed` | 1 | random seed, so a run repeats exactly |
 
+The bearer token is read from `LEXFIELD_LOADGEN_TOKEN`. No credential is read
+from a file in this repository. How that token is obtained is not settled here:
+task-api requires an Entra JWT whose tenant claim matches the route, and the
+identity spike owns the audience and the command that mints one.
+
 Stage-zero records go to stdout, one JSON object per line, so a measurement
-pipes them to a file. The summary goes to stderr. Exit code is 2 when the
-options do not parse.
+pipes them to a file. The summary goes to stderr. Exit code is 0 when every
+event succeeded, 1 when any failed, and 2 when the options do not parse.
+
+## What a run actually does
+
+Each event draws a tenant from the distribution. The first event for a tenant
+creates a task; every later event moves that tenant's task one step along the
+legal edges. Once a task reaches QA it takes the rework edge back to InProgress,
+so one task per tenant produces an unbounded stream of transitions. The
+generator never drives a task to Completed or Delivered.
+
+A rejected transition is counted and reported, and the local version is not
+advanced, so the next attempt sends the version the server still holds rather
+than compounding one rejection into a permanently wedged task.
+
+The run starts no trace and attaches no listener. task-api writes
+`Activity.Current?.Id` into the outbox row inside the transaction, so an untraced
+client is what makes it write a null `TraceParent`. Every load run therefore
+exercises the untraced write path.
 
 ## Why the rate is a schedule, not a sleep
 
