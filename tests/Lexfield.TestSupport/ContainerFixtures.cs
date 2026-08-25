@@ -1,3 +1,4 @@
+using Lexfield.Onboarding;
 using Microsoft.Data.SqlClient;
 using Testcontainers.Kafka;
 using Testcontainers.MsSql;
@@ -24,11 +25,25 @@ public sealed class SqlServerFixture : IAsyncLifetime
     public Task DisposeAsync() => _container.DisposeAsync().AsTask();
 
     /// <summary>
-    /// Creates a database and applies the tenant schema to it, returning its
-    /// connection string. One per test class; pass a name derived from the class.
+    /// Creates a database and applies the canonical onboarding script to it.
     /// </summary>
-    public Task<string> CreateTenantDatabaseAsync(string databaseName) =>
-        CreateDatabaseAsync(databaseName, TenantSchema);
+    public async Task<string> CreateTenantDatabaseAsync(
+        string databaseName,
+        string tenantId = "lexfield-test")
+    {
+        var connectionString = await CreateDatabaseAsync(databaseName);
+        var runner = new TenantOnboardingRunner(
+            entry => ConnectionStringFor(entry.Database));
+        await runner.RunAsync(
+        [
+            new TenantManifestEntry(tenantId, databaseName, StreamIsolated: false)
+        ]);
+        return connectionString;
+    }
+
+    /// <summary>Creates a tenant database without applying a schema.</summary>
+    public Task<string> CreateEmptyTenantDatabaseAsync(string databaseName) =>
+        CreateDatabaseAsync(databaseName);
 
     /// <summary>
     /// Creates a database and applies the platform QueueState schema to it.
@@ -37,7 +52,7 @@ public sealed class SqlServerFixture : IAsyncLifetime
     public Task<string> CreateQueueStoreDatabaseAsync(string databaseName) =>
         CreateDatabaseAsync(databaseName, QueueStoreSchema);
 
-    private async Task<string> CreateDatabaseAsync(string databaseName, string schema)
+    private async Task<string> CreateDatabaseAsync(string databaseName, string? schema = null)
     {
         await using (var admin = new SqlConnection(AdminConnectionString))
         {
@@ -48,8 +63,9 @@ public sealed class SqlServerFixture : IAsyncLifetime
         }
 
         var connectionString = ConnectionStringFor(databaseName);
-        await using (var database = new SqlConnection(connectionString))
+        if (schema is not null)
         {
+            await using var database = new SqlConnection(connectionString);
             await database.OpenAsync();
             await ExecuteAsync(database, schema);
         }
@@ -68,48 +84,6 @@ public sealed class SqlServerFixture : IAsyncLifetime
         command.CommandText = sql;
         await command.ExecuteNonQueryAsync();
     }
-
-    /// <summary>
-    /// PROVISIONAL. The canonical tenant schema is the onboarding T-SQL in
-    /// <c>tools/onboarding/</c>, owned by infra/disposable. This copy lets the
-    /// .NET areas build before that ticket lands; this fixture switches to
-    /// executing the onboarding script when it does. Idempotent so the swap is
-    /// behaviour-preserving. Source today: docs/specs/00-shared-contracts.md.
-    /// </summary>
-    public const string TenantSchema = """
-        IF OBJECT_ID('dbo.WorkflowTask', 'U') IS NULL
-        CREATE TABLE dbo.WorkflowTask (
-            Id          int IDENTITY(1,1) NOT NULL PRIMARY KEY,
-            State       nvarchar(16)  NOT NULL,
-            Version     int           NOT NULL,
-            TeamId      nvarchar(64)  NULL,
-            AssigneeId  nvarchar(64)  NULL,
-            CreatedAt   datetime2(3)  NOT NULL,
-            UpdatedAt   datetime2(3)  NOT NULL,
-            UpdatedBy   nvarchar(64)  NOT NULL
-        );
-
-        IF OBJECT_ID('dbo.Outbox', 'U') IS NULL
-        CREATE TABLE dbo.Outbox (
-            Id            bigint IDENTITY(1,1) NOT NULL PRIMARY KEY,
-            AggregateType nvarchar(64)  NOT NULL,
-            AggregateId   nvarchar(64)  NOT NULL,
-            EventType     nvarchar(64)  NOT NULL,
-            Version       int           NOT NULL,
-            Payload       nvarchar(max) NOT NULL,
-            TraceParent   nvarchar(64)  NULL,
-            CreatedAt     datetime2(3)  NOT NULL CONSTRAINT DF_Outbox_CreatedAt
-                                                 DEFAULT SYSUTCDATETIME()
-        );
-
-        IF OBJECT_ID('dbo.TenantInfo', 'U') IS NULL
-        CREATE TABLE dbo.TenantInfo (
-            Id        tinyint      NOT NULL PRIMARY KEY
-                                   CONSTRAINT CK_TenantInfo_Single CHECK (Id = 1),
-            TenantId  nvarchar(64) NOT NULL,
-            ClaimedAt datetime2(3) NOT NULL
-        );
-        """;
 
     /// <summary>
     /// PROVISIONAL for the same reason: the canonical QueueState schema is the
