@@ -1,4 +1,6 @@
 <Solution>
+  <Project Path="../connect/connectors/Lexfield.ConnectorGenerator/Lexfield.ConnectorGenerator.csproj" />
+  <Project Path="../connect/connectors/Lexfield.ConnectorGenerator.Tests/Lexfield.ConnectorGenerator.Tests.csproj" />
   <Project Path="../tests/Lexfield.TestSupport/Lexfield.TestSupport.csproj" />
   <Project Path="Lexfield.Contracts/Lexfield.Contracts.csproj" />
   <Project Path="Lexfield.Observability/Lexfield.Observability.csproj" />

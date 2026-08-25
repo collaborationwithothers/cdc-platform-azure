@@ -1,0 +1,31 @@
+{
+  "name": "tenant-{tenantId}-outbox",
+  "config": {
+    "connector.class": "io.debezium.connector.sqlserver.SqlServerConnector",
+    "topic.prefix": "tenant-{tenantId}",
+    "database.hostname": "{sqlServerFqdn}",
+    "database.port": "1433",
+    "database.names": "{databaseName}",
+    "driver.encrypt": "true",
+    "driver.authentication": "ActiveDirectoryDefault",
+    "table.include.list": "dbo.Outbox",
+    "schema.history.internal.kafka.bootstrap.servers": "{bootstrapServers}",
+    "schema.history.internal.kafka.topic": "schema-history-{tenantId}",
+    "signal.enabled.channels": "source,kafka",
+    "signal.kafka.topic": "connect-signals",
+    "signal.kafka.bootstrap.servers": "{bootstrapServers}",
+    "signal.data.collection": "{databaseName}.dbo.DebeziumSignal",
+    "errors.max.retries": "10",
+    "transforms": "outbox,tenantHeader",
+    "transforms.outbox.type": "io.debezium.transforms.outbox.EventRouter",
+    "transforms.outbox.table.field.event.id": "Id",
+    "transforms.outbox.table.field.event.key": "AggregateId",
+    "transforms.outbox.table.field.event.payload": "Payload",
+    "transforms.outbox.route.by.field": "AggregateType",
+    "transforms.outbox.table.fields.additional.placement": "EventType:header:eventType,Id:header:eventId,TraceParent:header:traceparent",
+    "transforms.outbox.route.topic.replacement": "{routingTopic}",
+    "transforms.tenantHeader.type": "org.apache.kafka.connect.transforms.InsertHeader",
+    "transforms.tenantHeader.header": "tenantId",
+    "transforms.tenantHeader.value.literal": "{tenantId}"
+  }
+}
