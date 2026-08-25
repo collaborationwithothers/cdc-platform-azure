@@ -9,6 +9,7 @@ using Lexfield.Contracts;
 using Lexfield.TaskApi.Transitions;
 using Lexfield.TestSupport;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.AspNetCore.TestHost;
@@ -30,7 +31,7 @@ public sealed class TransitionEndpointTests(SqlServerFixture sql)
         using var client = context.Factory.CreateClient();
         client.DefaultRequestHeaders.Authorization = new("Bearer", CreateToken(context.SigningKey));
         var path = $"/tenants/tenant-a/tasks/{taskId}/transitions";
-        var body = new { to = "Assigned", actor = "spoofed", expectedVersion = 1, teamId = "team-a" };
+        var body = new { to = "Assigned", actor = "user:transition", expectedVersion = 1, teamId = "team-a" };
 
         var responses = await Task.WhenAll(
             client.PostAsJsonAsync(path, body), client.PostAsJsonAsync(path, body));
@@ -39,11 +40,13 @@ public sealed class TransitionEndpointTests(SqlServerFixture sql)
         Assert.Equal(1, responses.Count(response => response.StatusCode == HttpStatusCode.Conflict));
         await using var connection = new SqlConnection(context.ConnectionString);
         var task = await connection.QuerySingleAsync<TaskRow>(
-            "SELECT State, Version FROM dbo.WorkflowTask WHERE Id = @taskId", new { taskId });
+            "SELECT State, Version, UpdatedBy FROM dbo.WorkflowTask WHERE Id = @taskId", new { taskId });
         var outbox = await connection.QuerySingleAsync<OutboxRow>(
-            "SELECT AggregateId, Version FROM dbo.Outbox");
-        Assert.Equal(new TaskRow("Assigned", 2), task);
-        Assert.Equal(new OutboxRow($"tenant-a-{taskId}", 2), outbox);
+            "SELECT AggregateId, Version, Payload FROM dbo.Outbox");
+        Assert.Equal(new TaskRow("Assigned", 2, "user:transition"), task);
+        Assert.Equal($"tenant-a-{taskId}", outbox.AggregateId);
+        Assert.Equal(2, outbox.Version);
+        Assert.Contains("\"actor\":\"user:transition\"", outbox.Payload);
     }
 
     [Fact]
@@ -61,12 +64,12 @@ public sealed class TransitionEndpointTests(SqlServerFixture sql)
 
         var response = await client.PostAsJsonAsync(
             $"/tenants/tenant-a/tasks/{taskId}/transitions",
-            new { to = "Assigned", expectedVersion = 1 });
+            new { to = "Assigned", actor = "user:1", expectedVersion = 1 });
 
         Assert.Equal(HttpStatusCode.InternalServerError, response.StatusCode);
         await using var verify = new SqlConnection(context.ConnectionString);
-        Assert.Equal(new TaskRow("Created", 1), await verify.QuerySingleAsync<TaskRow>(
-            "SELECT State, Version FROM dbo.WorkflowTask WHERE Id = @taskId", new { taskId }));
+        Assert.Equal(new TaskRow("Created", 1, "seed"), await verify.QuerySingleAsync<TaskRow>(
+            "SELECT State, Version, UpdatedBy FROM dbo.WorkflowTask WHERE Id = @taskId", new { taskId }));
         Assert.Equal(0, await verify.ExecuteScalarAsync<int>("SELECT COUNT(*) FROM dbo.Outbox"));
     }
 
@@ -80,7 +83,7 @@ public sealed class TransitionEndpointTests(SqlServerFixture sql)
 
         var response = await client.PostAsJsonAsync(
             $"/tenants/tenant-a/tasks/{taskId}/transitions",
-            new { to = "Delivered", expectedVersion = 1 });
+            new { to = "Delivered", actor = "user:1", expectedVersion = 1 });
 
         Assert.Equal(HttpStatusCode.UnprocessableEntity, response.StatusCode);
     }
@@ -91,27 +94,23 @@ public sealed class TransitionEndpointTests(SqlServerFixture sql)
         await using var context = await CreateContextAsync();
         var tracedTask = await SeedTaskAsync(context.ConnectionString);
         var untracedTask = await SeedTaskAsync(context.ConnectionString);
-        _ = context.Factory.CreateClient();
-        var transition = new TaskTransition(
-            context.Factory.Services.GetRequiredService<TenantCatalog>(),
-            context.Factory.Services.GetRequiredService<Microsoft.Extensions.Logging.ILogger<TaskTransition>>());
-        var previousActivity = Activity.Current;
-        Activity.Current = null;
+        using var client = context.Factory.CreateClient();
+        client.DefaultRequestHeaders.Authorization = new("Bearer", CreateToken(context.SigningKey));
         using var activity = new Activity("transition-test").Start();
-
-        string? traceParent;
-        try
+        var traced = await client.PostAsJsonAsync(
+            $"/tenants/tenant-a/tasks/{tracedTask}/transitions",
+            new { to = "Assigned", actor = "user:1", expectedVersion = 1 });
+        var traceParent = traced.Headers.GetValues("X-Test-Activity").Single();
+        activity.Stop();
+        using var untracedRequest = new HttpRequestMessage(HttpMethod.Post,
+            $"/tenants/tenant-a/tasks/{untracedTask}/transitions")
         {
-            await transition.ExecuteAsync(Command(tracedTask), CancellationToken.None);
-            traceParent = activity.Id;
-            activity.Stop();
-            Assert.Null(Activity.Current);
-            await transition.ExecuteAsync(Command(untracedTask), CancellationToken.None);
-        }
-        finally
-        {
-            Activity.Current = previousActivity;
-        }
+            Content = JsonContent.Create(new { to = "Assigned", actor = "user:1", expectedVersion = 1 })
+        };
+        untracedRequest.Headers.Add("X-Test-No-Activity", "true");
+        var untraced = await client.SendAsync(untracedRequest);
+        Assert.Equal(HttpStatusCode.OK, traced.StatusCode);
+        Assert.Equal(HttpStatusCode.OK, untraced.StatusCode);
 
         await using var connection = new SqlConnection(context.ConnectionString);
         var traces = (await connection.QueryAsync<string?>(
@@ -120,9 +119,6 @@ public sealed class TransitionEndpointTests(SqlServerFixture sql)
             traced => Assert.Equal(traceParent, traced),
             untraced => Assert.Null(untraced));
     }
-
-    private static TransitionCommand Command(int taskId) => new(
-        "tenant-a", taskId, TaskState.Assigned, "user:1", 1, null, null);
 
     private async Task<TestContext> CreateContextAsync()
     {
@@ -209,9 +205,27 @@ public sealed class TransitionEndpointTests(SqlServerFixture sql)
                         IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(signingKey))
                     };
                 }));
+            builder.ConfigureTestServices(services =>
+                services.AddSingleton<IStartupFilter, ActivityControlStartupFilter>());
         }
     }
 
-    private sealed record TaskRow(string State, int Version);
-    private sealed record OutboxRow(string AggregateId, int Version);
+    private sealed class ActivityControlStartupFilter : IStartupFilter
+    {
+        public Action<IApplicationBuilder> Configure(Action<IApplicationBuilder> next) => app =>
+        {
+            app.Use(async (context, requestNext) =>
+            {
+                var activity = Activity.Current;
+                if (context.Request.Headers.ContainsKey("X-Test-No-Activity")) Activity.Current = null;
+                else if (activity?.Id is not null) context.Response.Headers["X-Test-Activity"] = activity.Id;
+                try { await requestNext(); }
+                finally { Activity.Current = activity; }
+            });
+            next(app);
+        };
+    }
+
+    private sealed record TaskRow(string State, int Version, string UpdatedBy);
+    private sealed record OutboxRow(string AggregateId, int Version, string Payload);
 }

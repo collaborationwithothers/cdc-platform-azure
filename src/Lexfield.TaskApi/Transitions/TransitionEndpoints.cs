@@ -1,4 +1,3 @@
-using System.Security.Claims;
 using Lexfield.Contracts;
 
 namespace Lexfield.TaskApi.Transitions;
@@ -8,15 +7,14 @@ public static class TransitionEndpoints
     public static IEndpointRouteBuilder MapTransitionEndpoints(this IEndpointRouteBuilder endpoints)
     {
         endpoints.MapPost("/tenants/{tenantId}/tasks/{taskId:int}/transitions", async (
-            HttpContext http, string tenantId, int taskId, TransitionRequest request,
+            string tenantId, int taskId, TransitionRequest request,
             TenantCatalog catalog, ILogger<TaskTransition> logger, CancellationToken cancellationToken) =>
         {
-            if (request.To is null || request.ExpectedVersion is null) return Results.BadRequest();
-            var actor = http.User.FindFirstValue(ClaimTypes.NameIdentifier)
-                ?? http.User.FindFirstValue("sub") ?? "unknown";
+            if (request.To is null || request.ExpectedVersion is null
+                || string.IsNullOrWhiteSpace(request.Actor)) return Results.BadRequest();
             var transition = new TaskTransition(catalog, logger);
             var outcome = await transition.ExecuteAsync(new TransitionCommand(
-                tenantId, taskId, request.To.Value, actor, request.ExpectedVersion.Value,
+                tenantId, taskId, request.To.Value, request.Actor, request.ExpectedVersion.Value,
                 request.TeamId, request.AssigneeId), cancellationToken);
             return outcome switch
             {
