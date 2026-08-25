@@ -58,8 +58,11 @@ run "plans_the_build_scale_cluster" {
     target = data.terraform_remote_state.persistent
     values = {
       outputs = {
-        acr_id              = "/subscriptions/mock/resourceGroups/rg-cdc-platform-persistent/providers/Microsoft.ContainerRegistry/registries/cdcplatformmock"
-        connect_identity_id = "/subscriptions/mock/resourceGroups/rg-cdc-platform-persistent/providers/Microsoft.ManagedIdentity/userAssignedIdentities/id-connect"
+        acr_id                 = "/subscriptions/mock/resourceGroups/rg-cdc-platform-persistent/providers/Microsoft.ContainerRegistry/registries/cdcplatformmock"
+        connect_identity_id    = "/subscriptions/mock/resourceGroups/rg-cdc-platform-persistent/providers/Microsoft.ManagedIdentity/userAssignedIdentities/id-connect"
+        eso_identity_client_id = "mock-eso-client-id"
+        eso_identity_id        = "/subscriptions/mock/resourceGroups/rg-cdc-platform-persistent/providers/Microsoft.ManagedIdentity/userAssignedIdentities/id-external-secrets"
+        key_vault_uri          = "https://cdc-platform-mock.vault.azure.net/"
       }
     }
   }
@@ -147,6 +150,26 @@ run "plans_the_build_scale_cluster" {
   assert {
     condition     = length(azurerm_federated_identity_credential.connect.audience) == 1 && contains(azurerm_federated_identity_credential.connect.audience, "api://AzureADTokenExchange")
     error_message = "The Connect trust must use the recommended token-exchange audience."
+  }
+
+  assert {
+    condition     = azurerm_federated_identity_credential.external_secrets.user_assigned_identity_id == data.terraform_remote_state.persistent.outputs.eso_identity_id
+    error_message = "The ESO trust must target the persistent ESO identity."
+  }
+
+  assert {
+    condition     = azurerm_federated_identity_credential.external_secrets.issuer == azurerm_kubernetes_cluster.platform.oidc_issuer_url
+    error_message = "The ESO trust must use this cluster's OIDC issuer."
+  }
+
+  assert {
+    condition     = azurerm_federated_identity_credential.external_secrets.subject == "system:serviceaccount:external-secrets:external-secrets-key-vault"
+    error_message = "The ESO trust must name the exact External Secrets service account."
+  }
+
+  assert {
+    condition     = length(azurerm_federated_identity_credential.external_secrets.audience) == 1 && azurerm_federated_identity_credential.external_secrets.audience[0] == "api://AzureADTokenExchange"
+    error_message = "The ESO trust must use only the token-exchange audience."
   }
 
   assert {

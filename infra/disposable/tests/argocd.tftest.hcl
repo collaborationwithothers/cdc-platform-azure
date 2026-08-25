@@ -57,8 +57,11 @@ run "installs_argocd_and_the_root_application" {
     target = data.terraform_remote_state.persistent
     values = {
       outputs = {
-        acr_id              = "/subscriptions/mock/resourceGroups/rg-cdc-platform-persistent/providers/Microsoft.ContainerRegistry/registries/cdcplatformmock"
-        connect_identity_id = "/subscriptions/mock/resourceGroups/rg-cdc-platform-persistent/providers/Microsoft.ManagedIdentity/userAssignedIdentities/id-connect"
+        acr_id                 = "/subscriptions/mock/resourceGroups/rg-cdc-platform-persistent/providers/Microsoft.ContainerRegistry/registries/cdcplatformmock"
+        connect_identity_id    = "/subscriptions/mock/resourceGroups/rg-cdc-platform-persistent/providers/Microsoft.ManagedIdentity/userAssignedIdentities/id-connect"
+        eso_identity_client_id = "mock-eso-client-id"
+        eso_identity_id        = "/subscriptions/mock/resourceGroups/rg-cdc-platform-persistent/providers/Microsoft.ManagedIdentity/userAssignedIdentities/id-external-secrets"
+        key_vault_uri          = "https://cdc-platform-mock.vault.azure.net/"
       }
     }
   }
@@ -101,5 +104,13 @@ run "installs_argocd_and_the_root_application" {
   assert {
     condition     = helm_release.argocd_root.wait
     error_message = "Terraform must wait for the root Application to apply."
+  }
+
+  assert {
+    condition = (yamldecode(helm_release.argocd_root.values[0]).externalSecrets.provider == "azureKeyVault" &&
+      yamldecode(helm_release.argocd_root.values[0]).externalSecrets.identityClientId == data.terraform_remote_state.persistent.outputs.eso_identity_client_id &&
+      yamldecode(helm_release.argocd_root.values[0]).externalSecrets.tenantId == data.azurerm_client_config.current.tenant_id &&
+    yamldecode(helm_release.argocd_root.values[0]).externalSecrets.vaultUrl == data.terraform_remote_state.persistent.outputs.key_vault_uri)
+    error_message = "The root Helm release must pass the Azure Key Vault provider and all three non-secret settings."
   }
 }
