@@ -30,6 +30,7 @@ public sealed class TenantOnboardingTests(SqlServerFixture sql)
             Assert.Equal(first.CdcTables, second.CdcTables);
             Assert.Equal(first.ChangeTrackingTables, second.ChangeTrackingTables);
             Assert.Equal(first.ChangeTrackingRetentionDays, second.ChangeTrackingRetentionDays);
+            Assert.Equal(first.TenantClaimedAt, second.TenantClaimedAt);
             Assert.Equal(first.SnapshotIsolationEnabled, second.SnapshotIsolationEnabled);
             Assert.Equal(first.OutboxTraceParentNullable, second.OutboxTraceParentNullable);
             Assert.Equal(first.DebeziumSignalExists, second.DebeziumSignalExists);
@@ -63,7 +64,7 @@ public sealed class TenantOnboardingTests(SqlServerFixture sql)
                 reader => reader.GetString(0)),
             await ReadScalarAsync<int>(
                 connection,
-                "SELECT CASE WHEN retention_period = 7 AND retention_period_units = 3 THEN 7 ELSE 0 END FROM sys.change_tracking_databases WHERE database_id = DB_ID();"),
+                "SELECT CASE WHEN retention_period = 7 AND retention_period_units = 3 AND is_auto_cleanup_on = 1 THEN 7 ELSE 0 END FROM sys.change_tracking_databases WHERE database_id = DB_ID();"),
             await ReadScalarAsync<byte>(
                 connection,
                 "SELECT snapshot_isolation_state FROM sys.databases WHERE database_id = DB_ID();") == 1,
@@ -73,7 +74,8 @@ public sealed class TenantOnboardingTests(SqlServerFixture sql)
             await ReadScalarAsync<int>(
                 connection,
                 "SELECT CASE WHEN OBJECT_ID('dbo.DebeziumSignal', 'U') IS NULL THEN 0 ELSE 1 END;") == 1,
-            await ReadScalarAsync<string>(connection, "SELECT TenantId FROM dbo.TenantInfo WHERE Id = 1;")
+            await ReadScalarAsync<string>(connection, "SELECT TenantId FROM dbo.TenantInfo WHERE Id = 1;"),
+            await ReadScalarAsync<DateTime>(connection, "SELECT ClaimedAt FROM dbo.TenantInfo WHERE Id = 1;")
         );
     }
 
@@ -108,5 +110,6 @@ public sealed class TenantOnboardingTests(SqlServerFixture sql)
         bool SnapshotIsolationEnabled,
         bool OutboxTraceParentNullable,
         bool DebeziumSignalExists,
-        string TenantId);
+        string TenantId,
+        DateTime TenantClaimedAt);
 }
