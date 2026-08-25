@@ -1,11 +1,33 @@
 # GitOps root chart
 
-Argo CD sources this chart from `gitops/root`. The chart is the app-of-apps
-root: it creates the ESO child Application first, and later tickets add the
-platform and workload Applications in the declared sync waves.
+Terraform renders the `gitops/bootstrap` chart to create the `root`
+Application. The `root` Application then reads this `gitops/root` chart and
+creates two children today:
 
-The chart receives the `externalSecrets` interface from the bootstrap
-Application through `spec.source.helm.valuesObject`:
+1. `eso` installs External Secrets Operator and its selected SecretStore.
+2. `workloads` reads `gitops/workloads`, which creates the `strimzi`
+   Application.
+
+The root decides which areas Argo CD delivers and when they start. It does not
+contain the Strimzi operator or Kafka resource settings. The workload chart
+owns those details.
+
+## Values from the bootstrap Application
+
+The chart receives two value groups from the bootstrap Application through
+`spec.source.helm.valuesObject`.
+
+The `delivery` group keeps `workloads` and `strimzi` on the same repository
+revision:
+
+- `repoURL`: the Git repository that contains the child chart.
+- `targetRevision`: the branch or commit that the child follows.
+
+The root passes this group unchanged to `workloads`. Pull-request CI therefore
+reconciles the Strimzi resources from the pull request branch instead of from
+`main`.
+
+The `externalSecrets` group selects the ESO adapter:
 
 - `provider`: `disabled`, `fake`, or `azureKeyVault`.
 - `identityClientId`: the non-secret managed identity client ID.
@@ -27,12 +49,19 @@ and [the GitOps specification](../../docs/specs/60-gitops.md):
 | 0 | ESO and its SecretStore |
 | 1 | Istio |
 | 2 | Gateway, cert-manager, and external-dns |
-| 3 | Strimzi |
+| 3 | Workloads, starting with Strimzi |
 | 4 | Connect and services |
 
-The root currently renders only `eso`. The platform and workload READMEs name
-the future owners without creating placeholder Applications that would point
-at content that does not exist yet.
+The root currently renders `eso` and `workloads`. It does not create
+placeholder Applications for the wave 1, wave 2, or wave 4 components because
+their committed charts do not exist yet.
+
+## Workloads child Application
+
+The `workloads` Application reads the workload chart at the same repository
+and revision as the root. That chart creates the wave 3 `strimzi` Application.
+Strimzi then installs its pinned operator chart and applies the committed Kafka
+resource chart as one Argo CD operation.
 
 ## ESO child Application
 
