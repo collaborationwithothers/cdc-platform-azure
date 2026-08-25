@@ -1,5 +1,8 @@
 {{- $provider := .Values.externalSecrets.provider | default "disabled" -}}
 {{- $validProviders := list "disabled" "fake" "azureKeyVault" -}}
+{{- $delivery := .Values.delivery | default dict -}}
+{{- $repoURL := get $delivery "repoURL" | default "https://github.com/collaborationwithothers/cdc-platform-azure.git" -}}
+{{- $targetRevision := get $delivery "targetRevision" | default "main" -}}
 {{- if not (has $provider $validProviders) -}}
 {{- fail (printf "externalSecrets.provider must be one of disabled, fake, or azureKeyVault; got %s" $provider) -}}
 {{- end -}}
@@ -81,3 +84,29 @@ spec:
     syncOptions:
       - CreateNamespace=true
       - ServerSideApply=true
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: workloads
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: {{ .Values.syncWaves.strimzi | quote }}
+spec:
+  project: default
+  source:
+    repoURL: {{ $repoURL | quote }}
+    targetRevision: {{ $targetRevision | quote }}
+    path: gitops/workloads
+    helm:
+      valuesObject:
+        delivery:
+          repoURL: {{ $repoURL | quote }}
+          targetRevision: {{ $targetRevision | quote }}
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: argocd
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true

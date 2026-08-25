@@ -10,6 +10,7 @@ on:
     paths:
       - "gitops/**"
       - "infra/disposable/argocd.tf"
+      - "infra/disposable/kafka/**"
       - ".github/workflows/gitops-kind.yml"
       - ".github/fixtures/eso/**"
   push:
@@ -17,6 +18,7 @@ on:
     paths:
       - "gitops/**"
       - "infra/disposable/argocd.tf"
+      - "infra/disposable/kafka/**"
       - ".github/workflows/gitops-kind.yml"
       - ".github/fixtures/eso/**"
   workflow_dispatch: {}
@@ -30,11 +32,22 @@ concurrency:
 
 jobs:
   argocd-root-synced:
-    name: argo cd root application syncs on kind
+    name: gitops applications reconcile on kind
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
+
+      - name: verify Argo CD is the only Strimzi delivery owner
+        run: |
+          test ! -e infra/disposable/strimzi.tf
+          test ! -e .github/workflows/strimzi-schema.yml
+          if grep -R --include='*.tf' -E \
+            'resource "helm_release" "(strimzi_operator|kafka_resources)"' \
+            infra/disposable; then
+            echo "::error::A Terraform Strimzi delivery path still exists."
+            exit 1
+          fi
 
       # kind v0.31.0 ships with this action release; it creates the cluster and
       # writes the kubeconfig the later steps use.
@@ -118,6 +131,59 @@ jobs:
             exit 1
           fi
 
+      - name: wait for the Strimzi Application at the branch under test
+        env:
+          ARGO_TARGET_REVISION: ${{ github.head_ref || github.ref_name }}
+        run: |
+          kubectl wait --namespace argocd \
+            --for=jsonpath='{.status.sync.status}'=Synced \
+            application/workloads --timeout=300s
+          kubectl wait --namespace argocd \
+            --for=jsonpath='{.status.sync.status}'=Synced \
+            application/strimzi --timeout=600s
+          actual_revision="$(kubectl get application/strimzi --namespace argocd \
+            -o jsonpath='{.spec.sources[1].targetRevision}')"
+          if [ "$actual_revision" != "$ARGO_TARGET_REVISION" ]; then
+            echo "::error::Strimzi reconciled $actual_revision instead of $ARGO_TARGET_REVISION."
+            exit 1
+          fi
+
+      - name: wait for Strimzi and Kafka
+        run: |
+          kubectl wait --namespace kafka --for=condition=Available \
+            deployment/strimzi-cluster-operator --timeout=300s
+          kubectl wait --namespace kafka --for=condition=Ready \
+            kafka/cdc-platform --timeout=600s
+          kubectl wait --namespace kafka --for=condition=Ready \
+            pod --selector=strimzi.io/name=cdc-platform-kafka --timeout=300s
+          kubectl wait --namespace kafka --for=condition=Ready \
+            kafkatopic --all --timeout=300s
+          kubectl wait --namespace kafka --for=condition=Ready \
+            kafkauser --all --timeout=300s
+
+      - name: verify topics, users, and ACL declarations
+        run: |
+          kubectl get kafkatopics --namespace kafka -o json | jq -e '
+            [.items[].metadata.name] | sort == [
+              "connect-configs",
+              "connect-offsets",
+              "connect-signals",
+              "connect-status",
+              "notifier-control",
+              "schema-history-lexfield-001",
+              "schema-history-lexfield-002",
+              "schema-history-lexfield-003",
+              "workflow-transitions",
+              "workflow-transitions-lexfield-003",
+              "workflow-transitions-parked"
+            ]'
+          kubectl get kafkausers --namespace kafka -o json | jq -e '
+            [.items[].metadata.name] | sort == [
+              "connect", "notifier", "operations", "queue-builder"
+            ]'
+          kubectl get kafkausers --namespace kafka -o json | jq -e '
+            all(.items[]; ((.spec.authorization.acls // []) | length) > 0)'
+
       - name: dump argo state on failure
         if: failure()
         run: |
@@ -136,3 +202,12 @@ jobs:
           kubectl --namespace eso-ci describe secretstore fake || true
           kubectl --namespace eso-ci describe externalsecret eso-probe || true
           kubectl --namespace eso-ci get events --sort-by=.lastTimestamp || true
+
+      - name: dump Strimzi state on failure
+        if: failure()
+        run: |
+          kubectl --namespace argocd describe application workloads || true
+          kubectl --namespace argocd describe application strimzi || true
+          kubectl --namespace kafka get pods,kafka,kafkanodepools,kafkatopics,kafkausers -o wide || true
+          kubectl --namespace kafka describe kafka cdc-platform || true
+          kubectl --namespace kafka get events --sort-by=.lastTimestamp || true
