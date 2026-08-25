@@ -38,7 +38,9 @@ at content that does not exist yet.
 
 The `eso` Application installs External Secrets Operator chart 2.9.0 from the
 official ESO Helm repository into the `external-secrets` namespace. Its
-`extraObjects` values carry the selected ServiceAccount and SecretStore:
+`extraObjects` values carry the selected ServiceAccount and SecretStore. The
+Application uses server-side apply because ESO CRDs exceed Kubernetes'
+client-side last-applied annotation limit.
 
 - `azureKeyVault` creates the fixed
   `external-secrets-key-vault` ServiceAccount and a secretless Azure Key Vault
