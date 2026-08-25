@@ -20,31 +20,45 @@ Its single most important method is the guarded upsert, and it is the only way
 any code in the repo writes `QueueState`:
 
 ```sql
-MERGE dbo.QueueState AS target
-USING (SELECT @tenantId, @taskId) AS source (TenantId, TaskId)
-   ON target.TenantId = source.TenantId AND target.TaskId = source.TaskId
- WHEN MATCHED AND target.Version < @version THEN UPDATE SET ...
- WHEN NOT MATCHED THEN INSERT ...;
+MERGE INTO dbo.QueueState WITH (HOLDLOCK) AS target
+USING (VALUES (@tenantId, @taskId, @state, @version, @teamId, @assigneeId))
+    AS source (TenantId, TaskId, State, Version, TeamId, AssigneeId)
+ON target.TenantId = source.TenantId AND target.TaskId = source.TaskId
+WHEN MATCHED AND target.Version < source.Version THEN
+    UPDATE SET ...
+WHEN NOT MATCHED THEN
+    INSERT ...;
 ```
 
 There is deliberately no unguarded write path. The blueprint's write invariant
 holds "on all paths, live and repair", and the cheapest way to make that true is
 to leave no second door.
 
-**The statement shape above is provisional, and V12 owns it.** `MERGE` with a
-`WHEN NOT MATCHED THEN INSERT` clause has a known concurrency caveat: two
-sessions can both find no matching row and both insert, unless the target is
-locked for the duration. That is not theoretical here, because there really are
-two writers on one key. queue-builder applying a live event and queue-reconciler
-applying a repair can reach `(tenantId, taskId)` at the same instant. Two
-queue-builder instances cannot, since one key always hashes to one partition and
-one partition has one owner, but that argument says nothing about the
-reconciler.
+**V12 chose the locking shape.** A queue-builder live write and a reconciler
+repair can target the same missing row. Two queue-builder instances cannot:
+one task key maps to one partition with one owner. That does not cover the
+reconciler, so the store must handle two writers.
 
-Whatever V12 returns, the invariant does not change: a row is written only when
-the incoming version is greater than the stored one. Only the statement shape
-may change, to whichever concurrent-upsert form the documentation supports. The
-concurrency test in the verification table below exists to prove it either way.
+`HOLDLOCK` applies `SERIALIZABLE` semantics to the hinted target and retains
+the relevant locks until its transaction completes. Microsoft documents it as
+preventing unique-key violations in some `MERGE` scenarios that both insert
+and update unique keys. Microsoft does not establish that this exact
+version-aware `MERGE` is deadlock-free, and cautions that `MERGE` can introduce
+complicated concurrency behavior at scale. The repeated container test owns
+that evidence. A deadlock error fails the write; QueueStore does not hide it
+behind an internal retry.
+
+The target match contains only the primary key. The version guard belongs in
+`WHEN MATCHED`, so a stored version can never move backwards.
+
+The container test holds the missing key range, starts both writers, and waits
+until SQL Server reports both requests blocked on locks. It then releases the
+range and asserts one row at the higher version. This proves the two statements
+reach the race rather than merely starting two tasks close together.
+
+Sources: [MERGE concurrency considerations](https://learn.microsoft.com/sql/t-sql/statements/merge-transact-sql#concurrency-considerations-for-merge),
+[HOLDLOCK](https://learn.microsoft.com/sql/t-sql/queries/hints-transact-sql-table#holdlock),
+and the [deadlocks guide](https://learn.microsoft.com/sql/relational-databases/sql-server-deadlocks-guide).
 
 ### Ordering, stated because it is easy to assume wrongly
 

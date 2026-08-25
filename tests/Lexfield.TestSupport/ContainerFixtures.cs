@@ -1,4 +1,5 @@
 using Lexfield.Onboarding;
+using Lexfield.QueueStore;
 using Microsoft.Data.SqlClient;
 using Testcontainers.Kafka;
 using Testcontainers.MsSql;
@@ -49,10 +50,14 @@ public sealed class SqlServerFixture : IAsyncLifetime
     /// Creates a database and applies the platform QueueState schema to it.
     /// The real one is a single Azure SQL database shared by three services.
     /// </summary>
-    public Task<string> CreateQueueStoreDatabaseAsync(string databaseName) =>
-        CreateDatabaseAsync(databaseName, QueueStoreSchema);
+    public async Task<string> CreateQueueStoreDatabaseAsync(string databaseName)
+    {
+        var connectionString = await CreateDatabaseAsync(databaseName);
+        await QueueStoreDatabase.MigrateAsync(connectionString);
+        return connectionString;
+    }
 
-    private async Task<string> CreateDatabaseAsync(string databaseName, string? schema = null)
+    private async Task<string> CreateDatabaseAsync(string databaseName)
     {
         await using (var admin = new SqlConnection(AdminConnectionString))
         {
@@ -62,15 +67,7 @@ public sealed class SqlServerFixture : IAsyncLifetime
             await ExecuteAsync(admin, $"CREATE DATABASE [{databaseName.Replace("]", "]]")}]");
         }
 
-        var connectionString = ConnectionStringFor(databaseName);
-        if (schema is not null)
-        {
-            await using var database = new SqlConnection(connectionString);
-            await database.OpenAsync();
-            await ExecuteAsync(database, schema);
-        }
-
-        return connectionString;
+        return ConnectionStringFor(databaseName);
     }
 
     /// <summary>Connection string for a named database in this container.</summary>
@@ -85,41 +82,6 @@ public sealed class SqlServerFixture : IAsyncLifetime
         await command.ExecuteNonQueryAsync();
     }
 
-    /// <summary>
-    /// PROVISIONAL for the same reason: the canonical QueueState schema is the
-    /// migration in <c>src/Lexfield.QueueStore</c>, owned by src/queue-builder.
-    /// Source of truth today: docs/specs/00-shared-contracts.md.
-    /// </summary>
-    public const string QueueStoreSchema = """
-        IF OBJECT_ID('dbo.QueueState', 'U') IS NULL
-        CREATE TABLE dbo.QueueState (
-            TenantId   nvarchar(64) NOT NULL,
-            TaskId     int          NOT NULL,
-            State      nvarchar(16) NOT NULL,
-            Version    int          NOT NULL,
-            TeamId     nvarchar(64) NULL,
-            AssigneeId nvarchar(64) NULL,
-            UpdatedAt  datetime2(3) NOT NULL,
-            CONSTRAINT PK_QueueState PRIMARY KEY (TenantId, TaskId)
-        );
-
-        IF OBJECT_ID('dbo.SentNotifications', 'U') IS NULL
-        CREATE TABLE dbo.SentNotifications (
-            TenantId nvarchar(64) NOT NULL,
-            TaskId   int          NOT NULL,
-            Version  int          NOT NULL,
-            SentAt   datetime2(3) NOT NULL,
-            CONSTRAINT PK_SentNotifications PRIMARY KEY (TenantId, TaskId, Version)
-        );
-
-        IF OBJECT_ID('dbo.StreamAttribution', 'U') IS NULL
-        CREATE TABLE dbo.StreamAttribution (
-            ObservedTenantId nvarchar(64)  NOT NULL,
-            Topic            nvarchar(128) NOT NULL,
-            LastSeenAt       datetime2(3)  NOT NULL,
-            CONSTRAINT PK_StreamAttribution PRIMARY KEY (ObservedTenantId, Topic)
-        );
-        """;
 }
 
 /// <summary>
