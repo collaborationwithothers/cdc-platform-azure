@@ -34,5 +34,14 @@ resource "helm_release" "argocd_root" {
   namespace = "argocd"
   wait      = true
 
+  values = [yamlencode({
+    externalSecrets = {
+      provider         = "azureKeyVault"
+      identityClientId = data.terraform_remote_state.persistent.outputs.eso_identity_client_id
+      tenantId         = data.azurerm_client_config.current.tenant_id
+      vaultUrl         = data.terraform_remote_state.persistent.outputs.key_vault_uri
+    }
+  })]
+
   depends_on = [helm_release.argocd]
 }

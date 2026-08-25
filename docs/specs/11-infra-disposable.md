@@ -31,6 +31,20 @@ the credentials split by issuer: GitHub in persistent, AKS in disposable, both
 against identities that live in persistent. This is a consequence of
 teardown-as-default, not a change to the identity design.
 
+### External Secrets workload identity
+
+The disposable layer creates the AKS federated credential for the persistent
+External Secrets Operator (ESO) identity. The trust uses the cluster's OIDC
+issuer, the subject `system:serviceaccount:external-secrets:external-secrets-key-vault`,
+and only the audience `api://AzureADTokenExchange`.
+
+The root Helm release passes the ESO settings through the interface from #145:
+`externalSecrets.provider` is `azureKeyVault`, `identityClientId` comes from
+the persistent state's `eso_identity_client_id`, `tenantId` comes from the
+current Azure configuration, and `vaultUrl` comes from the persistent state's
+`key_vault_uri`. These are non-secret values; no credential or environment
+identifier is committed.
+
 The system-pool size is an explicit project deviation from current Microsoft
 Learn guidance. Microsoft lists `Standard_D2s_v6` as 2 vCPUs and 8 GiB, while
 the AKS system-pool page describes 4 vCPUs as a restriction. Hari reported an
