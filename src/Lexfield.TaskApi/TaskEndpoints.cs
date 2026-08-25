@@ -1,4 +1,5 @@
 using System.Security.Claims;
+using Lexfield.TaskApi.Transitions;
 
 public static class TaskEndpoints
 {
@@ -18,6 +19,7 @@ public static class TaskEndpoints
                 : Results.Created($"/tenants/{tenantId}/tasks/{taskId}",
                     new CreateTaskResponse(taskId.Value, 1));
         }).RequireAuthorization("TenantRoute");
+        endpoints.MapTransitionEndpoints();
         return endpoints;
     }
 }
