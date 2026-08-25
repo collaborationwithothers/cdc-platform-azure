@@ -58,7 +58,7 @@ public sealed class TenantOnboardingTests(SqlServerFixture sql)
                 connection,
                 "SELECT OBJECT_NAME(source_object_id) FROM cdc.change_tables ORDER BY 1;",
                 reader => reader.GetString(0)),
-            await ReadScalarAsync<byte>(connection, "SELECT is_cdc_enabled FROM sys.databases WHERE database_id = DB_ID();") == 1,
+            await ReadScalarAsync<bool>(connection, "SELECT is_cdc_enabled FROM sys.databases WHERE database_id = DB_ID();"),
             await ReadRowsAsync(
                 connection,
                 "SELECT t.name FROM sys.change_tracking_tables ct JOIN sys.tables t ON t.object_id = ct.object_id ORDER BY t.name;",
