@@ -9,15 +9,11 @@ public sealed class TenantOnboardingRunner
 {
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
     private readonly Func<TenantManifestEntry, string> _connectionStringResolver;
-    private readonly string? _connectorIdentity;
 
-    public TenantOnboardingRunner(
-        Func<TenantManifestEntry, string> connectionStringResolver,
-        string? connectorIdentity = null)
+    public TenantOnboardingRunner(Func<TenantManifestEntry, string> connectionStringResolver)
     {
         ArgumentNullException.ThrowIfNull(connectionStringResolver);
         _connectionStringResolver = connectionStringResolver;
-        _connectorIdentity = connectorIdentity;
     }
 
     public async Task RunAsync(string manifestPath, CancellationToken cancellationToken = default)
@@ -53,7 +49,6 @@ public sealed class TenantOnboardingRunner
             await TenantOnboardingScript.ApplyAsync(
                 connection,
                 tenant.TenantId,
-                _connectorIdentity,
                 cancellationToken);
         }
     }
@@ -74,7 +69,6 @@ public static class TenantOnboardingScript
     public static async Task ApplyAsync(
         SqlConnection connection,
         string tenantId,
-        string? connectorIdentity = null,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(connection);
@@ -86,11 +80,6 @@ public static class TenantOnboardingScript
 
         var tenantParameter = command.Parameters.Add("@TenantId", System.Data.SqlDbType.NVarChar, 64);
         tenantParameter.Value = tenantId;
-        var identityParameter = command.Parameters.Add(
-            "@ConnectorIdentity",
-            System.Data.SqlDbType.NVarChar,
-            128);
-        identityParameter.Value = (object?)connectorIdentity ?? DBNull.Value;
 
         await command.ExecuteNonQueryAsync(cancellationToken);
     }
