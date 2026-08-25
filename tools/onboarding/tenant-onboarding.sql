@@ -72,7 +72,7 @@ ELSE IF EXISTS (
     SELECT 1
     FROM sys.change_tracking_databases
     WHERE database_id = DB_ID()
-      AND (retention_period <> 7 OR retention_period_units <> 3)
+      AND (retention_period <> 7 OR retention_period_units <> 3 OR is_auto_cleanup_on <> 1)
 )
     ALTER DATABASE CURRENT
     SET CHANGE_TRACKING = ON (CHANGE_RETENTION = 7 DAYS, AUTO_CLEANUP = ON);
