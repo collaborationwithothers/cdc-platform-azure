@@ -49,9 +49,7 @@ resource "azurerm_kubernetes_cluster_node_pool" "workloads" {
   vm_size               = "Standard_D2s_v6"
   node_count            = 2
   mode                  = "User"
-  priority              = "Spot"
-  eviction_policy       = "Delete"
-  spot_max_price        = -1
+  priority              = "Regular"
   os_disk_type          = "Managed"
   vnet_subnet_id        = azurerm_subnet.aks.id
 }
