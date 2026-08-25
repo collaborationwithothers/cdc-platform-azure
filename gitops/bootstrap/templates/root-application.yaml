@@ -12,10 +12,14 @@ spec:
   source:
     repoURL: {{ .Values.repoURL | quote }}
     targetRevision: {{ .Values.targetRevision | quote }}
-    path: {{ .Values.treePath | quote }}
-    directory:
-      recurse: true
-      exclude: {{ .Values.excludeGlob | quote }}
+    path: {{ .Values.rootChartPath | quote }}
+    helm:
+      valuesObject:
+        externalSecrets:
+          provider: {{ .Values.externalSecrets.provider | quote }}
+          identityClientId: {{ .Values.externalSecrets.identityClientId | quote }}
+          tenantId: {{ .Values.externalSecrets.tenantId | quote }}
+          vaultUrl: {{ .Values.externalSecrets.vaultUrl | quote }}
   destination:
     server: https://kubernetes.default.svc
     namespace: {{ .Values.argocdNamespace | quote }}
