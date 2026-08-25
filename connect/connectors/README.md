@@ -38,7 +38,10 @@ already wrote the compound `<tenantId>-<taskId>` identity there in the business
 transaction, so this configuration neither constructs nor rewrites a key. The
 two stock transforms are the outbox router and the static tenant header.
 
-The property names were verified on 2026-08-25 against the pinned
+The repository records the trace header syntax in
+[V14](../../docs/specs/02-verification-register.md#v14-promoting-an-outbox-column-to-a-kafka-header),
+settled on 2026-08-23. The full property set was independently rechecked on
+2026-08-25 against the pinned
 [Debezium 3.6 SQL Server connector](https://debezium.io/documentation/reference/3.6/connectors/sqlserver.html),
 [Debezium 3.6 outbox router](https://debezium.io/documentation/reference/3.6/transformations/outbox-event-router.html),
 and [Kafka 4.3 stock transforms](https://kafka.apache.org/43/generated/connect_transforms.html).
