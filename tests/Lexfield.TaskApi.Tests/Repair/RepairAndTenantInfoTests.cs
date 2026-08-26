@@ -99,17 +99,24 @@ public sealed class RepairAndTenantInfoTests(SqlServerFixture sql)
         using var client = context.Factory.CreateClient();
         client.DefaultRequestHeaders.Authorization = new("Bearer", CreateToken("tenant-a", context.SigningKey));
 
-        // Traced: the caller's ambient activity flows into the handler. The read
-        // starts no activity of its own, so the emitted line carries the caller's
-        // trace id rather than a fresh one. A new trace would show a different id.
+        // Traced: a production caller sends its trace as a W3C traceparent header
+        // and ASP.NET continues it, so the read runs inside the caller's trace and
+        // the enricher stamps the caller's trace id on the log line. The read
+        // starts no activity of its own, so it never forks a fresh one.
+        // WebApplicationFactory's in-memory client does not inject the header, so
+        // the test sets it the way HttpClient would in production.
         var output = new StringWriter();
         var originalOutput = Console.Out;
-        using var caller = new Activity("repair-caller").Start();
+        using var caller = new Activity("repair-caller");
+        caller.SetIdFormat(ActivityIdFormat.W3C);
+        caller.Start();
+        using var tracedRequest = new HttpRequestMessage(HttpMethod.Get, $"/tenants/tenant-a/tasks/{taskId}");
+        tracedRequest.Headers.Add("traceparent", caller.Id);
         HttpResponseMessage traced;
         try
         {
             Console.SetOut(output);
-            traced = await client.GetAsync($"/tenants/tenant-a/tasks/{taskId}");
+            traced = await client.SendAsync(tracedRequest);
         }
         finally
         {
