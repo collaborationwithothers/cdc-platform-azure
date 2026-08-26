@@ -206,8 +206,7 @@ The end-to-end container test, `tests/Lexfield.Connect.Tests/`:
 1. Start a SQL Server container, a Kafka container, and a Connect container
    running the built image.
 2. Apply the onboarding T-SQL to create the schema, including `dbo.DebeziumSignal`
-   for snapshot watermarking, and enable CDC on `dbo.DebeziumSignal` and
-   `dbo.Outbox`.
+   for snapshot watermarking, and enable CDC on `dbo.Outbox`.
 3. Register a connector through the Connect REST API using the generated
    configuration, with SQL authentication rather than Entra, since a container
    has no Entra. The connector config, and so the SMT chain, is the shipped one;
