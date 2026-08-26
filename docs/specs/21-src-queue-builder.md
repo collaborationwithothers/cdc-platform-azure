@@ -11,8 +11,11 @@ Paths owned: `src/Lexfield.QueueBuilder/`, `src/Lexfield.QueueStore/`,
 
 ### QueueStore
 
-`src/Lexfield.QueueStore/`. The schema in
-[00-shared-contracts.md](00-shared-contracts.md) plus its data access. Shared
+`src/Lexfield.QueueStore/`. One create-only v1 migration owns
+all six tables defined across [00-shared-contracts.md](00-shared-contracts.md)
+and [22-src-queue-reconciler.md](22-src-queue-reconciler.md).
+It cannot alter existing tables. The first schema change must add versioning.
+QueueStore is shared
 with the reconciler and the notifier, which is why it is a project and not a
 folder inside queue-builder.
 
@@ -36,29 +39,29 @@ to leave no second door.
 
 **V12 chose the locking shape.** A queue-builder live write and a reconciler
 repair can target the same missing row. Two queue-builder instances cannot:
-one task key maps to one partition with one owner. That does not cover the
-reconciler, so the store must handle two writers.
+one task key maps to one partition with one owner. The reconciler is outside
+that ownership, so the store must handle both writers.
 
-`HOLDLOCK` applies `SERIALIZABLE` semantics to the hinted target and retains
-the relevant locks until its transaction completes. Microsoft documents it as
-preventing unique-key violations in some `MERGE` scenarios that both insert
-and update unique keys. Microsoft does not establish that this exact
-version-aware `MERGE` is deadlock-free, and cautions that `MERGE` can introduce
-complicated concurrency behavior at scale. The repeated container test owns
-that evidence. A deadlock error fails the write; QueueStore does not hide it
-behind an internal retry.
+Microsoft recommends considering separate `INSERT` and `UPDATE` logic because
+it might block less than `MERGE` under heavy concurrency. V12 rejected it here:
+keeping the missing-row check and write atomic would require an explicit
+transaction and lock hints across multiple statements. The parameterized,
+single-row `MERGE` keeps that decision and write in one statement.
 
-The target match contains only the primary key. The version guard belongs in
-`WHEN MATCHED`, so a stored version can never move backwards.
+`HOLDLOCK` applies `SERIALIZABLE` semantics and retains locks on the target
+until the transaction ends. Microsoft documents its unique-key protection,
+but not deadlock freedom. The repeated container test owns that evidence.
+Error 1205 propagates so QueueStore never retries inside the failing call.
+The caller, which knows whether work can be replayed, owns recovery.
 
-The container test holds the missing key range, starts both writers, and waits
-until SQL Server reports both requests blocked on locks. It then releases the
-range and asserts one row at the higher version. This proves the two statements
-reach the race rather than merely starting two tasks close together.
+Queue-builder leaves the Kafka offset uncommitted, so redelivery retries the
+event. The reconciler keeps its drift observation, so its next sweep retries
+the comparison and repair.
 
+The target match uses only the primary key. The version guard stays in `WHEN MATCHED`.
+The test proves both writes reach the missing-key race and the higher version wins.
 Sources: [MERGE concurrency considerations](https://learn.microsoft.com/sql/t-sql/statements/merge-transact-sql#concurrency-considerations-for-merge),
-[HOLDLOCK](https://learn.microsoft.com/sql/t-sql/queries/hints-transact-sql-table#holdlock),
-and the [deadlocks guide](https://learn.microsoft.com/sql/relational-databases/sql-server-deadlocks-guide).
+[HOLDLOCK](https://learn.microsoft.com/sql/t-sql/queries/hints-transact-sql-table#holdlock), and the [deadlocks guide](https://learn.microsoft.com/sql/relational-databases/sql-server-deadlocks-guide).
 
 ### Ordering, stated because it is easy to assume wrongly
 
