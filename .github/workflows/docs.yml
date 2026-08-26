@@ -82,6 +82,28 @@ jobs:
             exit "$status"
           }
 
+          export_with_drawio() {
+            local format="$1"
+            local input="$2"
+            local output="$3"
+            local -a export_args=(-x -f "$format")
+            if [[ "$format" == "svg" ]]; then
+              export_args+=(--theme light --embed-svg-images)
+            fi
+
+            docker run --rm \
+              -u "$(id -u):$(id -g)" \
+              -e HOME=/home/drawio \
+              -e DRAWIO_DESKTOP_COMMAND_TIMEOUT=60s \
+              -v /etc/passwd:/etc/passwd:ro \
+              -v "$RUNNER_TEMP/drawio-home:/home/drawio" \
+              -v "$GITHUB_WORKSPACE:/data:ro" \
+              -v "$RUNNER_TEMP/diagram-renders:/output" \
+              -w /data \
+              rlespinasse/drawio-desktop-headless@sha256:527dfc14dc2b15d8aed93c29c724c1711a8fef235cd0667124d4f1ff8cd71f52 \
+              "${export_args[@]}" -o "$output" "$input"
+          }
+
           resvg_dir="$RUNNER_TEMP/resvg"
           resvg_archive="$RUNNER_TEMP/resvg-linux-x86_64.tar.gz"
           resvg_stylesheet="$RUNNER_TEMP/drawio-fallback.css"
@@ -101,19 +123,9 @@ jobs:
             sed 's/flowAnimation=1;//g' "$source" > "$render_source"
 
             render_status=0
-            docker run --rm \
-              -u "$(id -u):$(id -g)" \
-              -e HOME=/home/drawio \
-              -e DRAWIO_DESKTOP_COMMAND_TIMEOUT=60s \
-              -v /etc/passwd:/etc/passwd:ro \
-              -v "$RUNNER_TEMP/drawio-home:/home/drawio" \
-              -v "$GITHUB_WORKSPACE:/data:ro" \
-              -v "$RUNNER_TEMP/diagram-renders:/output" \
-              -w /data \
-              rlespinasse/drawio-desktop-headless@sha256:527dfc14dc2b15d8aed93c29c724c1711a8fef235cd0667124d4f1ff8cd71f52 \
-              -x -f svg --theme light --embed-svg-images \
-              -o "/output/${render_name}.svg" \
-              "/output/${render_name}.drawio" || render_status=$?
+            export_with_drawio \
+              svg "/output/${render_name}.drawio" "/output/${render_name}.svg" \
+              || render_status=$?
             accept_completed_timeout \
               "$render_status" "$RUNNER_TEMP/diagram-renders/${render_name}.svg"
 
@@ -127,19 +139,9 @@ jobs:
                 "$RUNNER_TEMP/diagram-renders/${render_name}.png"
             else
               render_status=0
-              docker run --rm \
-                -u "$(id -u):$(id -g)" \
-                -e HOME=/home/drawio \
-                -e DRAWIO_DESKTOP_COMMAND_TIMEOUT=60s \
-                -v /etc/passwd:/etc/passwd:ro \
-                -v "$RUNNER_TEMP/drawio-home:/home/drawio" \
-                -v "$GITHUB_WORKSPACE:/data:ro" \
-                -v "$RUNNER_TEMP/diagram-renders:/output" \
-                -w /data \
-                rlespinasse/drawio-desktop-headless@sha256:527dfc14dc2b15d8aed93c29c724c1711a8fef235cd0667124d4f1ff8cd71f52 \
-                -x -f png \
-                -o "/output/${render_name}.png" \
-                "/output/${render_name}.drawio" || render_status=$?
+              export_with_drawio \
+                png "/output/${render_name}.drawio" "/output/${render_name}.png" \
+                || render_status=$?
               accept_completed_timeout \
                 "$render_status" "$RUNNER_TEMP/diagram-renders/${render_name}.png"
             fi
