@@ -129,28 +129,35 @@ jobs:
             accept_completed_timeout \
               "$render_status" "$RUNNER_TEMP/diagram-renders/${render_name}.svg"
 
-            if [[ "$render_name" == incremental-snapshot-* ]] \
-              || [[ "$render_name" == "tenant-onboarding" ]] \
-              || [[ "$render_name" == "failure-survival" ]] \
-              || [[ "$render_name" == "tenant-routing-isolation" ]] \
-              || [[ "$render_name" == "identity-permissions" ]] \
-              || [[ "$render_name" == "no-events-troubleshooting" ]] \
-              || [[ "$render_name" == "alert-dashboard-runbook" ]]; then
-              # Draw.io's Linux PNG export hangs on some detailed diagrams.
-              # Rasterize these sets consistently with a pinned, verified resvg.
-              "$resvg_dir/resvg" \
-                --background '#ffffff' \
-                --stylesheet "$resvg_stylesheet" \
-                "$RUNNER_TEMP/diagram-renders/${render_name}.svg" \
-                "$RUNNER_TEMP/diagram-renders/${render_name}.png"
-            else
-              render_status=0
-              export_with_drawio \
-                png "/output/${render_name}.drawio" "/output/${render_name}.png" \
-                || render_status=$?
-              accept_completed_timeout \
-                "$render_status" "$RUNNER_TEMP/diagram-renders/${render_name}.png"
+            render_status=0
+            export_with_drawio \
+              png "/output/${render_name}.drawio" "/output/${render_name}.png" \
+              || render_status=$?
+            if (( render_status == 0 )); then
+              continue
             fi
+            if [[ "$render_name" != incremental-snapshot-* ]] \
+              && [[ "$render_name" != "tenant-onboarding" ]] \
+              && [[ "$render_name" != "failure-survival" ]] \
+              && [[ "$render_name" != "tenant-routing-isolation" ]] \
+              && [[ "$render_name" != "identity-permissions" ]] \
+              && [[ "$render_name" != "no-events-troubleshooting" ]] \
+              && [[ "$render_name" != "alert-dashboard-runbook" ]]; then
+              if (( render_status == 124 )) \
+                && [[ -s "$RUNNER_TEMP/diagram-renders/${render_name}.png" ]]; then
+                echo "Draw.io timed out after writing ${render_name}.png; exact comparison will verify it."
+                continue
+              fi
+              exit "$render_status"
+            fi
+
+            echo "Draw.io PNG export failed for ${render_name}; using the pinned renderer."
+            rm -f "$RUNNER_TEMP/diagram-renders/${render_name}.png"
+            "$resvg_dir/resvg" \
+              --background '#ffffff' \
+              --stylesheet "$resvg_stylesheet" \
+              "$RUNNER_TEMP/diagram-renders/${render_name}.svg" \
+              "$RUNNER_TEMP/diagram-renders/${render_name}.png"
           done
 
       - name: Check committed renders are current

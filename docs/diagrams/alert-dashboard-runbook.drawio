@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<mxfile host="drawio-mcp" modified="2026-08-26T18:17:29.000Z" agent="drawio-mcp/1.0" version="24.7.17" type="device" compressed="false">
+<mxfile host="drawio-mcp" modified="2026-08-26T18:34:13.000Z" agent="drawio-mcp/1.0" version="24.7.17" type="device" compressed="false">
   <diagram name="Alert dashboard runbook" id="alert-dashboard-runbook">
     <mxGraphModel dx="1354" dy="981" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1800" pageHeight="1050" background="none" math="0" shadow="0">
       <root>
@@ -23,13 +23,13 @@
         <mxCell id="status-zone" value="Implementation status" style="swimlane;startSize=30;whiteSpace=wrap;html=1;fillColor=#fff8e6;strokeColor=#d6b656;strokeWidth=2;verticalAlign=top;align=left;spacingLeft=10;spacingTop=8;fontSize=15;fontStyle=1;connectable=0;" parent="1" vertex="1">
           <mxGeometry as="geometry" x="1500.0" y="120.0" width="250.0" height="740.0" />
         </mxCell>
-        <mxCell id="fleet-alert" value="Fleet or connector alerts&lt;br&gt;&lt;font style=&quot;font-size:12px&quot;&gt;fleet/partial outage&lt;br&gt;internal topic loss&lt;br&gt;one connector or auth loop&lt;br&gt;lag and freshness&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontSize=14;fontStyle=1;" parent="1" vertex="1">
+        <mxCell id="fleet-alert" value="Fleet or connector alerts&lt;br&gt;&lt;font style=&quot;font-size:12px&quot;&gt;fleet/partial outage; internal topic loss&lt;br&gt;one connector or sign-in loop&lt;br&gt;lag, freshness, deployment sync, or ingress&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontSize=14;fontStyle=1;" parent="1" vertex="1">
           <mxGeometry as="geometry" x="90.0" y="180.0" width="360.0" height="130.0" />
         </mxCell>
-        <mxCell id="correct-alert" value="Correctness alerts&lt;br&gt;&lt;font style=&quot;font-size:12px&quot;&gt;attribution mismatch&lt;br&gt;poison or parking failure&lt;br&gt;drift, gaps, or loss trend&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontSize=14;fontStyle=1;" parent="1" vertex="1">
+        <mxCell id="correct-alert" value="Correctness alerts&lt;br&gt;&lt;font style=&quot;font-size:12px&quot;&gt;reconciler stopped; attribution mismatch&lt;br&gt;poison or parking failure&lt;br&gt;drift, gaps, or loss trend&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontSize=14;fontStyle=1;" parent="1" vertex="1">
           <mxGeometry as="geometry" x="90.0" y="350.0" width="360.0" height="120.0" />
         </mxCell>
-        <mxCell id="consumer-alert" value="Consumer and service alerts&lt;br&gt;&lt;font style=&quot;font-size:12px&quot;&gt;task-api, reconciler, QueueState, or notifier unavailable or degraded&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontSize=14;fontStyle=1;" parent="1" vertex="1">
+        <mxCell id="consumer-alert" value="Consumer and service alerts&lt;br&gt;&lt;font style=&quot;font-size:12px&quot;&gt;task-api, QueueState, or notifier unavailable&lt;br&gt;repair-read storm&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontSize=14;fontStyle=1;" parent="1" vertex="1">
           <mxGeometry as="geometry" x="90.0" y="510.0" width="360.0" height="120.0" />
         </mxCell>
         <mxCell id="spend-alert" value="Spend alerts&lt;br&gt;&lt;font style=&quot;font-size:12px&quot;&gt;150 GBP investigate&lt;br&gt;300 GBP discipline failed&lt;br&gt;800 GBP ceiling&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontSize=14;fontStyle=1;" parent="1" vertex="1">
@@ -47,13 +47,13 @@
         <mxCell id="spend-dashboard" value="Spend dashboard&lt;br&gt;&lt;font style=&quot;font-size:12px&quot;&gt;actual cost against all three alert tiers&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#4472c4;fontSize=14;fontStyle=1;" parent="1" vertex="1">
           <mxGeometry as="geometry" x="600.0" y="680.0" width="280.0" height="120.0" />
         </mxCell>
-        <mxCell id="fleet-runbook" value="Fleet anchors&lt;br&gt;&lt;font style=&quot;font-size:12px&quot;&gt;recover-connect&lt;br&gt;recover-internal-topics&lt;br&gt;recover-connector / auth&lt;br&gt;lag-investigation&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#70ad47;fontSize=14;fontStyle=1;" parent="1" vertex="1">
+        <mxCell id="fleet-runbook" value="Fleet anchors&lt;br&gt;&lt;font style=&quot;font-size:12px&quot;&gt;recover-connect; recover-internal-topics&lt;br&gt;recover-connector / recover-connector-auth&lt;br&gt;lag-investigation; retune-grace-window&lt;br&gt;gitops-diverged; recover-ingress&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#70ad47;fontSize=14;fontStyle=1;" parent="1" vertex="1">
           <mxGeometry as="geometry" x="1040.0" y="180.0" width="360.0" height="130.0" />
         </mxCell>
-        <mxCell id="correct-runbook" value="Correctness anchors&lt;br&gt;&lt;font style=&quot;font-size:12px&quot;&gt;attribution-breach&lt;br&gt;poison-triage&lt;br&gt;loss-investigation&lt;br&gt;retune-grace-window&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#70ad47;fontSize=14;fontStyle=1;" parent="1" vertex="1">
+        <mxCell id="correct-runbook" value="Correctness anchors&lt;br&gt;&lt;font style=&quot;font-size:12px&quot;&gt;recover-reconciler&lt;br&gt;attribution-breach; poison-triage&lt;br&gt;loss-investigation&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#70ad47;fontSize=14;fontStyle=1;" parent="1" vertex="1">
           <mxGeometry as="geometry" x="1040.0" y="350.0" width="360.0" height="120.0" />
         </mxCell>
-        <mxCell id="consumer-runbook" value="Service anchors&lt;br&gt;&lt;font style=&quot;font-size:12px&quot;&gt;recover-task-api&lt;br&gt;recover-reconciler&lt;br&gt;recover-queuestate&lt;br&gt;recover-notifier&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#70ad47;fontSize=14;fontStyle=1;" parent="1" vertex="1">
+        <mxCell id="consumer-runbook" value="Service anchors&lt;br&gt;&lt;font style=&quot;font-size:12px&quot;&gt;recover-task-api; recover-queuestate&lt;br&gt;recover-notifier&lt;br&gt;retune-grace-window&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#70ad47;fontSize=14;fontStyle=1;" parent="1" vertex="1">
           <mxGeometry as="geometry" x="1040.0" y="510.0" width="360.0" height="120.0" />
         </mxCell>
         <mxCell id="spend-runbook" value="Spend anchors&lt;br&gt;&lt;font style=&quot;font-size:12px&quot;&gt;150 or 300: spend-review&lt;br&gt;800: destroy-disposable&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#70ad47;fontSize=14;fontStyle=1;" parent="1" vertex="1">
@@ -63,10 +63,10 @@
           <mxGeometry as="geometry" x="1530.0" y="210.0" width="190.0" height="430.0" />
         </mxCell>
         <mxCell id="monitor-icon" value="Azure Monitor" style="shape=image;aspect=fixed;html=1;verticalLabelPosition=bottom;verticalAlign=top;align=center;fontSize=12;image=img/lib/azure2/management_governance/Monitor.svg;" parent="1" vertex="1">
-          <mxGeometry as="geometry" x="420.0" y="800" width="50.0" height="50.0" />
+          <mxGeometry as="geometry" x="420.0" y="800.0" width="50.0" height="50.0" />
         </mxCell>
         <mxCell id="dashboard-icon" value="Azure dashboard" style="shape=image;aspect=fixed;html=1;verticalLabelPosition=bottom;verticalAlign=top;align=center;fontSize=12;image=img/lib/azure2/other/Azure_Monitor_Dashboard.svg;" parent="1" vertex="1">
-          <mxGeometry as="geometry" x="850.0" y="800" width="50.0" height="50.0" />
+          <mxGeometry as="geometry" x="850.0" y="800.0" width="50.0" height="50.0" />
         </mxCell>
         <mxCell id="e1" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#b85450;strokeWidth=2;endArrow=block;flowAnimation=1;" parent="1" edge="1" source="fleet-alert" target="fleet-dashboard">
           <mxGeometry as="geometry" relative="1" />
