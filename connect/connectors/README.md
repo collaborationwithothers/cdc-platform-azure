@@ -41,8 +41,8 @@ already wrote the compound `<tenantId>-<taskId>` identity there in the business
 transaction, so this configuration neither constructs nor rewrites a key. The
 three stock transforms are a Filter that drops non-Outbox control records, the
 outbox router, and the static tenant header. A `TopicNameMatches` predicate
-limits the router to the tenant's exact Outbox topic. DebeziumSignal watermarks
-therefore never reach EventRouter or a domain topic.
+tells the Filter which exact Outbox topic to keep. Because the Filter runs
+first, DebeziumSignal watermarks never reach EventRouter or a domain topic.
 
 The repository records the trace header syntax in
 [V14](../../docs/specs/02-verification-register.md#v14-promoting-an-outbox-column-to-a-kafka-header),
