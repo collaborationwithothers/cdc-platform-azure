@@ -265,10 +265,20 @@ public sealed class ConnectChainFixture : IAsyncLifetime
         {
             while (DateTime.UtcNow < deadline)
             {
-                var result = consumer.Consume(TimeSpan.FromSeconds(1));
-                if (result?.Message is not null && result.Message.Key == key)
+                try
                 {
-                    return result;
+                    var result = consumer.Consume(TimeSpan.FromSeconds(1));
+                    if (result?.Message is not null && result.Message.Key == key)
+                    {
+                        return result;
+                    }
+                }
+                catch (ConsumeException error) when (error.Error.Code == ErrorCode.UnknownTopicOrPart)
+                {
+                    // Debezium creates the topic when it produces the first message;
+                    // until then the subscription reports it missing. Consume throws
+                    // at once in that state, so pace the retry.
+                    Thread.Sleep(TimeSpan.FromSeconds(1));
                 }
             }
             return null;
