@@ -106,19 +106,34 @@ jobs:
               "$render_status" "$RUNNER_TEMP/diagram-renders/${render_name}.svg"
 
             render_status=0
-            docker run --rm \
-              -u "$(id -u):$(id -g)" \
-              -e HOME=/home/drawio \
-              -e DRAWIO_DESKTOP_COMMAND_TIMEOUT=60s \
-              -v /etc/passwd:/etc/passwd:ro \
-              -v "$RUNNER_TEMP/drawio-home:/home/drawio" \
-              -v "$GITHUB_WORKSPACE:/data:ro" \
-              -v "$RUNNER_TEMP/diagram-renders:/output" \
-              -w /data \
-              rlespinasse/drawio-desktop-headless@sha256:527dfc14dc2b15d8aed93c29c724c1711a8fef235cd0667124d4f1ff8cd71f52 \
-              -x -f png \
-              -o "/output/${render_name}.png" \
-              "/output/${render_name}.drawio" || render_status=$?
+            if [[ "$render_name" == "incremental-snapshot-recovery" ]]; then
+              # Draw.io writes this complex PNG on macOS but hangs before
+              # writing it on Linux. Rasterize its completed SVG with Chrome.
+              timeout 20s google-chrome \
+                --headless=new \
+                --disable-gpu \
+                --hide-scrollbars \
+                --force-device-scale-factor=1 \
+                --force-color-profile=srgb \
+                --screenshot="$RUNNER_TEMP/diagram-renders/${render_name}.png" \
+                --window-size=1713,1172 \
+                "file://$RUNNER_TEMP/diagram-renders/${render_name}.svg" \
+                || render_status=$?
+            else
+              docker run --rm \
+                -u "$(id -u):$(id -g)" \
+                -e HOME=/home/drawio \
+                -e DRAWIO_DESKTOP_COMMAND_TIMEOUT=60s \
+                -v /etc/passwd:/etc/passwd:ro \
+                -v "$RUNNER_TEMP/drawio-home:/home/drawio" \
+                -v "$GITHUB_WORKSPACE:/data:ro" \
+                -v "$RUNNER_TEMP/diagram-renders:/output" \
+                -w /data \
+                rlespinasse/drawio-desktop-headless@sha256:527dfc14dc2b15d8aed93c29c724c1711a8fef235cd0667124d4f1ff8cd71f52 \
+                -x -f png \
+                -o "/output/${render_name}.png" \
+                "/output/${render_name}.drawio" || render_status=$?
+            fi
             accept_completed_timeout \
               "$render_status" "$RUNNER_TEMP/diagram-renders/${render_name}.png"
           done
@@ -144,3 +159,10 @@ jobs:
             cmp -- "$RUNNER_TEMP/${render_name}.committed.svg" "$RUNNER_TEMP/${render_name}.generated.svg"
             cmp -- "${stem}.png" "$RUNNER_TEMP/diagram-renders/${render_name}.png"
           done
+
+      - name: Upload generated renders after a mismatch
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: generated-diagram-renders
+          path: ${{ runner.temp }}/diagram-renders
