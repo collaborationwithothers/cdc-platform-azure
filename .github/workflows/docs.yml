@@ -92,7 +92,7 @@ jobs:
             docker run --rm \
               -u "$(id -u):$(id -g)" \
               -e HOME=/home/drawio \
-              -e DRAWIO_DESKTOP_COMMAND_TIMEOUT=20s \
+              -e DRAWIO_DESKTOP_COMMAND_TIMEOUT=60s \
               -v /etc/passwd:/etc/passwd:ro \
               -v "$RUNNER_TEMP/drawio-home:/home/drawio" \
               -v "$GITHUB_WORKSPACE:/data:ro" \
@@ -109,7 +109,7 @@ jobs:
             docker run --rm \
               -u "$(id -u):$(id -g)" \
               -e HOME=/home/drawio \
-              -e DRAWIO_DESKTOP_COMMAND_TIMEOUT=20s \
+              -e DRAWIO_DESKTOP_COMMAND_TIMEOUT=60s \
               -v /etc/passwd:/etc/passwd:ro \
               -v "$RUNNER_TEMP/drawio-home:/home/drawio" \
               -v "$GITHUB_WORKSPACE:/data:ro" \
