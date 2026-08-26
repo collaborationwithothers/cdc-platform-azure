@@ -1,7 +1,7 @@
 # Operator scripts
 
-The scripts a runbook's first step runs. They change connector and consumer
-state and nothing else: neither touches tenant data, and neither reads a
+Three scripts a runbook's first step runs. They change connector and consumer
+state and nothing else: none of them touches tenant data, and none reads a
 credential from this repository.
 
 `pause-connector.sh` is the one the runbooks lean on hardest.
@@ -33,6 +33,7 @@ kubectl -n <namespace> port-forward svc/<connect-rest-service> 8083:8083
 | --- | --- | --- |
 | `pause-connector.sh` | `<tenantId>` | Pauses `tenant-<tenantId>-outbox` and waits until it and its tasks report `PAUSED`. |
 | `resume-connector.sh` | `<tenantId>` | Resumes the same connector and waits until it reports `RUNNING`. |
+| `notifier-control.sh` | `<retry\|skip> <partition> <offset> <reason>` | Writes one control message to the `notifier-control` topic. |
 
 Called with no arguments, each script prints the arguments it needs and exits
 non-zero. Every failure prints a line beginning `FAIL:` on standard error and
@@ -42,12 +43,19 @@ exits non-zero, so a runbook step can be checked by its exit code.
 
 | Variable | Default | Used by |
 | --- | --- | --- |
-| `CONNECT_URL` | `http://localhost:8083` | both scripts |
-| `CONNECT_TIMEOUT_SECONDS` | `60` | both scripts |
-| `CONNECT_POLL_INTERVAL_SECONDS` | `1` | both scripts |
+| `CONNECT_URL` | `http://localhost:8083` | the two connector scripts |
+| `CONNECT_TIMEOUT_SECONDS` | `60` | the two connector scripts |
+| `CONNECT_POLL_INTERVAL_SECONDS` | `1` | the two connector scripts |
+| `KAFKA_BOOTSTRAP_SERVERS` | `localhost:9093` | `notifier-control.sh` |
+| `KAFKA_CLIENT_CONFIG` | unset | `notifier-control.sh` |
+| `KAFKA_BIN_DIR` | unset, so `PATH` is searched | `notifier-control.sh` |
 
-Nothing under `scripts/ops/` reads a credential, and no credential belongs in
-this repository at all.
+`KAFKA_CLIENT_CONFIG` names a Kafka client properties file. The cluster's only
+listener is TLS with mutual authentication, so the console producer needs the
+keystore and truststore that Strimzi puts in the cluster's own Kubernetes
+secrets. Extract them to a directory outside this repository, write the
+properties file there, and point the variable at it. Nothing under `scripts/ops/`
+reads a credential, and no credential belongs in this repository at all.
 
 ### What a timeout means
 
@@ -57,7 +65,19 @@ bounded rather than indefinite, and a timeout prints the last states seen. Read
 those states: a `FAILED` connector needs the `recover-connector` runbook, not
 another pause.
 
+### Which notifier verb
+
+`retry` fixes the processing, not the message: use it when the message is fine
+and something around it was broken, such as a failing downstream sender that has
+now been redeployed. `skip` accepts the loss for a message that will never
+succeed, such as one whose `tenantId` header is missing, which is permanently
+malformed on the topic. Retrying that one fails every time.
+[docs/specs/23-src-notifier.md](../../docs/specs/23-src-notifier.md) has the full
+argument. The reason is recorded with the message, so a skipped notification has
+a named owner rather than vanishing, and the script refuses an empty one.
+
 ## Verifying a change
 
-`tests/Lexfield.Ops.Tests` runs both scripts against a Kafka Connect container
-and a Kafka broker. `dotnet test src/Lexfield.slnx` runs them.
+`tests/Lexfield.Ops.Tests` runs the connector scripts against a Kafka Connect
+container and a Kafka broker, and runs the notifier script against a stub
+producer. `dotnet test src/Lexfield.slnx` runs them.
