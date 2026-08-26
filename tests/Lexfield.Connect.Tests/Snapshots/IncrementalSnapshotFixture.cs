@@ -207,14 +207,18 @@ public sealed class IncrementalSnapshotFixture : IAsyncLifetime
             if (response.IsSuccessStatusCode)
             {
                 using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+                var connectorState = document.RootElement.GetProperty("connector").GetProperty("state").GetString();
                 var tasks = document.RootElement.GetProperty("tasks").EnumerateArray().ToArray();
-                if (tasks.Length > 0 && tasks.All(task => task.GetProperty("state").GetString() == "RUNNING"))
+                if (connectorState == "RUNNING"
+                    && tasks.Length > 0
+                    && tasks.All(task => task.GetProperty("state").GetString() == "RUNNING"))
                 {
                     return;
                 }
-                if (tasks.Any(task => task.GetProperty("state").GetString() == "FAILED"))
+                if (connectorState == "FAILED"
+                    || tasks.Any(task => task.GetProperty("state").GetString() == "FAILED"))
                 {
-                    throw new InvalidOperationException("connector task failed");
+                    throw new InvalidOperationException("connector or task failed");
                 }
             }
             await Task.Delay(TimeSpan.FromSeconds(2));
