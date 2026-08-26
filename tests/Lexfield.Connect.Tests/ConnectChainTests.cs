@@ -69,20 +69,39 @@ public sealed class ConnectChainTests(ConnectChainFixture chain)
     }
 
     [Fact]
-    public async Task Null_traceparent_row_still_produces_a_message_with_an_empty_traceparent_header()
+    public async Task Created_event_lands_with_an_empty_traceparent_and_no_usable_null_fields()
     {
+        // A Created event exercises the null paths the happy path never touches:
+        // from, teamId, and assigneeId are all null in the payload, and the row is
+        // untraced (null TraceParent).
         const int TaskId = 4712;
         var key = $"{ConnectChainFixture.TenantOne}-{TaskId}";
+        var createdPayload = $$"""
+            {"taskId":{{TaskId}},"from":null,"to":"Created","actor":"user:1234","at":"2026-08-22T10:15:03.221Z","version":1,"teamId":null,"assigneeId":null}
+            """;
 
         await chain.InsertOutboxAsync(
             DatabaseOne, ConnectChainFixture.TenantOne, TaskId, version: 1,
-            Payload(TaskId, 1, "", "Created"), traceParent: null);
+            createdPayload, traceParent: null);
 
         var message = chain.ConsumeByKey(key, Arrival);
 
         Assert.NotNull(message);
         using var envelope = JsonDocument.Parse(message!.Message.Value);
-        Assert.Equal(TaskId, envelope.RootElement.GetProperty("taskId").GetInt32());
+        var root = envelope.RootElement;
+        Assert.Equal(TaskId, root.GetProperty("taskId").GetInt32());
+
+        // Debezium's default table.json.payload.null.behavior=ignore does not
+        // document whether a null payload field lands absent or as explicit null;
+        // either way it carries no usable value, which is all the consumer contract
+        // needs (From/TeamId/AssigneeId are nullable). Pinned by CI 2026-08-26.
+        foreach (var field in new[] { "from", "teamId", "assigneeId" })
+        {
+            var hasValue = root.TryGetProperty(field, out var value)
+                && value.ValueKind != JsonValueKind.Null;
+            Assert.False(hasValue, $"Created '{field}' must carry no usable value");
+        }
+
         // The stock router always emits the promoted traceparent header; a null
         // column yields it empty, not absent (observed in CI 2026-08-26; Debezium
         // does not document this, and no stock SMT can drop a header by value).
@@ -134,13 +153,9 @@ public sealed class ConnectChainTests(ConnectChainFixture chain)
         Assert.Equal(keyTwo, two.Message.Key);
     }
 
-    private static string Payload(int taskId, int version, string from, string to)
-    {
-        var fromValue = from.Length == 0 ? "null" : $"\"{from}\"";
-        return $$"""
-            {"taskId":{{taskId}},"from":{{fromValue}},"to":"{{to}}","actor":"user:1234","at":"2026-08-22T10:15:03.221Z","version":{{version}},"teamId":"team-conveyancing","assigneeId":"user:1234"}
-            """;
-    }
+    private static string Payload(int taskId, int version, string from, string to) => $$"""
+        {"taskId":{{taskId}},"from":"{{from}}","to":"{{to}}","actor":"user:1234","at":"2026-08-22T10:15:03.221Z","version":{{version}},"teamId":"team-conveyancing","assigneeId":"user:1234"}
+        """;
 
     private static Dictionary<string, byte[]> HeaderBytes(Headers headers) =>
         headers.ToDictionary(header => header.Key, header => header.GetValueBytes());
