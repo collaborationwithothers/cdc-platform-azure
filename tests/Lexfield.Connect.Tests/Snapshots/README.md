@@ -16,6 +16,23 @@ snapshot rows that overlap with live changes. The [V3 verification
 result](https://github.com/collaborationwithothers/cdc-platform-azure/issues/63#issuecomment-5386222915)
 records this split between the Kafka and database signaling channels.
 
+## Visual walkthrough
+
+The channels diagram separates the trigger, watermark stream, output topic,
+and durable offset stores.
+
+![Incremental snapshot channels](../../../docs/diagrams/incremental-snapshot-channels.svg)
+
+The window diagram follows one chunk while row 42 changes during the open
+snapshot window.
+
+![Incremental snapshot window](../../../docs/diagrams/incremental-snapshot-window.svg)
+
+The recovery diagram shows which state survives a worker crash and why replay
+can produce duplicates.
+
+![Incremental snapshot recovery](../../../docs/diagrams/incremental-snapshot-recovery.svg)
+
 From the repository root, run the test with Docker available:
 
 ```bash
