@@ -91,6 +91,8 @@ Shape, SPEC-LEVEL and provisional pending V7:
     "errors.max.retries": "10",
     "transforms": "outbox,tenantHeader",
     "transforms.outbox.table.field.event.key": "AggregateId",
+    "transforms.outbox.table.field.event.payload": "Payload",
+    "transforms.outbox.table.expand.json.payload": "true",
     "transforms.outbox.table.fields.additional.placement": "TraceParent:header:traceparent",
     "transforms.tenantHeader.header": "tenantId",
     "transforms.tenantHeader.value.literal": "{tenantId}"
@@ -207,7 +209,11 @@ The end-to-end container test, `tests/Lexfield.Connect.Tests/`:
    for snapshot watermarking, and enable CDC on `dbo.Outbox`.
 3. Register a connector through the Connect REST API using the generated
    configuration, with SQL authentication rather than Entra, since a container
-   has no Entra. The authentication mode is the only difference from production.
+   has no Entra. The connector config, and so the SMT chain, is the shipped one;
+   what a container forces differs: SQL auth, encryption off against the
+   self-signed cert, and a worker config written by the test because production's
+   KafkaConnect resource is not in the repo yet. The broker is Kafka 3.5, not the
+   deployed 4.3.1.
 4. Insert an outbox row directly, with `AggregateId` set to the compound key
    `{tenantId}-{taskId}`, as task-api would author it.
 5. Consume from `workflow-transitions` and assert the message.
@@ -221,7 +227,7 @@ The end-to-end container test, `tests/Lexfield.Connect.Tests/`:
 | Two tenants with the same taskId produce two distinct keys | The collision ADR-005 exists to prevent, tested rather than argued. |
 | An incremental snapshot signal on `connect-signals` triggers a re-read | V3's behaviour, exercised rather than assumed. |
 | `traceparent` header present and byte-identical to the outbox `TraceParent` column | The trace survives the hop, which is the one place it can be lost silently. A broken trace looks exactly like a working one until an operator needs it at 03:00. |
-| A row with `TraceParent` NULL still produces a message, with no `traceparent` header | An untraced write path must not become a dead connector. |
+| A row with `TraceParent` NULL still produces a message, with an empty `traceparent` header | An untraced write path must not become a dead connector. The stock router always emits the promoted header; a null column yields it with an empty value, which consumers treat as untraced (see 01-wire-format.md). |
 
 | Deliverable | Method |
 | --- | --- |
