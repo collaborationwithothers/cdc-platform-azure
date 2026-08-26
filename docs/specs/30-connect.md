@@ -207,7 +207,11 @@ The end-to-end container test, `tests/Lexfield.Connect.Tests/`:
    for snapshot watermarking, and enable CDC on `dbo.Outbox`.
 3. Register a connector through the Connect REST API using the generated
    configuration, with SQL authentication rather than Entra, since a container
-   has no Entra. The authentication mode is the only difference from production.
+   has no Entra. The connector config, and so the SMT chain, is the shipped one;
+   what a container forces differs: SQL auth, encryption off against the
+   self-signed cert, and a worker config written by the test because production's
+   KafkaConnect resource is not in the repo yet. The broker is Kafka 3.5, not the
+   deployed 4.3.1.
 4. Insert an outbox row directly, with `AggregateId` set to the compound key
    `{tenantId}-{taskId}`, as task-api would author it.
 5. Consume from `workflow-transitions` and assert the message.

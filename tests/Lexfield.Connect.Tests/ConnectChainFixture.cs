@@ -18,10 +18,13 @@ namespace Lexfield.Connect.Tests;
 /// <summary>
 /// The whole chain in containers: SQL Server with CDC on <c>dbo.Outbox</c>, a
 /// Kafka broker, and the built Connect image running the Debezium SQL Server
-/// connector, all on one Docker network. The connector configuration is the one
-/// the generator emits (issue #66) with only the authentication changed to a SQL
-/// login, because a container has no Entra; that single override is the only
-/// difference from production, so this exercises the shipped SMT chain.
+/// connector, all on one Docker network. The connector config is the one the
+/// generator emits (issue #66), so the SMT chain is the shipped one. The test
+/// changes only what a container forces: SQL auth instead of Entra,
+/// <c>driver.encrypt</c> off against the self-signed cert, and a worker config
+/// written here because production's KafkaConnect resource is not in the repo
+/// yet (so the converters are chosen here, not inherited). The broker is Kafka
+/// 3.5 (cp-kafka 7.5.12), not production's 4.3.1.
 /// </summary>
 public sealed class ConnectChainFixture : IAsyncLifetime
 {
@@ -112,7 +115,12 @@ public sealed class ConnectChainFixture : IAsyncLifetime
 
     public async Task DisposeAsync()
     {
-        await _connect.DisposeAsync();
+        // _connect stays null if the image build threw; guard so the build failure
+        // is what surfaces, not a NullReferenceException from teardown.
+        if (_connect is not null)
+        {
+            await _connect.DisposeAsync();
+        }
         await Task.WhenAll(_sql.DisposeAsync().AsTask(), _kafka.DisposeAsync().AsTask());
         await _network.DeleteAsync();
     }
@@ -297,6 +305,14 @@ public sealed class ConnectChainFixture : IAsyncLifetime
             "/bin/bash", "-c",
             "find /opt/kafka/plugins \\( -iname '*lexfield*' -o -iname '*prefixkey*' \\) -print",
         ]);
+        // find exits 0 with empty output when it matches nothing; a non-zero exit
+        // means the scan itself failed (path gone, exec denied), and an empty
+        // string then would be "the check did not run", not "no jars". Fail loud.
+        if (result.ExitCode != 0)
+        {
+            throw new InvalidOperationException(
+                $"plugin-path scan failed (exit {result.ExitCode}): {result.Stderr}");
+        }
         return result.Stdout.Trim();
     }
 

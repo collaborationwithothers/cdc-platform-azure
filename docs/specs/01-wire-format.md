@@ -223,6 +223,15 @@ Switched off, the same message is just the event:
 { "taskId": 4711, "from": "Assigned" }
 ```
 
+A second setting is behind that object and is easy to miss. The `Payload` column
+is JSON *text*, so the router alone would hand the converter a string, and the
+value on the topic would be the escaped string
+`"{\"taskId\":4711,\"from\":\"Assigned\"}"`, not the object above. Setting
+`transforms.outbox.table.expand.json.payload=true` makes the router parse the
+column into a real structure first, so the converter then writes the object.
+Both settings decide the value's shape; the connect area's container test asserts
+it lands as an object, not a string.
+
 It is switched off here. The reasoning needs three options on the table, not
 two, because the middle one is easy to skip:
 

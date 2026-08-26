@@ -41,9 +41,11 @@ public sealed class ConnectChainTests(ConnectChainFixture chain)
         // Byte-identical to the outbox column: the trace must survive the hop.
         Assert.Equal(Encoding.UTF8.GetBytes(Trace), headers["traceparent"]);
 
-        // The plain business event, not the Debezium change record.
-        using var envelope = JsonDocument.Parse(EnvelopeJson(message.Message.Value));
+        // The plain business event: a JSON object (table.expand.json.payload=true),
+        // not a JSON-encoded string and not the Debezium change record.
+        using var envelope = JsonDocument.Parse(message.Message.Value);
         var root = envelope.RootElement;
+        Assert.Equal(JsonValueKind.Object, root.ValueKind);
         Assert.False(root.TryGetProperty("op", out _));
         Assert.False(root.TryGetProperty("before", out _));
         Assert.False(root.TryGetProperty("after", out _));
@@ -68,17 +70,6 @@ public sealed class ConnectChainTests(ConnectChainFixture chain)
     private static string Payload(int taskId, int version, string from, string to) => $$"""
         {"taskId":{{taskId}},"from":"{{from}}","to":"{{to}}","actor":"user:1234","at":"2026-08-22T10:15:03.221Z","version":{{version}},"teamId":"team-conveyancing","assigneeId":"user:1234"}
         """;
-
-    /// <summary>The router hands the payload column through as the value. With the
-    /// JSON converter's schemas off it is the plain envelope; if it arrives as a
-    /// JSON-encoded string, unwrap one level so the assertions read the event.</summary>
-    private static string EnvelopeJson(string value)
-    {
-        using var document = JsonDocument.Parse(value);
-        return document.RootElement.ValueKind == JsonValueKind.String
-            ? document.RootElement.GetString()!
-            : value;
-    }
 
     private static Dictionary<string, byte[]> HeaderBytes(Headers headers) =>
         headers.ToDictionary(header => header.Key, header => header.GetValueBytes());
