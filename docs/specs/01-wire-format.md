@@ -178,9 +178,16 @@ The `Payload` column, and therefore the message value on the topic.
 ```
 
 - `from` is null on the Created event, which is always version 1 (ADR-004).
+  A null payload field is not guaranteed to appear on the wire. With
+  `table.expand.json.payload` on, the router's `table.json.payload.null.behavior`
+  defaults to `ignore`, and Debezium does not document whether that drops the key
+  or emits an explicit null. The container test pins the consumer-relevant fact:
+  a null field carries no usable value either way, and `From`, `TeamId`, and
+  `AssigneeId` are nullable, so absent and null deserialize identically.
 - `teamId` and `assigneeId` are the values after the transition, carried because
   queue-builder maintains them in QueueState and must not read the source to get
-  them. SPEC-LEVEL.
+  them. On the Created event they are null, and the same null handling applies.
+  SPEC-LEVEL.
 - `traceparent` is deliberately absent for the same reason it is a column rather
   than a payload field: the envelope is what happened, and the trace identifier
   is how the platform followed it. It travels as a header.
@@ -304,6 +311,16 @@ consumer starts a new trace with no parent and carries on. The difference is
 that `tenantId` decides where data belongs and a traceparent decides nothing, so
 losing one is a correctness fault and losing the other costs a link in a
 timeline.
+
+An untraced write is the second case in practice, not the first. When
+`dbo.Outbox.TraceParent` is null, the stock outbox router still emits the
+`traceparent` header, with an empty value rather than dropping it: promoting a
+column to a header is unconditional, and no stock transform can drop a header by
+its value (dropping it would need the custom SMT the scope cut forbids). An
+empty `traceparent` is unparseable, so a consumer treats it as a missing one and
+starts a fresh trace. Observed in the connect area's container test on
+2026-08-26; Debezium does not document null handling for promoted headers, so
+this rests on that test, not on a documentation guarantee.
 
 ## What survives a Connect worker dying
 
