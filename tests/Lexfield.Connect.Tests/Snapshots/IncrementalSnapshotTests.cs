@@ -33,6 +33,7 @@ public sealed class IncrementalSnapshotTests(IncrementalSnapshotFixture fixture)
         Assert.Equal(original!.Message.Key, snapshot!.Message.Key);
         Assert.Equal(original.Message.Value, snapshot.Message.Value);
         AssertHeadersEqual(original.Message.Headers, snapshot.Message.Headers);
+        await fixture.AssertConnectorRunningAsync();
     }
 
     private static ConsumeResult<string, string>? ConsumeByKey(

@@ -137,6 +137,12 @@ public sealed class IncrementalSnapshotFixture : IAsyncLifetime
         return $"Signal rows: [{string.Join(", ", signalRows)}]\nConnector status: {status}\nConnect signal and snapshot logs:\n{relevantLogs}";
     }
 
+    public async Task AssertConnectorRunningAsync()
+    {
+        using var client = new HttpClient { BaseAddress = ConnectUri() };
+        await WaitForRunningAsync(client);
+    }
+
     private async Task BuildConnectImageAsync()
     {
         var prebuilt = Environment.GetEnvironmentVariable("CDC_CONNECT_IMAGE");
