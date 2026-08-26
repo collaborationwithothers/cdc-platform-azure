@@ -28,7 +28,6 @@ public sealed class ChangesFeedTests(SqlServerFixture sql)
     {
         await using var context = await CreateContextAsync();
         var taskId = await SeedTaskAsync(context.ConnectionString);
-
         await using var holder = new SqlConnection(context.ConnectionString);
         await holder.OpenAsync();
         await using var holderTransaction = await holder.BeginTransactionAsync();
@@ -50,7 +49,6 @@ public sealed class ChangesFeedTests(SqlServerFixture sql)
         }
 
         await holderTransaction.CommitAsync();
-
         using var client = CreateClient(context);
         var response = await client.GetAsync(
             $"/tenants/tenant-a/tasks/changes?since={watermark}");

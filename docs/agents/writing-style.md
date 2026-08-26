@@ -148,3 +148,5 @@ above them. Seeded from the sibling repo's repo-neutral rules.
   paragraph breaks as escaped text.
 - 2026-08-26: When two mechanisms can produce the same observable state, say only
   that; do not call the mechanisms equivalent unless the source establishes it.
+- 2026-08-26: Explain Change Tracking as changed primary keys plus versions, not
+  row history, before introducing watermarks, retention, or snapshot isolation.
