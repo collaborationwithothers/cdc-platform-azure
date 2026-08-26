@@ -124,7 +124,8 @@ stage-1 lag as a first-class series precisely because no trace can.
 ## 4. Logging standard
 
 Structured JSON everywhere. Mandatory fields per line: timestamp, service,
-level, eventName, traceparent, tenantId; taskId and version where applicable.
+level, eventName, traceparent, tenantId; taskId and version where applicable,
+and changeCount on `TaskApi.ChangesFeedRead`.
 Levels: warning and above are reserved for conditions in the alert catalogue;
 hot paths log info sparingly and never per-message chatter beyond the
 vocabulary events. All SPEC-LEVEL beyond the field list.
@@ -132,7 +133,8 @@ vocabulary events. All SPEC-LEVEL beyond the field list.
 ## 5. Event vocabulary (Component.Action, PascalCase)
 
 - TaskApi: TransitionCommitted, OutboxWritten, RepairRead, ChangesFeedRead,
-  FaultInjected (demo flag announces itself; never silent).
+  ChangesFeedUnavailable, FaultInjected (demo flag announces itself; never silent).
+  ChangesFeedUnavailable is diagnostic context, not an alert signal; reconciler work owns any alert coupling.
 - QueueBuilder: EventReceived, EventApplied, DuplicateSkipped, GapDetected,
   HeadLossDetected, RepairRequested, RepairApplied, EventParked,
   PartitionBlocked.

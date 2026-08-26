@@ -82,6 +82,7 @@ internal sealed class LexfieldLogEnricherLogger : ILogger
 
         if (values.TryGetValue("taskId", out var taskId) && taskId is not null) line["taskId"] = taskId;
         if (values.TryGetValue("version", out var version) && version is not null) line["version"] = version;
+        if (values.TryGetValue("changeCount", out var count) && count is not null) line["changeCount"] = count;
         line["message"] = formatter(state, exception);
 
         if (exception is not null)
