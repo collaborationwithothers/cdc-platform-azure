@@ -25,7 +25,7 @@ public sealed class IncrementalSnapshotTests(IncrementalSnapshotFixture fixture)
         // writes open and close watermarks to dbo.DebeziumSignal so it can
         // deduplicate snapshot rows that overlap with live changes. Verification
         // register result V3 records why both channels are required:
-        // https://github.com/collaborationwithothers/cdc-platform-azure/issues/63
+        // https://github.com/collaborationwithothers/cdc-platform-azure/issues/63#issuecomment-5386222915
         await fixture.SendIncrementalSnapshotSignalAsync();
         var snapshot = ConsumeByKey(consumer, key, MessageArrivalTimeout);
 
