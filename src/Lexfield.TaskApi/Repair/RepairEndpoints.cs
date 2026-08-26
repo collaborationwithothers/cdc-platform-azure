@@ -11,11 +11,6 @@ public static class RepairEndpoints
             TenantCatalog catalog, ILogger<RepairRead> logger,
             CancellationToken cancellationToken) =>
         {
-            // No activity is started here. The request already runs inside the
-            // activity ASP.NET set up for the incoming call, so the caller's
-            // trace runs on through the log line the enricher stamps below rather
-            // than restarting at task-api. Starting a span here would fork the
-            // trace and hide that this read served a specific caller's repair.
             var snapshot = await new RepairRead(catalog).ReadAsync(tenantId, taskId, cancellationToken);
             if (snapshot is null) return Results.NotFound();
             Log(logger, tenantId, taskId, snapshot.Version);

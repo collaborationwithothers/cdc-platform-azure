@@ -143,3 +143,6 @@ above them. Seeded from the sibling repo's repo-neutral rules.
   The four-line timeline that replaced it needed no explanation. The same
   applies to a negative finding: show the call, what a reader expects
   back, and what actually comes back, one above the other.
+- 2026-08-26: Build multi-paragraph commit messages from separate message
+  arguments, then inspect the rendered commit before pushing; never encode
+  paragraph breaks as escaped text.

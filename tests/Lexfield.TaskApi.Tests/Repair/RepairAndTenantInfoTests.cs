@@ -67,11 +67,17 @@ public sealed class RepairAndTenantInfoTests(SqlServerFixture sql)
         client.DefaultRequestHeaders.Authorization = new("Bearer", CreateToken("tenant-a", context.SigningKey));
 
         var response = await client.GetAsync("/tenants/tenant-a/info");
-        var body = await response.Content.ReadFromJsonAsync<TenantInfoResponse>();
+        var responseBody = await response.Content.ReadAsStringAsync();
+        var body = JsonSerializer.Deserialize<TenantInfoResponse>(
+            responseBody, new JsonSerializerOptions(JsonSerializerDefaults.Web));
+        using var responseJson = JsonDocument.Parse(responseBody);
+        var claimedAt = responseJson.RootElement.GetProperty("claimedAt").GetString();
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         Assert.NotNull(body);
         Assert.Equal("lexfield-claimed-007", body.TenantId);
+        Assert.NotNull(claimedAt);
+        Assert.EndsWith("+00:00", claimedAt);
     }
 
     [Fact]
@@ -99,10 +105,9 @@ public sealed class RepairAndTenantInfoTests(SqlServerFixture sql)
         using var client = context.Factory.CreateClient();
         client.DefaultRequestHeaders.Authorization = new("Bearer", CreateToken("tenant-a", context.SigningKey));
 
-        // Traced: a production caller sends its trace as a W3C traceparent header
-        // and ASP.NET continues it, so the read runs inside the caller's trace and
-        // the enricher stamps the caller's trace id on the log line. The read
-        // starts no activity of its own, so it never forks a fresh one.
+        // Traced: a production caller sends its trace as a W3C traceparent header.
+        // ASP.NET continues that trace, so the enricher stamps the caller's trace
+        // id on the repair-read log line.
         // WebApplicationFactory's in-memory client does not inject the header, so
         // the test sets it the way HttpClient would in production.
         var output = new StringWriter();
@@ -136,9 +141,22 @@ public sealed class RepairAndTenantInfoTests(SqlServerFixture sql)
         // so the read must still answer and simply stamp no trace.
         using var untracedRequest = new HttpRequestMessage(HttpMethod.Get, $"/tenants/tenant-a/tasks/{taskId}");
         untracedRequest.Headers.Add("X-Test-No-Activity", "true");
-        var untraced = await client.SendAsync(untracedRequest);
+        var untracedOutput = new StringWriter();
+        HttpResponseMessage untraced;
+        try
+        {
+            Console.SetOut(untracedOutput);
+            untraced = await client.SendAsync(untracedRequest);
+        }
+        finally
+        {
+            Console.SetOut(originalOutput);
+        }
 
         Assert.Equal(HttpStatusCode.OK, untraced.StatusCode);
+        var untracedRepairLine = FindEvent(untracedOutput.ToString(), "TaskApi.RepairRead");
+        Assert.NotNull(untracedRepairLine);
+        Assert.Equal("none", untracedRepairLine.Value.GetProperty("traceparent").GetString());
     }
 
     private async Task<TestContext> CreateContextAsync(string claim = "tenant-a")
@@ -210,7 +228,7 @@ public sealed class RepairAndTenantInfoTests(SqlServerFixture sql)
     }
 
     private sealed record RepairResponse(string State, int Version, string? TeamId, string? AssigneeId);
-    private sealed record TenantInfoResponse(string TenantId, DateTime ClaimedAt);
+    private sealed record TenantInfoResponse(string TenantId, DateTimeOffset ClaimedAt);
 
     private sealed class RepairApiFactory(
         string connection, string signingKey, string manifest, int healthPort, string databaseName)
