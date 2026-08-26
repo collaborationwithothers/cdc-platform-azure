@@ -33,10 +33,13 @@ public sealed class ConnectChainFixture : IAsyncLifetime
     private const int BrokerPort = 19092;
     private const string SaPassword = "Str0ng!Passw0rd";
 
-    // The shared-topic tenant provisioned up front; it routes to
-    // workflow-transitions, the default path.
+    // Two shared-topic tenants, provisioned up front. Both route to
+    // workflow-transitions, which lets one test prove two tenants with the same
+    // task id produce two distinct keys on one topic.
     public const string TenantOne = "lexfield-001";
+    public const string TenantTwo = "lexfield-002";
     private const string DatabaseOne = "tenant-001";
+    private const string DatabaseTwo = "tenant-002";
     public const string Topic = "workflow-transitions";
 
     private readonly INetwork _network = new NetworkBuilder().Build();
@@ -71,7 +74,9 @@ public sealed class ConnectChainFixture : IAsyncLifetime
         await _connect.StartAsync();
 
         await ProvisionTenantAsync(TenantOne, DatabaseOne);
+        await ProvisionTenantAsync(TenantTwo, DatabaseTwo);
         await RegisterConnectorAsync(TenantOne, DatabaseOne);
+        await RegisterConnectorAsync(TenantTwo, DatabaseTwo);
     }
 
     /// <summary>Builds the worker image from connect/image so the test runs the
@@ -255,9 +260,26 @@ public sealed class ConnectChainFixture : IAsyncLifetime
             });
     }
 
-    /// <summary>The first message on <see cref="Topic"/> whose key matches, or null
-    /// before the timeout. Reads from the beginning with a throwaway group.</summary>
-    public ConsumeResult<string, string>? ConsumeByKey(string key, TimeSpan timeout)
+    /// <summary>Deletes an outbox row, as nightly pruning does; the router must drop it.</summary>
+    public async Task DeleteOutboxAsync(string database, string tenantId, int taskId)
+    {
+        await using var connection = new SqlConnection(AdminConnectionString(database));
+        await connection.OpenAsync();
+        await connection.ExecuteAsync(
+            "DELETE FROM dbo.Outbox WHERE AggregateId = @AggregateId;",
+            new { AggregateId = $"{tenantId}-{taskId}" });
+    }
+
+    /// <summary>The first message on <see cref="Topic"/> whose key matches, or null before the timeout.</summary>
+    public ConsumeResult<string, string>? ConsumeByKey(string key, TimeSpan timeout) =>
+        Collect(key, timeout, stopAtFirst: true).FirstOrDefault();
+
+    /// <summary>How many messages carry this key across the whole window. Proves a
+    /// pruning delete adds no second message for a key an insert already produced.</summary>
+    public int CountByKey(string key, TimeSpan window) =>
+        Collect(key, window, stopAtFirst: false).Count;
+
+    private List<ConsumeResult<string, string>> Collect(string key, TimeSpan window, bool stopAtFirst)
     {
         using var consumer = new ConsumerBuilder<string, string>(
             new ConsumerConfig
@@ -268,7 +290,8 @@ public sealed class ConnectChainFixture : IAsyncLifetime
                 EnableAutoCommit = false,
             }).Build();
         consumer.Subscribe(Topic);
-        var deadline = DateTime.UtcNow.Add(timeout);
+        var deadline = DateTime.UtcNow.Add(window);
+        var matches = new List<ConsumeResult<string, string>>();
         try
         {
             while (DateTime.UtcNow < deadline)
@@ -278,7 +301,11 @@ public sealed class ConnectChainFixture : IAsyncLifetime
                     var result = consumer.Consume(TimeSpan.FromSeconds(1));
                     if (result?.Message is not null && result.Message.Key == key)
                     {
-                        return result;
+                        matches.Add(result);
+                        if (stopAtFirst)
+                        {
+                            return matches;
+                        }
                     }
                 }
                 catch (ConsumeException error) when (error.Error.Code == ErrorCode.UnknownTopicOrPart)
@@ -289,7 +316,7 @@ public sealed class ConnectChainFixture : IAsyncLifetime
                     Thread.Sleep(TimeSpan.FromSeconds(1));
                 }
             }
-            return null;
+            return matches;
         }
         finally
         {

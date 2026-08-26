@@ -227,7 +227,7 @@ The end-to-end container test, `tests/Lexfield.Connect.Tests/`:
 | Two tenants with the same taskId produce two distinct keys | The collision ADR-005 exists to prevent, tested rather than argued. |
 | An incremental snapshot signal on `connect-signals` triggers a re-read | V3's behaviour, exercised rather than assumed. |
 | `traceparent` header present and byte-identical to the outbox `TraceParent` column | The trace survives the hop, which is the one place it can be lost silently. A broken trace looks exactly like a working one until an operator needs it at 03:00. |
-| A row with `TraceParent` NULL still produces a message, with no `traceparent` header | An untraced write path must not become a dead connector. |
+| A row with `TraceParent` NULL still produces a message, with an empty `traceparent` header | An untraced write path must not become a dead connector. The stock router always emits the promoted header; a null column yields it with an empty value, which consumers treat as untraced (see 01-wire-format.md). |
 
 | Deliverable | Method |
 | --- | --- |

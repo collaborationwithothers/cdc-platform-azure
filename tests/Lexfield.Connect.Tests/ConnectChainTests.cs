@@ -14,6 +14,7 @@ namespace Lexfield.Connect.Tests;
 public sealed class ConnectChainTests(ConnectChainFixture chain)
 {
     private const string DatabaseOne = "tenant-001";
+    private const string DatabaseTwo = "tenant-002";
 
     // Snapshot plus CDC capture latency means the first message can take tens of
     // seconds; the poll below is generous on purpose.
@@ -67,9 +68,79 @@ public sealed class ConnectChainTests(ConnectChainFixture chain)
         Assert.DoesNotContain("PrefixKey", serialized, StringComparison.OrdinalIgnoreCase);
     }
 
-    private static string Payload(int taskId, int version, string from, string to) => $$"""
-        {"taskId":{{taskId}},"from":"{{from}}","to":"{{to}}","actor":"user:1234","at":"2026-08-22T10:15:03.221Z","version":{{version}},"teamId":"team-conveyancing","assigneeId":"user:1234"}
-        """;
+    [Fact]
+    public async Task Null_traceparent_row_still_produces_a_message_with_an_empty_traceparent_header()
+    {
+        const int TaskId = 4712;
+        var key = $"{ConnectChainFixture.TenantOne}-{TaskId}";
+
+        await chain.InsertOutboxAsync(
+            DatabaseOne, ConnectChainFixture.TenantOne, TaskId, version: 1,
+            Payload(TaskId, 1, "", "Created"), traceParent: null);
+
+        var message = chain.ConsumeByKey(key, Arrival);
+
+        Assert.NotNull(message);
+        using var envelope = JsonDocument.Parse(message!.Message.Value);
+        Assert.Equal(TaskId, envelope.RootElement.GetProperty("taskId").GetInt32());
+        // The stock router always emits the promoted traceparent header; a null
+        // column yields it empty, not absent (observed in CI 2026-08-26; Debezium
+        // does not document this, and no stock SMT can drop a header by value).
+        // An empty traceparent is unparseable, so consumers treat it as untraced.
+        var headers = HeaderBytes(message.Message.Headers);
+        Assert.True(
+            !headers.TryGetValue("traceparent", out var trace) || trace is null || trace.Length == 0,
+            "a null TraceParent column must not yield a valid traceparent header");
+    }
+
+    [Fact]
+    public async Task Delete_on_the_outbox_row_produces_no_message()
+    {
+        const int TaskId = 4713;
+        var key = $"{ConnectChainFixture.TenantOne}-{TaskId}";
+
+        await chain.InsertOutboxAsync(
+            DatabaseOne, ConnectChainFixture.TenantOne, TaskId, version: 2,
+            Payload(TaskId, 2, "Assigned", "InProgress"), traceParent: null);
+        Assert.NotNull(chain.ConsumeByKey(key, Arrival));
+
+        await chain.DeleteOutboxAsync(DatabaseOne, ConnectChainFixture.TenantOne, TaskId);
+
+        // The router drops outbox deletes, so the insert is the only message; a leak would make two.
+        Assert.Equal(1, chain.CountByKey(key, TimeSpan.FromSeconds(20)));
+    }
+
+    [Fact]
+    public async Task Two_tenants_with_the_same_task_id_produce_two_distinct_keys()
+    {
+        const int TaskId = 5000;
+        var keyOne = $"{ConnectChainFixture.TenantOne}-{TaskId}";
+        var keyTwo = $"{ConnectChainFixture.TenantTwo}-{TaskId}";
+
+        await chain.InsertOutboxAsync(
+            DatabaseOne, ConnectChainFixture.TenantOne, TaskId, version: 3,
+            Payload(TaskId, 3, "Assigned", "InProgress"), traceParent: null);
+        await chain.InsertOutboxAsync(
+            DatabaseTwo, ConnectChainFixture.TenantTwo, TaskId, version: 3,
+            Payload(TaskId, 3, "Assigned", "InProgress"), traceParent: null);
+
+        var one = chain.ConsumeByKey(keyOne, Arrival);
+        var two = chain.ConsumeByKey(keyTwo, Arrival);
+
+        Assert.NotNull(one);
+        Assert.NotNull(two);
+        Assert.NotEqual(one!.Message.Key, two!.Message.Key);
+        Assert.Equal(keyOne, one.Message.Key);
+        Assert.Equal(keyTwo, two.Message.Key);
+    }
+
+    private static string Payload(int taskId, int version, string from, string to)
+    {
+        var fromValue = from.Length == 0 ? "null" : $"\"{from}\"";
+        return $$"""
+            {"taskId":{{taskId}},"from":{{fromValue}},"to":"{{to}}","actor":"user:1234","at":"2026-08-22T10:15:03.221Z","version":{{version}},"teamId":"team-conveyancing","assigneeId":"user:1234"}
+            """;
+    }
 
     private static Dictionary<string, byte[]> HeaderBytes(Headers headers) =>
         headers.ToDictionary(header => header.Key, header => header.GetValueBytes());
