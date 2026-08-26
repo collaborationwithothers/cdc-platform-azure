@@ -39,7 +39,10 @@ only configuration choice.
 The outbox router reads the message key from the outbox `AggregateId`. Task API
 already wrote the compound `<tenantId>-<taskId>` identity there in the business
 transaction, so this configuration neither constructs nor rewrites a key. The
-two stock transforms are the outbox router and the static tenant header.
+three stock transforms are a Filter that drops non-Outbox control records, the
+outbox router, and the static tenant header. A `TopicNameMatches` predicate
+limits the router to the tenant's exact Outbox topic. DebeziumSignal watermarks
+therefore never reach EventRouter or a domain topic.
 
 The repository records the trace header syntax in
 [V14](../../docs/specs/02-verification-register.md#v14-promoting-an-outbox-column-to-a-kafka-header),
@@ -56,6 +59,9 @@ Run the golden-file tests from the repository root:
 ```text
 dotnet test connect/connectors/Lexfield.ConnectorGenerator.Tests/Lexfield.ConnectorGenerator.Tests.csproj
 ```
+
+The golden-file tests also pin the predicate, filter wiring, and transform order
+for every generated tenant connector.
 
 The test generates all three build-scale configurations and compares their
 exact bytes with the committed snapshot. It separately proves that turning on

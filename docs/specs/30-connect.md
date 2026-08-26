@@ -33,9 +33,9 @@ stated reason in blueprint section 3 rests on an open Strimzi issue rather than
 documentation, so V5 owns confirming or refuting it. The image exists either
 way; only the published rationale depends on the answer.
 
-### SMT chain (two stock transforms)
+### SMT chain (three stock transforms)
 
-The chain is two stock transforms; the platform authors no custom SMT (ADR-005).
+The chain is three stock transforms; the platform authors no custom SMT (ADR-005).
 The key is not assembled in Connect at all: task-api writes the compound key
 `{tenantId}-{taskId}` into the outbox `AggregateId` column inside the business
 transaction, and the stock outbox event router keys each message directly from
@@ -43,6 +43,7 @@ that column via `table.field.event.key`.
 
 | Stage | What runs | Notes |
 | --- | --- | --- |
+| Drop non-Outbox control records | Stock `Filter`, guarded by a stock `TopicNameMatches` predicate | Keeps DebeziumSignal watermarks out of Kafka and prevents EventRouter from reading their non-Outbox shape. |
 | Outbox event router | Stock, shipped with Debezium | Unwraps the outbox row into the plain envelope, keys the message from `AggregateId` via `table.field.event.key`, and drops outbox DELETE events itself, so pruning the outbox never becomes downstream transition traffic. |
 | Promote the outbox `TraceParent` column to a `traceparent` header | Stock, a configuration property on the router above, not a stage of its own | Carried by `transforms.outbox.table.fields.additional.placement`; if the router cannot do it, the fallback is a small custom transform, which changes no contract. |
 | Inject a static header, `InsertHeader` | Stock header-insert transform | Sets the `tenantId` header to the configured constant. |
@@ -89,7 +90,13 @@ Shape, SPEC-LEVEL and provisional pending V7:
     "signal.kafka.bootstrap.servers": "{bootstrap}",
     "signal.data.collection": "{databaseName}.dbo.DebeziumSignal",
     "errors.max.retries": "10",
-    "transforms": "outbox,tenantHeader",
+    "predicates": "isOutbox",
+    "predicates.isOutbox.type": "org.apache.kafka.connect.transforms.predicates.TopicNameMatches",
+    "predicates.isOutbox.pattern": "tenant-{tenantId}\\.{databaseName}\\.dbo\\.Outbox",
+    "transforms": "dropNonOutbox,outbox,tenantHeader",
+    "transforms.dropNonOutbox.type": "org.apache.kafka.connect.transforms.Filter",
+    "transforms.dropNonOutbox.predicate": "isOutbox",
+    "transforms.dropNonOutbox.negate": "true",
     "transforms.outbox.table.field.event.key": "AggregateId",
     "transforms.outbox.table.field.event.payload": "Payload",
     "transforms.outbox.table.expand.json.payload": "true",
@@ -119,6 +126,11 @@ grants the connector identity INSERT and SELECT on it and on nothing else
 writable; see [11-infra-disposable.md](11-infra-disposable.md). This is the one
 place the otherwise read-only connector writes to a tenant database, and the
 grant is scoped to that single table.
+
+Debezium processes the signal-table changes before Kafka Connect applies the
+transform chain. The first transform then drops those control records before
+EventRouter sees them. Only Outbox rows reach the router and become domain
+events.
 
 The `table.fields.additional.placement` line is the whole of the tracing wiring
 on this side, and it is the reason
@@ -205,8 +217,9 @@ The end-to-end container test, `tests/Lexfield.Connect.Tests/`:
 
 1. Start a SQL Server container, a Kafka container, and a Connect container
    running the built image.
-2. Apply the onboarding T-SQL to create the schema, including `dbo.DebeziumSignal`
-   for snapshot watermarking, and enable CDC on `dbo.Outbox`.
+2. Apply the onboarding T-SQL to create the schema and enable CDC on
+   `dbo.DebeziumSignal` for snapshot watermarking and `dbo.Outbox` for domain
+   events.
 3. Register a connector through the Connect REST API using the generated
    configuration, with SQL authentication rather than Entra, since a container
    has no Entra. The connector config, and so the SMT chain, is the shipped one;
@@ -225,7 +238,7 @@ The end-to-end container test, `tests/Lexfield.Connect.Tests/`:
 | Value is the plain envelope, not a CDC change record | Proves the outbox router unwrapped it. |
 | A DELETE on the outbox row produces no message | The outbox event router drops DELETEs itself, so outbox pruning must not become a downstream event (ADR-001). The most likely thing to silently break. |
 | Two tenants with the same taskId produce two distinct keys | The collision ADR-005 exists to prevent, tested rather than argued. |
-| An incremental snapshot signal on `connect-signals` triggers a re-read | V3's behaviour, exercised rather than assumed. |
+| An incremental snapshot signal on `connect-signals` triggers a re-read, no signal control record reaches the workflow topic, and the connector task stays running | V3's behaviour and the control-record filter are exercised together. |
 | `traceparent` header present and byte-identical to the outbox `TraceParent` column | The trace survives the hop, which is the one place it can be lost silently. A broken trace looks exactly like a working one until an operator needs it at 03:00. |
 | A row with `TraceParent` NULL still produces a message, with an empty `traceparent` header | An untraced write path must not become a dead connector. The stock router always emits the promoted header; a null column yields it with an empty value, which consumers treat as untraced (see 01-wire-format.md). |
 

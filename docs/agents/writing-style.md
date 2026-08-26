@@ -143,3 +143,7 @@ above them. Seeded from the sibling repo's repo-neutral rules.
   The four-line timeline that replaced it needed no explanation. The same
   applies to a negative finding: show the call, what a reader expects
   back, and what actually comes back, one above the other.
+- 2026-08-26: When two checkpoints or control channels look interchangeable,
+  explain them through one concrete change and restart timeline. Name what
+  each checkpoint preserves and what it cannot prove before summarising the
+  distinction.
