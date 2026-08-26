@@ -114,9 +114,13 @@ jobs:
           for source in "${sources[@]}"; do
             stem="${source%.drawio}"
             render_name="$(basename "$stem")"
-            sed -E 's/ge-svg-[A-Za-z0-9_-]+/ge-svg-deterministic/g' \
+            sed -E \
+              -e 's/ge-svg-[A-Za-z0-9_-]+/ge-svg-deterministic/g' \
+              -e 's/ge-flow-animation-[A-Za-z0-9_-]+/ge-flow-animation-deterministic/g' \
               "${stem}.svg" > "$RUNNER_TEMP/${render_name}.committed.svg"
-            sed -E 's/ge-svg-[A-Za-z0-9_-]+/ge-svg-deterministic/g' \
+            sed -E \
+              -e 's/ge-svg-[A-Za-z0-9_-]+/ge-svg-deterministic/g' \
+              -e 's/ge-flow-animation-[A-Za-z0-9_-]+/ge-flow-animation-deterministic/g' \
               "$RUNNER_TEMP/diagram-renders/${render_name}.svg" > "$RUNNER_TEMP/${render_name}.generated.svg"
             cmp -- "$RUNNER_TEMP/${render_name}.committed.svg" "$RUNNER_TEMP/${render_name}.generated.svg"
             cmp -- "${stem}.png" "$RUNNER_TEMP/diagram-renders/${render_name}.png"
