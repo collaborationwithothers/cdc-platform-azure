@@ -5,15 +5,14 @@ using Microsoft.Data.SqlClient;
 namespace Lexfield.TaskApi.Changes;
 
 /// <summary>
-/// The reconciler's change feed, backed by SQL Server Change Tracking rather than
-/// a projection read (ADR-009). Given a caller's last-seen sync version, it returns
-/// every task changed after that version, tenant-scoped, in commit order.
+/// The reconciler's tenant-scoped SQL Server Change Tracking feed (ADR-009). Given a
+/// last-seen sync version, it returns every task changed afterward in commit order.
 /// </summary>
 public sealed class ChangesFeed(TenantCatalog catalog, ILogger<ChangesFeed> logger)
 {
     // A change is stamped with its sync version when its transaction commits, not
-    // when it starts, and CHANGETABLE returns changes strictly above the watermark
-    // ordered by that committed version. So a transaction that commits late still
+    // when it starts; CHANGETABLE returns changes strictly above the watermark. So
+    // a transaction that commits late still
     // lands above a watermark taken before it committed, and the next call returns
     // it instead of stepping over it: the commit-order, no-gap property ADR-009
     // chose Change Tracking for, VERIFIED in V4 (docs/specs/02-verification-register.md).
@@ -28,9 +27,8 @@ public sealed class ChangesFeed(TenantCatalog catalog, ILogger<ChangesFeed> logg
         SELECT CHANGE_TRACKING_CURRENT_VERSION();
         """;
 
-    // No watermark: the bootstrap path (00-shared-contracts.md). The reconciler is
-    // starting from an empty QueueState, so it wants every current task read
-    // directly from source truth plus the current version to synchronize from next.
+    // With no watermark, an empty QueueState needs every current source-truth task
+    // plus the current version to synchronize from next (00-shared-contracts.md).
     private const string BootstrapSql =
         """
         SELECT wt.Id AS TaskId, wt.Version
@@ -47,41 +45,37 @@ public sealed class ChangesFeed(TenantCatalog catalog, ILogger<ChangesFeed> logg
 
         await using var connection = new SqlConnection(connectionString);
         await connection.OpenAsync(cancellationToken);
-        // Snapshot isolation keeps the min-valid check, CHANGETABLE read, its join,
-        // and current version in one point-in-time view. Results cannot tear against
-        // a concurrent transition, and cleanup cannot invalidate the watermark
-        // between validation and the read.
+        // Snapshot isolation keeps validation, the read, and current version in one
+        // view. Results cannot tear, and cleanup cannot invalidate the watermark
+        // between validation and reading.
         await using var transaction =
             await connection.BeginTransactionAsync(IsolationLevel.Snapshot, cancellationToken);
         try
         {
-            if (query.Since is { } since)
+            var minValid = await connection.ExecuteScalarAsync<long?>(new CommandDefinition(
+                "SELECT CHANGE_TRACKING_MIN_VALID_VERSION(OBJECT_ID(N'dbo.WorkflowTask'));",
+                transaction: transaction, cancellationToken: cancellationToken));
+            // NULL means database Change Tracking is disabled, the object id
+            // is invalid in this database, or the caller lacks permission.
+            // These are service failures, not aged-out watermarks.
+            if (minValid is null)
             {
-                var minValid = await connection.ExecuteScalarAsync<long?>(new CommandDefinition(
-                    "SELECT CHANGE_TRACKING_MIN_VALID_VERSION(OBJECT_ID(N'dbo.WorkflowTask'));",
-                    transaction: transaction, cancellationToken: cancellationToken));
-                // NULL means database Change Tracking is disabled, the object id
-                // is invalid in this database, or the caller lacks permission.
-                // These are service failures, not aged-out watermarks.
-                if (minValid is null)
-                {
-                    await transaction.RollbackAsync(cancellationToken);
-                    LogRead(query.TenantId, "TaskApi.ChangesFeedUnavailable", null,
-                        LogLevel.Information, "Change Tracking is unavailable");
-                    return ChangesFeedResult.Unavailable;
-                }
-                // Past the retention horizon CHANGETABLE returns a silently short
-                // result and raises no error (V4, docs/specs/02-verification-register.md),
-                // so a watermark below the minimum valid version would hand the
-                // reconciler a partial list that looks complete. That silent tail
-                // loss is the exact failure ADR-009 exists to prevent, so a stale
-                // watermark is 410 Gone and the reconciler re-bootstraps, never a
-                // short 200.
-                if (since < minValid.Value)
-                {
-                    await transaction.RollbackAsync(cancellationToken);
-                    return ChangesFeedResult.WatermarkAgedOut;
-                }
+                await transaction.RollbackAsync(cancellationToken);
+                LogFeedEvent(query.TenantId, "TaskApi.ChangesFeedUnavailable", null,
+                    LogLevel.Information, "Change Tracking is unavailable");
+                return ChangesFeedResult.Unavailable;
+            }
+            // Past the retention horizon CHANGETABLE returns a silently short
+            // result and raises no error (V4, docs/specs/02-verification-register.md),
+            // so a watermark below the minimum valid version would hand the
+            // reconciler a partial list that looks complete. That silent tail
+            // loss is the exact failure ADR-009 exists to prevent, so a stale
+            // watermark is 410 Gone and the reconciler re-bootstraps, never a
+            // short 200.
+            if (query.Since is { } since && since < minValid.Value)
+            {
+                await transaction.RollbackAsync(cancellationToken);
+                return ChangesFeedResult.WatermarkAgedOut;
             }
 
             using var reader = await connection.QueryMultipleAsync(new CommandDefinition(
@@ -90,7 +84,7 @@ public sealed class ChangesFeed(TenantCatalog catalog, ILogger<ChangesFeed> logg
             var changes = (await reader.ReadAsync<TaskChange>()).AsList();
             var nextSyncVersion = await reader.ReadSingleAsync<long>();
             await transaction.CommitAsync(cancellationToken);
-            LogRead(query.TenantId, "TaskApi.ChangesFeedRead", changes.Count,
+            LogFeedEvent(query.TenantId, "TaskApi.ChangesFeedRead", changes.Count,
                 LogLevel.Information, "Task API event");
             return ChangesFeedResult.Ok(new ChangesResponse(changes, nextSyncVersion));
         }
@@ -101,7 +95,7 @@ public sealed class ChangesFeed(TenantCatalog catalog, ILogger<ChangesFeed> logg
         }
     }
 
-    private void LogRead(
+    private void LogFeedEvent(
         string tenantId, string eventName, int? changeCount, LogLevel level, string message)
     {
         try

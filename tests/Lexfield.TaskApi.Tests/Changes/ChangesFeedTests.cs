@@ -21,17 +21,14 @@ namespace Lexfield.TaskApi.Tests.Changes;
 [Collection(LexfieldContainers.Name)]
 public sealed class ChangesFeedTests(SqlServerFixture sql)
 {
-    // The property ADR-009 chose Change Tracking for: a change whose transaction
-    // commits after the watermark was read is still returned by the earlier
-    // watermark. The version is stamped at commit, so the late commit lands above a
-    // watermark taken while it was still in flight rather than being skipped (V4).
+    // V4 verifies that a change committed after a watermark was read must still be
+    // returned by a query using that exact earlier watermark.
     [Fact]
     public async Task LateCommitIsReturnedByAnEarlierWatermark()
     {
         await using var context = await CreateContextAsync();
         var taskId = await SeedTaskAsync(context.ConnectionString);
 
-        // Open a transaction that updates the task and hold it uncommitted.
         await using var holder = new SqlConnection(context.ConnectionString);
         await holder.OpenAsync();
         await using var holderTransaction = await holder.BeginTransactionAsync();
@@ -44,9 +41,6 @@ public sealed class ChangesFeedTests(SqlServerFixture sql)
             """,
             new { taskId }, holderTransaction));
 
-        // While that transaction is still in flight, read the current sync version
-        // on a separate connection. It reflects only committed changes, so the held
-        // update is not counted in it yet.
         long watermark;
         await using (var reader = new SqlConnection(context.ConnectionString))
         {
@@ -55,13 +49,9 @@ public sealed class ChangesFeedTests(SqlServerFixture sql)
                 "SELECT CHANGE_TRACKING_CURRENT_VERSION();");
         }
 
-        // Commit now. The held update is stamped with a version at commit, so it
-        // lands above the watermark that was read before the commit happened.
         await holderTransaction.CommitAsync();
 
-        using var client = context.Factory.CreateClient();
-        client.DefaultRequestHeaders.Authorization =
-            new("Bearer", CreateToken("tenant-a", context.SigningKey));
+        using var client = CreateClient(context);
         var response = await client.GetAsync(
             $"/tenants/tenant-a/tasks/changes?since={watermark}");
 
@@ -73,9 +63,8 @@ public sealed class ChangesFeedTests(SqlServerFixture sql)
         Assert.True(body.NextSyncVersion > watermark);
     }
 
-    // Retention cleanup and table re-enable can both invalidate an earlier
-    // watermark, but they are distinct mechanisms. Re-enable creates the stale
-    // state deterministically without waiting for retention cleanup (V4).
+    // Retention cleanup and table re-enable can both invalidate a watermark, but
+    // re-enable creates the stale state deterministically without waiting (V4).
     [Fact]
     public async Task StaleWatermarkReturns410Gone()
     {
@@ -92,24 +81,18 @@ public sealed class ChangesFeedTests(SqlServerFixture sql)
                 """);
         }
 
-        using var client = context.Factory.CreateClient();
-        client.DefaultRequestHeaders.Authorization =
-            new("Bearer", CreateToken("tenant-a", context.SigningKey));
+        using var client = CreateClient(context);
         var response = await client.GetAsync("/tenants/tenant-a/tasks/changes?since=0");
 
         Assert.Equal(HttpStatusCode.Gone, response.StatusCode);
     }
 
-    // The response shape is the shared contract: a changes array of {taskId, version}
-    // and a nextSyncVersion, in camelCase.
     [Fact]
     public async Task ResponseShapeMatchesTheSharedContract()
     {
         await using var context = await CreateContextAsync();
         var taskId = await SeedTaskAsync(context.ConnectionString);
-        using var client = context.Factory.CreateClient();
-        client.DefaultRequestHeaders.Authorization =
-            new("Bearer", CreateToken("tenant-a", context.SigningKey));
+        using var client = CreateClient(context);
 
         var (response, output) = await GetWithLogsAsync(
             client, "/tenants/tenant-a/tasks/changes?since=0");
@@ -128,38 +111,39 @@ public sealed class ChangesFeedTests(SqlServerFixture sql)
     }
 
     [Fact]
-    public async Task MissingTrackedTableReturns503AndLogsUnavailableEvent()
+    public async Task WithoutWatermarkReturnsEveryTaskInIdOrder()
     {
         await using var context = await CreateContextAsync();
-        await using (var admin = new SqlConnection(context.ConnectionString))
-        {
-            await admin.OpenAsync();
-            await admin.ExecuteAsync("DROP TABLE dbo.WorkflowTask;");
-        }
-        using var client = context.Factory.CreateClient();
-        client.DefaultRequestHeaders.Authorization =
-            new("Bearer", CreateToken("tenant-a", context.SigningKey));
+        var firstTaskId = await SeedTaskAsync(context.ConnectionString);
+        var secondTaskId = await SeedTaskAsync(context.ConnectionString);
+        using var client = CreateClient(context);
+        var response = await client.GetAsync("/tenants/tenant-a/tasks/changes");
 
-        var (response, output) = await GetWithLogsAsync(
-            client, "/tenants/tenant-a/tasks/changes?since=0");
-
-        Assert.Equal(HttpStatusCode.ServiceUnavailable, response.StatusCode);
-        var log = FindEvent(output, "TaskApi.ChangesFeedUnavailable");
-        Assert.NotNull(log);
-        Assert.Equal("Information", log.Value.GetProperty("level").GetString());
-        Assert.Equal("Change Tracking is unavailable", log.Value.GetProperty("message").GetString());
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var body = await response.Content.ReadFromJsonAsync<ChangesResponse>();
+        Assert.NotNull(body);
+        Assert.Equal([(firstTaskId, 1), (secondTaskId, 1)],
+            body.Changes.Select(change => (change.TaskId, change.Version)));
+        Assert.True(body.NextSyncVersion > 0);
     }
 
-    // Tenant scoping: a token for one tenant cannot read another tenant's feed,
-    // like every other route. The mismatch is rejected in authorisation, so it is
-    // 403 before any database is touched.
+    [Fact]
+    public Task MissingTrackedTableReturns503AndLogsUnavailableEvent() =>
+        AssertUnavailableAsync("DROP TABLE dbo.WorkflowTask;", "?since=0");
+
+    [Fact]
+    public Task BootstrapReturns503WhenDatabaseChangeTrackingIsDisabled() =>
+        AssertUnavailableAsync(
+            """
+            ALTER TABLE dbo.WorkflowTask DISABLE CHANGE_TRACKING;
+            ALTER DATABASE CURRENT SET CHANGE_TRACKING = OFF;
+            """, "");
+
     [Fact]
     public async Task AnotherTenantTokenReturns403()
     {
         await using var context = await CreateContextAsync();
-        using var client = context.Factory.CreateClient();
-        client.DefaultRequestHeaders.Authorization =
-            new("Bearer", CreateToken("tenant-a", context.SigningKey));
+        using var client = CreateClient(context);
 
         var response = await client.GetAsync("/tenants/tenant-b/tasks/changes?since=0");
 
@@ -185,8 +169,7 @@ public sealed class ChangesFeedTests(SqlServerFixture sql)
         var manifest = Path.GetTempFileName();
         await File.WriteAllTextAsync(manifest,
             $$"""[{"tenantId":"tenant-a","database":"{{databaseName}}","streamIsolated":false}]""");
-        var port = GetFreePort();
-        var factory = new ChangesApiFactory(connection, key, manifest, port, databaseName);
+        var factory = new ChangesApiFactory(connection, key, manifest, GetFreePort(), databaseName);
         return new TestContext(factory, connection, key, manifest);
     }
 
@@ -199,6 +182,31 @@ public sealed class ChangesFeedTests(SqlServerFixture sql)
             VALUES ('Created', 1, SYSUTCDATETIME(), SYSUTCDATETIME(), 'seed');
             SELECT CONVERT(int, SCOPE_IDENTITY());
             """);
+    }
+
+    private async Task AssertUnavailableAsync(string setupSql, string query)
+    {
+        await using var context = await CreateContextAsync();
+        await using var admin = new SqlConnection(context.ConnectionString);
+        await admin.OpenAsync();
+        await admin.ExecuteAsync(setupSql);
+        using var client = CreateClient(context);
+        var (response, output) = await GetWithLogsAsync(
+            client, $"/tenants/tenant-a/tasks/changes{query}");
+
+        Assert.Equal(HttpStatusCode.ServiceUnavailable, response.StatusCode);
+        var log = FindEvent(output, "TaskApi.ChangesFeedUnavailable");
+        Assert.NotNull(log);
+        Assert.Equal("Information", log.Value.GetProperty("level").GetString());
+        Assert.Equal("Change Tracking is unavailable", log.Value.GetProperty("message").GetString());
+    }
+
+    private static HttpClient CreateClient(TestContext context)
+    {
+        var client = context.Factory.CreateClient();
+        client.DefaultRequestHeaders.Authorization =
+            new("Bearer", CreateToken("tenant-a", context.SigningKey));
+        return client;
     }
 
     private static string CreateToken(string tenantId, string key)
@@ -236,10 +244,7 @@ public sealed class ChangesFeedTests(SqlServerFixture sql)
             if (!line.StartsWith('{')) continue;
             using var document = JsonDocument.Parse(line);
             if (document.RootElement.TryGetProperty("eventName", out var name)
-                && name.GetString() == eventName)
-            {
-                return document.RootElement.Clone();
-            }
+                && name.GetString() == eventName) return document.RootElement.Clone();
         }
         return null;
     }

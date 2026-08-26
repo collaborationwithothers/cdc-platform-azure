@@ -134,6 +134,7 @@ vocabulary events. All SPEC-LEVEL beyond the field list.
 
 - TaskApi: TransitionCommitted, OutboxWritten, RepairRead, ChangesFeedRead,
   ChangesFeedUnavailable, FaultInjected (demo flag announces itself; never silent).
+  ChangesFeedUnavailable is diagnostic context, not an alert signal; reconciler work owns any alert coupling.
 - QueueBuilder: EventReceived, EventApplied, DuplicateSkipped, GapDetected,
   HeadLossDetected, RepairRequested, RepairApplied, EventParked,
   PartitionBlocked.
