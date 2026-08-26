@@ -129,9 +129,15 @@ jobs:
             accept_completed_timeout \
               "$render_status" "$RUNNER_TEMP/diagram-renders/${render_name}.svg"
 
-            if [[ "$render_name" == incremental-snapshot-* ]]; then
-              # Draw.io's Linux PNG export hangs on some diagrams in this set.
-              # Rasterize the set consistently with a pinned, verified resvg.
+            if [[ "$render_name" == incremental-snapshot-* ]] \
+              || [[ "$render_name" == "tenant-onboarding" ]] \
+              || [[ "$render_name" == "failure-survival" ]] \
+              || [[ "$render_name" == "tenant-routing-isolation" ]] \
+              || [[ "$render_name" == "identity-permissions" ]] \
+              || [[ "$render_name" == "no-events-troubleshooting" ]] \
+              || [[ "$render_name" == "alert-dashboard-runbook" ]]; then
+              # Draw.io's Linux PNG export hangs on some detailed diagrams.
+              # Rasterize these sets consistently with a pinned, verified resvg.
               "$resvg_dir/resvg" \
                 --background '#ffffff' \
                 --stylesheet "$resvg_stylesheet" \
