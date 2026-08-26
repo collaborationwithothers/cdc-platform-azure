@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Net;
 using System.Net.Http.Json;
 using System.Text;
 using System.Text.Json;
@@ -176,12 +177,29 @@ public sealed class ConnectFixture : IAsyncLifetime
         await WaitForStateAsync(tenantId, "RUNNING");
     }
 
-    /// <summary>Reads the connector and task states Connect reports.</summary>
+    /// <summary>
+    /// Reads the connector and task states Connect reports, or <c>UNKNOWN</c>
+    /// while there is nothing to read yet.
+    /// </summary>
+    /// <remarks>
+    /// Connect answers the create with 201 as soon as the configuration is
+    /// recorded, and writes the connector's status afterwards, so
+    /// <c>/status</c> answers 404 for a moment on a connector that does
+    /// certainly exist. Treating that 404 as absent turns a startup race into a
+    /// failed test, so it reads as "not visible yet" and the caller keeps
+    /// polling until its own deadline.
+    /// </remarks>
     public async Task<string> ReadStatesAsync(string tenantId)
     {
         using var client = new HttpClient { BaseAddress = new Uri(ConnectUrl) };
-        var document = JsonDocument.Parse(
-            await client.GetStringAsync($"/connectors/tenant-{tenantId}-outbox/status"));
+        using var response = await client.GetAsync($"/connectors/tenant-{tenantId}-outbox/status");
+        if (response.StatusCode == HttpStatusCode.NotFound)
+        {
+            return "UNKNOWN";
+        }
+
+        response.EnsureSuccessStatusCode();
+        var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
         var states = new StringBuilder(document.RootElement.GetProperty("connector").GetProperty("state").GetString());
         foreach (var task in document.RootElement.GetProperty("tasks").EnumerateArray())
         {
@@ -194,10 +212,18 @@ public sealed class ConnectFixture : IAsyncLifetime
     private async Task WaitForStateAsync(string tenantId, string state)
     {
         var deadline = DateTime.UtcNow.AddMinutes(1);
+        var observed = "nothing read yet";
         while (DateTime.UtcNow < deadline)
         {
-            var states = await ReadStatesAsync(tenantId);
-            if (states.Split(' ').All(observed => observed == state))
+            observed = await ReadStatesAsync(tenantId);
+            var states = observed.Split(' ');
+
+            // The first element is the connector and the rest are its tasks. A
+            // connector reports its own state before its task is assigned, so
+            // waiting on the connector alone would hand back a connector with no
+            // task and the caller would then assert on a task that does not
+            // exist yet.
+            if (states.Length > 1 && states.All(each => each == state))
             {
                 return;
             }
@@ -205,7 +231,8 @@ public sealed class ConnectFixture : IAsyncLifetime
             await Task.Delay(TimeSpan.FromSeconds(1));
         }
 
-        throw new TimeoutException($"tenant-{tenantId}-outbox did not reach {state}.");
+        throw new TimeoutException(
+            $"tenant-{tenantId}-outbox did not reach {state}. Last seen: {observed}");
     }
 }
 
