@@ -126,7 +126,9 @@ public sealed class ConnectFixture : IAsyncLifetime
             .WithEnvironment("CONNECT_VALUE_CONVERTER", "org.apache.kafka.connect.storage.StringConverter")
             // The FileStream connectors ship in the image but sit outside the
             // default plugin path, so the worker only finds them once the
-            // directory is named here.
+            // directory is named here. This layout was read from the 8.3.x image
+            // build; that it also holds on the 7.5.12 pinned above is evidenced
+            // only by these tests passing, so re-check it when either image moves.
             .WithEnvironment(
                 "CONNECT_PLUGIN_PATH",
                 "/usr/share/java,/usr/share/confluent-hub-components,/usr/share/filestream-connectors")
