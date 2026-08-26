@@ -10,4 +10,8 @@
     <AssemblyName>loadgen</AssemblyName>
   </PropertyGroup>
 
+  <ItemGroup>
+    <ProjectReference Include="../../src/Lexfield.Contracts/Lexfield.Contracts.csproj" />
+  </ItemGroup>
+
 </Project>
