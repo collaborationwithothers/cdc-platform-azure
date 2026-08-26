@@ -51,6 +51,19 @@ END;
 IF NOT EXISTS (
     SELECT 1
     FROM cdc.change_tables
+    WHERE source_object_id = OBJECT_ID(N'dbo.DebeziumSignal')
+)
+BEGIN
+    EXEC sys.sp_cdc_enable_table
+        @source_schema = N'dbo',
+        @source_name = N'DebeziumSignal',
+        @role_name = NULL,
+        @supports_net_changes = 0;
+END;
+
+IF NOT EXISTS (
+    SELECT 1
+    FROM cdc.change_tables
     WHERE source_object_id = OBJECT_ID(N'dbo.Outbox')
 )
 BEGIN

@@ -35,7 +35,7 @@ public sealed class TenantOnboardingTests(SqlServerFixture sql)
             Assert.Equal(first.OutboxTraceParentNullable, second.OutboxTraceParentNullable);
             Assert.Equal(first.DebeziumSignalExists, second.DebeziumSignalExists);
             Assert.Equal(first.TenantId, second.TenantId);
-            Assert.Equal(["Outbox"], first.CdcTables);
+            Assert.Equal(["DebeziumSignal", "Outbox"], first.CdcTables);
             Assert.Equal(["WorkflowTask"], first.ChangeTrackingTables);
             Assert.True(first.SnapshotIsolationEnabled);
             Assert.True(first.OutboxTraceParentNullable);
