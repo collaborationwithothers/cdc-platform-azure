@@ -14,8 +14,7 @@ Paths owned: `src/Lexfield.QueueBuilder/`, `src/Lexfield.QueueStore/`,
 `src/Lexfield.QueueStore/`. One create-only v1 migration owns
 all six tables defined across [00-shared-contracts.md](00-shared-contracts.md)
 and [22-src-queue-reconciler.md](22-src-queue-reconciler.md).
-It cannot alter existing tables. The first schema change must add versioning.
-QueueStore is shared
+It cannot alter existing tables. The first schema change must add versioning. QueueStore is shared
 with the reconciler and the notifier, which is why it is a project and not a
 folder inside queue-builder.
 
@@ -52,7 +51,6 @@ single-row `MERGE` keeps that decision and write in one statement.
 until the transaction ends. Microsoft documents its unique-key protection,
 but not deadlock freedom. The repeated container test owns that evidence.
 Error 1205 propagates so QueueStore never retries inside the failing call.
-The caller, which knows whether work can be replayed, owns recovery.
 
 Queue-builder leaves the Kafka offset uncommitted, so redelivery retries the
 event. The reconciler keeps its drift observation, so its next sweep retries
