@@ -98,7 +98,7 @@ jobs:
               -v "$GITHUB_WORKSPACE:/data:ro" \
               -v "$RUNNER_TEMP/diagram-renders:/output" \
               -w /data \
-              rlespinasse/drawio-desktop-headless@sha256:b7fe022af559d73240111aaa97b07c516d2201c4837f73f0d5c36d6568ca941e \
+              rlespinasse/drawio-desktop-headless@sha256:527dfc14dc2b15d8aed93c29c724c1711a8fef235cd0667124d4f1ff8cd71f52 \
               -x -f svg --theme light --embed-svg-images \
               -o "/output/${render_name}.svg" \
               "/output/${render_name}.drawio" || render_status=$?
@@ -115,7 +115,7 @@ jobs:
               -v "$GITHUB_WORKSPACE:/data:ro" \
               -v "$RUNNER_TEMP/diagram-renders:/output" \
               -w /data \
-              rlespinasse/drawio-desktop-headless@sha256:b7fe022af559d73240111aaa97b07c516d2201c4837f73f0d5c36d6568ca941e \
+              rlespinasse/drawio-desktop-headless@sha256:527dfc14dc2b15d8aed93c29c724c1711a8fef235cd0667124d4f1ff8cd71f52 \
               -x -f png \
               -o "/output/${render_name}.png" \
               "/output/${render_name}.drawio" || render_status=$?
