@@ -14,9 +14,10 @@ Paths owned: `src/Lexfield.QueueBuilder/`, `src/Lexfield.QueueStore/`,
 `src/Lexfield.QueueStore/`. One create-only v1 migration owns
 all six tables defined across [00-shared-contracts.md](00-shared-contracts.md)
 and [22-src-queue-reconciler.md](22-src-queue-reconciler.md).
-It cannot alter existing tables. The first schema change must add versioning. QueueStore is shared
-with the reconciler and the notifier, which is why it is a project and not a
-folder inside queue-builder.
+It cannot alter existing tables.
+The first schema change must add versioning.
+QueueStore is shared with the reconciler and notifier. That shared use is why
+it is a project rather than a folder inside queue-builder.
 
 Its single most important method is the guarded upsert, and it is the only way
 any code in the repo writes `QueueState`:
@@ -49,17 +50,27 @@ single-row `MERGE` keeps that decision and write in one statement.
 
 `HOLDLOCK` applies `SERIALIZABLE` semantics and retains locks on the target
 until the transaction ends. Microsoft documents its unique-key protection,
-but not deadlock freedom. The repeated container test owns that evidence.
-Error 1205 propagates so QueueStore never retries inside the failing call.
+but not deadlock freedom. The repeated container test owns evidence for the
+intended same-key race. It does not establish behavior at scale. Microsoft
+also cautions that `MERGE` can introduce complicated concurrency issues at
+scale, so production rollout requires broader testing.
+QueueStore never retries inside the failing call, so error 1205 propagates to
+the caller.
 
 Queue-builder leaves the Kafka offset uncommitted, so redelivery retries the
 event. The reconciler keeps its drift observation, so its next sweep retries
 the comparison and repair.
 
-The target match uses only the primary key. The version guard stays in `WHEN MATCHED`.
-The test proves both writes reach the missing-key race and the higher version wins.
-Sources: [MERGE concurrency considerations](https://learn.microsoft.com/sql/t-sql/statements/merge-transact-sql#concurrency-considerations-for-merge),
-[HOLDLOCK](https://learn.microsoft.com/sql/t-sql/queries/hints-transact-sql-table#holdlock), and the [deadlocks guide](https://learn.microsoft.com/sql/relational-databases/sql-server-deadlocks-guide).
+The target match uses only the primary key.
+The version guard stays in `WHEN MATCHED`.
+The test proves both writes reach the missing-key race and the higher version
+wins.
+
+Sources:
+
+- [MERGE concurrency considerations](https://learn.microsoft.com/sql/t-sql/statements/merge-transact-sql#concurrency-considerations-for-merge)
+- [HOLDLOCK](https://learn.microsoft.com/sql/t-sql/queries/hints-transact-sql-table#holdlock)
+- [Deadlocks guide](https://learn.microsoft.com/sql/relational-databases/sql-server-deadlocks-guide)
 
 ### Ordering, stated because it is easy to assume wrongly
 
