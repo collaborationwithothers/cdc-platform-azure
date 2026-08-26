@@ -118,6 +118,25 @@ public sealed class IncrementalSnapshotFixture : IAsyncLifetime
         producer.Flush(TimeSpan.FromSeconds(10));
     }
 
+    public async Task<string> GetSnapshotFailureDiagnosticsAsync()
+    {
+        await using var connection = new SqlConnection(AdminConnectionString(Database));
+        await connection.OpenAsync();
+        var signalRows = await connection.QueryAsync<string>(
+            "SELECT CONCAT(id, ':', type) FROM dbo.DebeziumSignal ORDER BY id;");
+
+        using var client = new HttpClient { BaseAddress = ConnectUri() };
+        var status = await client.GetStringAsync($"/connectors/tenant-{TenantId}-outbox/status");
+        var (stdout, stderr) = await _connect.GetLogsAsync();
+        var relevantLogs = string.Join('\n', (stdout + '\n' + stderr)
+            .Split('\n', StringSplitOptions.RemoveEmptyEntries)
+            .Where(line => line.Contains("signal", StringComparison.OrdinalIgnoreCase)
+                || line.Contains("snapshot", StringComparison.OrdinalIgnoreCase))
+            .TakeLast(100));
+
+        return $"Signal rows: [{string.Join(", ", signalRows)}]\nConnector status: {status}\nConnect signal and snapshot logs:\n{relevantLogs}";
+    }
+
     private async Task BuildConnectImageAsync()
     {
         var prebuilt = Environment.GetEnvironmentVariable("CDC_CONNECT_IMAGE");

@@ -29,7 +29,7 @@ public sealed class IncrementalSnapshotTests(IncrementalSnapshotFixture fixture)
         await fixture.SendIncrementalSnapshotSignalAsync();
         var snapshot = ConsumeByKey(consumer, key, MessageArrivalTimeout);
 
-        Assert.NotNull(snapshot);
+        Assert.True(snapshot is not null, await fixture.GetSnapshotFailureDiagnosticsAsync());
         Assert.Equal(original!.Message.Key, snapshot!.Message.Key);
         Assert.Equal(original.Message.Value, snapshot.Message.Value);
         AssertHeadersEqual(original.Message.Headers, snapshot.Message.Headers);
