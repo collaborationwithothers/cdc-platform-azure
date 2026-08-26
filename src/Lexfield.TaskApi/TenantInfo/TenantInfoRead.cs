@@ -25,9 +25,12 @@ public sealed class TenantInfoRead(TenantCatalog catalog)
         await using var connection = new SqlConnection(connectionString);
         await connection.OpenAsync(cancellationToken);
         return await connection.QuerySingleOrDefaultAsync<TenantInfoClaim>(new CommandDefinition(
-            "SELECT TenantId, ClaimedAt FROM dbo.TenantInfo WHERE Id = 1",
+            // ClaimedAt is stored UTC (SYSUTCDATETIME); AT TIME ZONE stamps the
+            // +00:00 offset so the contract carries a marked instant, not a bare
+            // datetime2 that serializes without a zone.
+            "SELECT TenantId, ClaimedAt AT TIME ZONE 'UTC' AS ClaimedAt FROM dbo.TenantInfo WHERE Id = 1",
             cancellationToken: cancellationToken));
     }
 }
 
-public sealed record TenantInfoClaim(string TenantId, DateTime ClaimedAt);
+public sealed record TenantInfoClaim(string TenantId, DateTimeOffset ClaimedAt);
