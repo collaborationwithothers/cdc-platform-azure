@@ -41,7 +41,7 @@
         <mxCell id="e11" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#d6b656;strokeWidth=2;endArrow=block;" parent="1" edge="1" source="flush" target="smt"><mxGeometry as="geometry" relative="1" /></mxCell>
         <mxCell id="e12" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#c55a11;strokeWidth=2;endArrow=block;flowAnimation=1;" parent="1" edge="1" source="smt" target="output"><mxGeometry as="geometry" relative="1" /></mxCell>
         <mxCell id="e13" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#70ad47;strokeWidth=2;endArrow=block;" parent="1" edge="1" source="output" target="checkpoint"><mxGeometry as="geometry" relative="1" /></mxCell>
-        <mxCell id="legend" value="Animated arrows show the order of work. The snapshot buffer exists only between the observed OPEN and CLOSE markers." style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#999999;fontSize=11;align=left;spacingLeft=8;" parent="1" vertex="1"><mxGeometry as="geometry" x="40" y="1080" width="920" height="50" /></mxCell>
+        <mxCell id="legend" value="Animated arrows show runtime flow. The snapshot buffer exists from the chunk read until the CDC reader observes CLOSE." style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#999999;fontSize=11;align=left;spacingLeft=8;" parent="1" vertex="1"><mxGeometry as="geometry" x="40" y="1080" width="920" height="50" /></mxCell>
       </root>
     </mxGraphModel>
   </diagram>

@@ -72,6 +72,8 @@ jobs:
           for source in "${sources[@]}"; do
             stem="${source%.drawio}"
             render_name="$(basename "$stem")"
+            render_source="$RUNNER_TEMP/diagram-renders/${render_name}.drawio"
+            sed 's/flowAnimation=1;//g' "$source" > "$render_source"
 
             docker run --rm \
               -u "$(id -u):$(id -g)" \
@@ -84,7 +86,7 @@ jobs:
               rlespinasse/drawio-desktop-headless@sha256:b7fe022af559d73240111aaa97b07c516d2201c4837f73f0d5c36d6568ca941e \
               -x -f svg --theme light --embed-svg-images \
               -o "/output/${render_name}.svg" \
-              "$source"
+              "/output/${render_name}.drawio"
 
             docker run --rm \
               -u "$(id -u):$(id -g)" \
@@ -97,7 +99,7 @@ jobs:
               rlespinasse/drawio-desktop-headless@sha256:b7fe022af559d73240111aaa97b07c516d2201c4837f73f0d5c36d6568ca941e \
               -x -f png \
               -o "/output/${render_name}.png" \
-              "$source"
+              "/output/${render_name}.drawio"
           done
 
       - name: Check committed renders are current
@@ -114,13 +116,9 @@ jobs:
           for source in "${sources[@]}"; do
             stem="${source%.drawio}"
             render_name="$(basename "$stem")"
-            sed -E \
-              -e 's/ge-svg-[A-Za-z0-9_-]+/ge-svg-deterministic/g' \
-              -e 's/ge-flow-animation-[A-Za-z0-9_-]+/ge-flow-animation-deterministic/g' \
+            sed -E 's/ge-svg-[A-Za-z0-9_-]+/ge-svg-deterministic/g' \
               "${stem}.svg" > "$RUNNER_TEMP/${render_name}.committed.svg"
-            sed -E \
-              -e 's/ge-svg-[A-Za-z0-9_-]+/ge-svg-deterministic/g' \
-              -e 's/ge-flow-animation-[A-Za-z0-9_-]+/ge-flow-animation-deterministic/g' \
+            sed -E 's/ge-svg-[A-Za-z0-9_-]+/ge-svg-deterministic/g' \
               "$RUNNER_TEMP/diagram-renders/${render_name}.svg" > "$RUNNER_TEMP/${render_name}.generated.svg"
             cmp -- "$RUNNER_TEMP/${render_name}.committed.svg" "$RUNNER_TEMP/${render_name}.generated.svg"
             cmp -- "${stem}.png" "$RUNNER_TEMP/diagram-renders/${render_name}.png"
