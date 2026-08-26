@@ -106,9 +106,14 @@ jobs:
               "$render_status" "$RUNNER_TEMP/diagram-renders/${render_name}.svg"
 
             render_status=0
-            if [[ "$render_name" == "incremental-snapshot-recovery" ]]; then
-              # Draw.io writes this complex PNG on macOS but hangs before
-              # writing it on Linux. Rasterize its completed SVG with Chrome.
+            if [[ "$render_name" == incremental-snapshot-* ]]; then
+              # Draw.io writes these complex PNGs on macOS but hangs before
+              # writing some of them on Linux. Rasterize the completed SVG.
+              dimensions="$(
+                head -c 500 "$RUNNER_TEMP/diagram-renders/${render_name}.svg" \
+                  | sed -n 's/.*width="\([0-9][0-9]*\)px" height="\([0-9][0-9]*\)px".*/\1,\2/p'
+              )"
+              test -n "$dimensions"
               timeout 20s google-chrome \
                 --headless=new \
                 --disable-gpu \
@@ -116,7 +121,7 @@ jobs:
                 --force-device-scale-factor=1 \
                 --force-color-profile=srgb \
                 --screenshot="$RUNNER_TEMP/diagram-renders/${render_name}.png" \
-                --window-size=1713,1172 \
+                --window-size="$dimensions" \
                 "file://$RUNNER_TEMP/diagram-renders/${render_name}.svg" \
                 || render_status=$?
             else
