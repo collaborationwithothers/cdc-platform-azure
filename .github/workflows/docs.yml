@@ -82,6 +82,18 @@ jobs:
             exit "$status"
           }
 
+          resvg_dir="$RUNNER_TEMP/resvg"
+          resvg_archive="$RUNNER_TEMP/resvg-linux-x86_64.tar.gz"
+          resvg_stylesheet="$RUNNER_TEMP/drawio-fallback.css"
+          mkdir -p "$resvg_dir"
+          curl -fsSL \
+            https://github.com/linebender/resvg/releases/download/v0.48.1/resvg-linux-x86_64.tar.gz \
+            -o "$resvg_archive"
+          echo "fa8c26495a187e592c501db15bf9e8a9fdc051d4b2b336b39703d5b59f912b9d  $resvg_archive" \
+            | sha256sum -c -
+          tar -xzf "$resvg_archive" -C "$resvg_dir"
+          printf '%s\n' 'svg > switch > a { display: none; }' > "$resvg_stylesheet"
+
           for source in "${sources[@]}"; do
             stem="${source%.drawio}"
             render_name="$(basename "$stem")"
@@ -93,7 +105,6 @@ jobs:
               -u "$(id -u):$(id -g)" \
               -e HOME=/home/drawio \
               -e DRAWIO_DESKTOP_COMMAND_TIMEOUT=60s \
-              -e XVFB_OPTIONS="-nolisten unix -screen 0 1920x1400x24" \
               -v /etc/passwd:/etc/passwd:ro \
               -v "$RUNNER_TEMP/drawio-home:/home/drawio" \
               -v "$GITHUB_WORKSPACE:/data:ro" \
@@ -106,23 +117,32 @@ jobs:
             accept_completed_timeout \
               "$render_status" "$RUNNER_TEMP/diagram-renders/${render_name}.svg"
 
-            render_status=0
-            docker run --rm \
-              -u "$(id -u):$(id -g)" \
-              -e HOME=/home/drawio \
-              -e DRAWIO_DESKTOP_COMMAND_TIMEOUT=60s \
-              -e XVFB_OPTIONS="-nolisten unix -screen 0 1920x1400x24" \
-              -v /etc/passwd:/etc/passwd:ro \
-              -v "$RUNNER_TEMP/drawio-home:/home/drawio" \
-              -v "$GITHUB_WORKSPACE:/data:ro" \
-              -v "$RUNNER_TEMP/diagram-renders:/output" \
-              -w /data \
-              rlespinasse/drawio-desktop-headless@sha256:527dfc14dc2b15d8aed93c29c724c1711a8fef235cd0667124d4f1ff8cd71f52 \
-              -x -f png \
-              -o "/output/${render_name}.png" \
-              "/output/${render_name}.drawio" || render_status=$?
-            accept_completed_timeout \
-              "$render_status" "$RUNNER_TEMP/diagram-renders/${render_name}.png"
+            if [[ "$render_name" == incremental-snapshot-* ]]; then
+              # Draw.io's Linux PNG export hangs on these large diagrams.
+              # Rasterize its completed SVG with a pinned, verified resvg.
+              "$resvg_dir/resvg" \
+                --background '#ffffff' \
+                --stylesheet "$resvg_stylesheet" \
+                "$RUNNER_TEMP/diagram-renders/${render_name}.svg" \
+                "$RUNNER_TEMP/diagram-renders/${render_name}.png"
+            else
+              render_status=0
+              docker run --rm \
+                -u "$(id -u):$(id -g)" \
+                -e HOME=/home/drawio \
+                -e DRAWIO_DESKTOP_COMMAND_TIMEOUT=60s \
+                -v /etc/passwd:/etc/passwd:ro \
+                -v "$RUNNER_TEMP/drawio-home:/home/drawio" \
+                -v "$GITHUB_WORKSPACE:/data:ro" \
+                -v "$RUNNER_TEMP/diagram-renders:/output" \
+                -w /data \
+                rlespinasse/drawio-desktop-headless@sha256:527dfc14dc2b15d8aed93c29c724c1711a8fef235cd0667124d4f1ff8cd71f52 \
+                -x -f png \
+                -o "/output/${render_name}.png" \
+                "/output/${render_name}.drawio" || render_status=$?
+              accept_completed_timeout \
+                "$render_status" "$RUNNER_TEMP/diagram-renders/${render_name}.png"
+            fi
           done
 
       - name: Check committed renders are current
