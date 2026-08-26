@@ -16,7 +16,7 @@ snapshot rows that overlap with live changes. The [V3 verification
 result](https://github.com/collaborationwithothers/cdc-platform-azure/issues/63#issuecomment-5386222915)
 records this split between the Kafka and database signaling channels.
 
-Run the test with Docker available:
+From the repository root, run the test with Docker available:
 
 ```bash
 dotnet test tests/Lexfield.Connect.Tests/Lexfield.Connect.Tests.csproj
