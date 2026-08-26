@@ -1,4 +1,5 @@
 using System.Security.Claims;
+using Lexfield.TaskApi.Changes;
 using Lexfield.TaskApi.Repair;
 using Lexfield.TaskApi.TenantInfo;
 using Lexfield.TaskApi.Transitions;
@@ -22,6 +23,7 @@ public static class TaskEndpoints
                     new CreateTaskResponse(taskId.Value, 1));
         }).RequireAuthorization("TenantRoute");
         endpoints.MapTransitionEndpoints();
+        endpoints.MapChangesEndpoints();
         endpoints.MapRepairEndpoints();
         endpoints.MapTenantInfoEndpoints();
         return endpoints;
