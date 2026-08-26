@@ -147,3 +147,6 @@ above them. Seeded from the sibling repo's repo-neutral rules.
   explain them through one concrete change and restart timeline. Name what
   each checkpoint preserves and what it cannot prove before summarising the
   distinction.
+- 2026-08-26: A diagram for engineers new to the repository must lead with
+  everyday labels and explain technical names only where the name is needed
+  to operate or verify the system.
