@@ -15,6 +15,7 @@ public static class ChangesEndpoints
                 ChangesFeedStatus.Success => Results.Ok(result.Response),
                 ChangesFeedStatus.TenantNotFound => Results.NotFound(),
                 ChangesFeedStatus.WatermarkAgedOut => Results.StatusCode(StatusCodes.Status410Gone),
+                ChangesFeedStatus.Unavailable => Results.StatusCode(StatusCodes.Status503ServiceUnavailable),
                 _ => throw new InvalidOperationException($"Unknown changes feed status {result.Status}.")
             };
         }).RequireAuthorization("TenantRoute");

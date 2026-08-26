@@ -3,6 +3,7 @@ using System.Net;
 using System.Net.Http.Json;
 using System.Security.Claims;
 using System.Text;
+using System.Text.Json;
 using Dapper;
 using Lexfield.TaskApi.Changes;
 using Lexfield.TestSupport;
@@ -62,20 +63,19 @@ public sealed class ChangesFeedTests(SqlServerFixture sql)
         client.DefaultRequestHeaders.Authorization =
             new("Bearer", CreateToken("tenant-a", context.SigningKey));
         var response = await client.GetAsync(
-            $"/tenants/tenant-a/tasks/changes?since={watermark - 1}");
+            $"/tenants/tenant-a/tasks/changes?since={watermark}");
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         var body = await response.Content.ReadFromJsonAsync<ChangesResponse>();
         Assert.NotNull(body);
         var change = Assert.Single(body.Changes, entry => entry.TaskId == taskId);
         Assert.Equal(2, change.Version);
-        Assert.True(body.NextSyncVersion >= watermark);
+        Assert.True(body.NextSyncVersion > watermark);
     }
 
-    // A watermark that has aged past retention must return 410, not a silently short
-    // list. Re-enabling Change Tracking on the table advances its minimum valid
-    // version to the current version, the same "too old" condition auto-cleanup
-    // produces once the retention window passes, reached here without waiting it out.
+    // Retention cleanup and table re-enable can both invalidate an earlier
+    // watermark, but they are distinct mechanisms. Re-enable creates the stale
+    // state deterministically without waiting for retention cleanup (V4).
     [Fact]
     public async Task StaleWatermarkReturns410Gone()
     {
@@ -111,16 +111,43 @@ public sealed class ChangesFeedTests(SqlServerFixture sql)
         client.DefaultRequestHeaders.Authorization =
             new("Bearer", CreateToken("tenant-a", context.SigningKey));
 
-        var response = await client.GetAsync("/tenants/tenant-a/tasks/changes?since=0");
+        var (response, output) = await GetWithLogsAsync(
+            client, "/tenants/tenant-a/tasks/changes?since=0");
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
-        var json = await response.Content.ReadFromJsonAsync<System.Text.Json.JsonElement>();
+        var json = await response.Content.ReadFromJsonAsync<JsonElement>();
         Assert.True(json.TryGetProperty("changes", out var changes));
         Assert.True(json.TryGetProperty("nextSyncVersion", out var nextSyncVersion));
         Assert.Equal(System.Text.Json.JsonValueKind.Number, nextSyncVersion.ValueKind);
         var first = Assert.Single(changes.EnumerateArray());
         Assert.Equal(taskId, first.GetProperty("taskId").GetInt32());
         Assert.Equal(1, first.GetProperty("version").GetInt32());
+        var log = FindEvent(output, "TaskApi.ChangesFeedRead");
+        Assert.NotNull(log);
+        Assert.Equal(1, log.Value.GetProperty("changeCount").GetInt32());
+    }
+
+    [Fact]
+    public async Task MissingTrackedTableReturns503AndLogsUnavailableEvent()
+    {
+        await using var context = await CreateContextAsync();
+        await using (var admin = new SqlConnection(context.ConnectionString))
+        {
+            await admin.OpenAsync();
+            await admin.ExecuteAsync("DROP TABLE dbo.WorkflowTask;");
+        }
+        using var client = context.Factory.CreateClient();
+        client.DefaultRequestHeaders.Authorization =
+            new("Bearer", CreateToken("tenant-a", context.SigningKey));
+
+        var (response, output) = await GetWithLogsAsync(
+            client, "/tenants/tenant-a/tasks/changes?since=0");
+
+        Assert.Equal(HttpStatusCode.ServiceUnavailable, response.StatusCode);
+        var log = FindEvent(output, "TaskApi.ChangesFeedUnavailable");
+        Assert.NotNull(log);
+        Assert.Equal("Information", log.Value.GetProperty("level").GetString());
+        Assert.Equal("Change Tracking is unavailable", log.Value.GetProperty("message").GetString());
     }
 
     // Tenant scoping: a token for one tenant cannot read another tenant's feed,
@@ -183,6 +210,38 @@ public sealed class ChangesFeedTests(SqlServerFixture sql)
             claims: [new Claim("tenantId", tenantId), new Claim(JwtRegisteredClaimNames.Sub, "user:1")],
             notBefore: DateTime.UtcNow.AddMinutes(-1), expires: DateTime.UtcNow.AddMinutes(5),
             signingCredentials: credentials));
+    }
+
+    private static async Task<(HttpResponseMessage Response, string Output)> GetWithLogsAsync(
+        HttpClient client, string path)
+    {
+        var originalOutput = Console.Out;
+        using var output = new StringWriter();
+        try
+        {
+            Console.SetOut(output);
+            var response = await client.GetAsync(path);
+            return (response, output.ToString());
+        }
+        finally
+        {
+            Console.SetOut(originalOutput);
+        }
+    }
+
+    private static JsonElement? FindEvent(string output, string eventName)
+    {
+        foreach (var line in output.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+        {
+            if (!line.StartsWith('{')) continue;
+            using var document = JsonDocument.Parse(line);
+            if (document.RootElement.TryGetProperty("eventName", out var name)
+                && name.GetString() == eventName)
+            {
+                return document.RootElement.Clone();
+            }
+        }
+        return null;
     }
 
     private static int GetFreePort()

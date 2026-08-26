@@ -138,9 +138,9 @@ Change Tracking feed, the ADR-009 surface:
 ```sql
 SET TRANSACTION ISOLATION LEVEL SNAPSHOT;
 
-SELECT ct.TaskId, wt.Version
+SELECT ct.Id AS TaskId, wt.Version
   FROM CHANGETABLE(CHANGES dbo.WorkflowTask, @since) AS ct
-  LEFT JOIN dbo.WorkflowTask AS wt ON wt.Id = ct.Id;
+  JOIN dbo.WorkflowTask AS wt ON wt.Id = ct.Id ORDER BY ct.SYS_CHANGE_VERSION, ct.Id;
 SELECT CHANGE_TRACKING_CURRENT_VERSION();
 ```
 
@@ -225,7 +225,7 @@ event envelope are there too. This area owns all of them.
 Events this area emits, from observability.md section 5, and they are an
 interface because alert rules and dashboards bind to the names:
 `TaskApi.TransitionCommitted`, `TaskApi.OutboxWritten`, `TaskApi.RepairRead`,
-`TaskApi.ChangesFeedRead`, `TaskApi.FaultInjected`. The last one exists so the
+`TaskApi.ChangesFeedRead`, `TaskApi.ChangesFeedUnavailable`, `TaskApi.FaultInjected`. The last one exists so the
 demo's fault injection announces itself; a fault that looks like a real failure
 in the logs teaches an operator to distrust the logs.
 
@@ -243,7 +243,7 @@ local.
 | Transition atomicity | containers | POST a transition, assert the `WorkflowTask` row and the `Outbox` row both moved, and that the outbox version equals the new task version. |
 | Optimistic concurrency | containers | Two concurrent POSTs with the same `expectedVersion`. Assert exactly one 200 and one 409, and that the version advanced by exactly one. Real parallel requests, not a simulated race. |
 | Rollback | containers | Force the outbox insert to fail with a temporary constraint, POST, assert the task row is unchanged. Proves the transaction, not the happy path. |
-| Change Tracking committed-order contract | containers | The important one. Open transaction A updating a task and hold it open. Read the current sync version as V. Commit A. Call `changes?since=V-1` and assert A's row is returned. This is the property ADR-009 chose Change Tracking for, tested directly against a real engine rather than trusted. |
+| Change Tracking committed-order contract | containers | The important one. Open transaction A updating a task and hold it open. Read the current sync version as V. Commit A. Call `changes?since=V` and assert A's row is returned and the next version is greater than V. This is the property ADR-009 chose Change Tracking for, tested directly against a real engine rather than trusted. |
 | Watermark aged out | containers | Set `CHANGE_RETENTION` to its minimum, advance past it, call with a stale `since`, assert 410. |
 | Repair read | containers | GET returns state and version matching the row. |
 | Tenant scoping | containers | A token for tenant A calling tenant B's route gets 403, for every route. |
@@ -252,7 +252,7 @@ local.
 | Traceparent written in the transaction | containers | POST a transition inside a started activity, assert the `Outbox` row's `TraceParent` matches it. Then force the outbox insert to fail and assert no partially traced state survives, which is the same rollback test reading one more column. |
 | Untraced write path | containers | POST with no active activity, assert the row is written with `TraceParent` null and nothing throws. The load generator runs this way, so a regression here stops every load run. |
 | Mandatory log fields | unit | Capture the log output of one transition and assert every line carries service, eventName, traceparent, and tenantId, with taskId and version on the lines that have them. Asserted on the enricher rather than on hand-written call sites, because the enricher is the thing that makes the guarantee. |
-| Vocabulary events emitted | unit | Assert the five task-api event names appear exactly where observability.md section 5 says they do. An alert keyed to an event name that nobody emits is an alert that never fires. |
+| Vocabulary events emitted | unit | Assert the six task-api event names appear exactly where observability.md section 5 says they do. An alert keyed to an event name that nobody emits is an alert that never fires. |
 
 Every row above except the last runs with zero Azure.
 

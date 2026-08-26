@@ -17,13 +17,14 @@ public sealed class ChangesFeed(TenantCatalog catalog, ILogger<ChangesFeed> logg
     // lands above a watermark taken before it committed, and the next call returns
     // it instead of stepping over it: the commit-order, no-gap property ADR-009
     // chose Change Tracking for, VERIFIED in V4 (docs/specs/02-verification-register.md).
-    // ORDER BY SYS_CHANGE_VERSION hands the reconciler those rows in commit order.
+    // v1 has no WorkflowTask delete path, so this feed intentionally returns
+    // inserts and updates only. A future delete path must extend the response.
     private const string IncrementalSql =
         """
         SELECT ct.Id AS TaskId, wt.Version
           FROM CHANGETABLE(CHANGES dbo.WorkflowTask, @since) AS ct
-          LEFT JOIN dbo.WorkflowTask AS wt ON wt.Id = ct.Id
-         ORDER BY ct.SYS_CHANGE_VERSION;
+          JOIN dbo.WorkflowTask AS wt ON wt.Id = ct.Id
+         ORDER BY ct.SYS_CHANGE_VERSION, ct.Id;
         SELECT CHANGE_TRACKING_CURRENT_VERSION();
         """;
 
@@ -46,11 +47,10 @@ public sealed class ChangesFeed(TenantCatalog catalog, ILogger<ChangesFeed> logg
 
         await using var connection = new SqlConnection(connectionString);
         await connection.OpenAsync(cancellationToken);
-        // Snapshot isolation: the min-valid check, the CHANGETABLE read, its join to
-        // dbo.WorkflowTask, and CHANGE_TRACKING_CURRENT_VERSION all execute in one
-        // point-in-time view. The versions reported and the rows returned cannot
-        // tear against a concurrent transition, and cleanup cannot run between the
-        // validation and the read to invalidate the watermark we just accepted.
+        // Snapshot isolation keeps the min-valid check, CHANGETABLE read, its join,
+        // and current version in one point-in-time view. Results cannot tear against
+        // a concurrent transition, and cleanup cannot invalidate the watermark
+        // between validation and the read.
         await using var transaction =
             await connection.BeginTransactionAsync(IsolationLevel.Snapshot, cancellationToken);
         try
@@ -60,15 +60,24 @@ public sealed class ChangesFeed(TenantCatalog catalog, ILogger<ChangesFeed> logg
                 var minValid = await connection.ExecuteScalarAsync<long?>(new CommandDefinition(
                     "SELECT CHANGE_TRACKING_MIN_VALID_VERSION(OBJECT_ID(N'dbo.WorkflowTask'));",
                     transaction: transaction, cancellationToken: cancellationToken));
+                // NULL means database Change Tracking is disabled, the object id
+                // is invalid in this database, or the caller lacks permission.
+                // These are service failures, not aged-out watermarks.
+                if (minValid is null)
+                {
+                    await transaction.RollbackAsync(cancellationToken);
+                    LogRead(query.TenantId, "TaskApi.ChangesFeedUnavailable", null,
+                        LogLevel.Information, "Change Tracking is unavailable");
+                    return ChangesFeedResult.Unavailable;
+                }
                 // Past the retention horizon CHANGETABLE returns a silently short
                 // result and raises no error (V4, docs/specs/02-verification-register.md),
                 // so a watermark below the minimum valid version would hand the
                 // reconciler a partial list that looks complete. That silent tail
                 // loss is the exact failure ADR-009 exists to prevent, so a stale
                 // watermark is 410 Gone and the reconciler re-bootstraps, never a
-                // short 200. A NULL min-valid means Change Tracking is not available
-                // on the table, so no watermark can be honoured either.
-                if (minValid is null || since < minValid.Value)
+                // short 200.
+                if (since < minValid.Value)
                 {
                     await transaction.RollbackAsync(cancellationToken);
                     return ChangesFeedResult.WatermarkAgedOut;
@@ -81,40 +90,43 @@ public sealed class ChangesFeed(TenantCatalog catalog, ILogger<ChangesFeed> logg
             var changes = (await reader.ReadAsync<TaskChange>()).AsList();
             var nextSyncVersion = await reader.ReadSingleAsync<long>();
             await transaction.CommitAsync(cancellationToken);
-            Log(query.TenantId, changes.Count);
+            LogRead(query.TenantId, "TaskApi.ChangesFeedRead", changes.Count,
+                LogLevel.Information, "Task API event");
             return ChangesFeedResult.Ok(new ChangesResponse(changes, nextSyncVersion));
         }
-        catch
+        catch (Exception failure)
         {
-            await RollbackSafelyAsync(transaction);
+            await RollbackSafelyAsync(transaction, failure);
             throw;
         }
     }
 
-    private void Log(string tenantId, int changeCount)
+    private void LogRead(
+        string tenantId, string eventName, int? changeCount, LogLevel level, string message)
     {
         try
         {
             using (logger.BeginScope(new Dictionary<string, object?>
             {
-                ["eventName"] = "TaskApi.ChangesFeedRead",
+                ["eventName"] = eventName,
                 ["tenantId"] = tenantId,
                 ["changeCount"] = changeCount
-            })) logger.LogInformation("Task API event");
+            })) logger.Log(level, message);
         }
         catch { }
     }
 
-    private static async Task RollbackSafelyAsync(System.Data.Common.DbTransaction transaction)
+    private static async Task RollbackSafelyAsync(
+        System.Data.Common.DbTransaction transaction, Exception original)
     {
         try { await transaction.RollbackAsync(CancellationToken.None); }
-        catch { }
+        catch (Exception rollbackFailure) { original.Data["RollbackFailure"] = rollbackFailure; }
     }
 }
 
 public sealed record ChangesFeedQuery(string TenantId, long? Since);
 
-public enum ChangesFeedStatus { Success, TenantNotFound, WatermarkAgedOut }
+public enum ChangesFeedStatus { Success, TenantNotFound, WatermarkAgedOut, Unavailable }
 
 public sealed class ChangesFeedResult
 {
@@ -135,4 +147,7 @@ public sealed class ChangesFeedResult
 
     public static readonly ChangesFeedResult WatermarkAgedOut =
         new(ChangesFeedStatus.WatermarkAgedOut, null);
+
+    public static readonly ChangesFeedResult Unavailable =
+        new(ChangesFeedStatus.Unavailable, null);
 }

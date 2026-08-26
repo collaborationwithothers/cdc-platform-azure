@@ -146,3 +146,5 @@ above them. Seeded from the sibling repo's repo-neutral rules.
 - 2026-08-26: Build multi-paragraph commit messages from separate message
   arguments, then inspect the rendered commit before pushing; never encode
   paragraph breaks as escaped text.
+- 2026-08-26: When two mechanisms can produce the same observable state, say only
+  that; do not call the mechanisms equivalent unless the source establishes it.
