@@ -91,6 +91,8 @@ Shape, SPEC-LEVEL and provisional pending V7:
     "errors.max.retries": "10",
     "transforms": "outbox,tenantHeader",
     "transforms.outbox.table.field.event.key": "AggregateId",
+    "transforms.outbox.table.field.event.payload": "Payload",
+    "transforms.outbox.table.expand.json.payload": "true",
     "transforms.outbox.table.fields.additional.placement": "TraceParent:header:traceparent",
     "transforms.tenantHeader.header": "tenantId",
     "transforms.tenantHeader.value.literal": "{tenantId}"

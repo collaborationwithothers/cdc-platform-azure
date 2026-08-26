@@ -223,15 +223,6 @@ Switched off, the same message is just the event:
 { "taskId": 4711, "from": "Assigned" }
 ```
 
-A second setting is behind that object and is easy to miss. The `Payload` column
-is JSON *text*, so the router alone would hand the converter a string, and the
-value on the topic would be the escaped string
-`"{\"taskId\":4711,\"from\":\"Assigned\"}"`, not the object above. Setting
-`transforms.outbox.table.expand.json.payload=true` makes the router parse the
-column into a real structure first, so the converter then writes the object.
-Both settings decide the value's shape; the connect area's container test asserts
-it lands as an object, not a string.
-
 It is switched off here. The reasoning needs three options on the table, not
 two, because the middle one is easy to skip:
 
@@ -259,6 +250,15 @@ What is given up, stated plainly: nothing enforces compatibility, and nothing
 announces a change. If a producer changed a field's type, consumers would fail
 to deserialize with no explanation on the wire. Revisit this if a consumer
 outside this repo ever reads the topic, or if a sink connector is ever added.
+
+The object above rests on a second setting, easy to miss because `schemas.enable`
+gets the attention. The `Payload` column is JSON *text*, so the router alone
+would hand the converter a string, and the value on the topic would be the
+escaped string `"{\"taskId\":4711,\"from\":\"Assigned\"}"`, not an object.
+Setting `transforms.outbox.table.expand.json.payload=true` makes the router parse
+the column into a real structure first, so the converter then writes the object.
+Both settings decide the value's shape; the connect area's container test asserts
+it lands as an object, not a string.
 
 ## Topics and headers
 
