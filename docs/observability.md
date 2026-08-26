@@ -9,6 +9,13 @@ experiments run; nothing here states an unmeasured number as fact.
 Reader model: the on-call operator is a stranger with this doc, the runbooks,
 and dashboard access, at 03:00, without the authors.
 
+## Shared health endpoint
+
+The shared HTTP endpoint serves `/healthz` and `/readyz`. During process
+shutdown, the host may stop and dispose the endpoint close together. The
+endpoint treats both operations as repeatable: the first call stops the
+listener, and later calls finish without using resources already disposed.
+
 ## 1. Severity model
 
 Three tiers. sev1 pages a human immediately. sev2 raises an alert handled in

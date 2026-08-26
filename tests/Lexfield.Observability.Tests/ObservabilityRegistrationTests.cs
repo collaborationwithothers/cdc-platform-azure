@@ -106,21 +106,37 @@ public sealed class ObservabilityRegistrationTests
     [Fact]
     public async Task AddLexfieldObservability_ServesWorkerHealthAndReadinessEndpoints()
     {
-        using var reservation = new TcpListener(IPAddress.Loopback, 0);
-        reservation.Start();
-        var port = ((IPEndPoint)reservation.LocalEndpoint).Port;
-        reservation.Stop();
-        var builder = Host.CreateApplicationBuilder();
-        builder.Configuration["Lexfield:Observability:Port"] = port.ToString();
-        builder.AddLexfieldObservability("Notifier");
-
-        using var host = builder.Build();
+        using var host = CreateEndpointHost(out var port);
         await host.StartAsync();
         using var client = new HttpClient();
         Assert.Equal("ok\n", await client.GetStringAsync($"http://localhost:{port}/healthz"));
         Assert.Equal("ready\n", await client.GetStringAsync($"http://localhost:{port}/readyz"));
 
         await host.StopAsync();
+    }
+    [Fact]
+    public async Task AddLexfieldObservability_StopAfterDisposeCompletesWithoutException()
+    {
+        using var host = CreateEndpointHost(out _);
+        await host.StartAsync();
+        var endpoint = Assert.Single(
+            host.Services.GetServices<IHostedService>(),
+            service => service.GetType().Assembly == typeof(LexfieldObservabilityExtensions).Assembly);
+
+        ((IDisposable)endpoint).Dispose();
+        await endpoint.StopAsync(CancellationToken.None);
+        ((IDisposable)endpoint).Dispose();
+    }
+    private static IHost CreateEndpointHost(out int port)
+    {
+        using var reservation = new TcpListener(IPAddress.Loopback, 0);
+        reservation.Start();
+        port = ((IPEndPoint)reservation.LocalEndpoint).Port;
+        reservation.Stop();
+        var builder = Host.CreateApplicationBuilder();
+        builder.Configuration["Lexfield:Observability:Port"] = port.ToString();
+        builder.AddLexfieldObservability("Notifier");
+        return builder.Build();
     }
     private static KeyValuePair<string, object?>[] MetricTags(string eventName) =>
     [

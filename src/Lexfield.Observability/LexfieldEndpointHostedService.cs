@@ -10,8 +10,10 @@ internal sealed class LexfieldEndpointHostedService : IHostedService, IDisposabl
 {
     private readonly LexfieldEndpointOptions _options;
     private readonly CancellationTokenSource _stopping = new();
+    private readonly object _lifecycleGate = new();
     private HttpListener? _listener;
     private Task? _serveTask;
+    private bool _disposed;
     public LexfieldEndpointHostedService(LexfieldEndpointOptions options) => _options = options;
 
     public Task StartAsync(CancellationToken cancellationToken)
@@ -24,19 +26,37 @@ internal sealed class LexfieldEndpointHostedService : IHostedService, IDisposabl
     }
     public async Task StopAsync(CancellationToken cancellationToken)
     {
-        _stopping.Cancel();
-        _listener?.Stop();
-
-        if (_serveTask is not null)
+        Task? serveTask;
+        lock (_lifecycleGate)
         {
-            await _serveTask.WaitAsync(cancellationToken);
+            if (!_disposed)
+            {
+                _stopping.Cancel();
+                _listener?.Stop();
+            }
+
+            serveTask = _serveTask;
+        }
+
+        if (serveTask is not null)
+        {
+            await serveTask.WaitAsync(cancellationToken);
         }
     }
     public void Dispose()
     {
-        _stopping.Cancel();
-        _listener?.Close();
-        _stopping.Dispose();
+        lock (_lifecycleGate)
+        {
+            if (_disposed)
+            {
+                return;
+            }
+
+            _stopping.Cancel();
+            _listener?.Close();
+            _stopping.Dispose();
+            _disposed = true;
+        }
     }
 
     private async Task ServeAsync(CancellationToken cancellationToken)
