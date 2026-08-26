@@ -69,16 +69,30 @@ jobs:
             exit 1
           fi
 
+          accept_completed_timeout() {
+            local status="$1"
+            local output="$2"
+            if (( status == 0 )); then
+              return
+            fi
+            if (( status == 124 )) && [[ -s "$output" ]]; then
+              echo "Draw.io timed out after writing $output; exact comparison will verify it."
+              return
+            fi
+            exit "$status"
+          }
+
           for source in "${sources[@]}"; do
             stem="${source%.drawio}"
             render_name="$(basename "$stem")"
             render_source="$RUNNER_TEMP/diagram-renders/${render_name}.drawio"
             sed 's/flowAnimation=1;//g' "$source" > "$render_source"
 
+            render_status=0
             docker run --rm \
               -u "$(id -u):$(id -g)" \
               -e HOME=/home/drawio \
-              -e DRAWIO_DESKTOP_COMMAND_TIMEOUT=60s \
+              -e DRAWIO_DESKTOP_COMMAND_TIMEOUT=20s \
               -v /etc/passwd:/etc/passwd:ro \
               -v "$RUNNER_TEMP/drawio-home:/home/drawio" \
               -v "$GITHUB_WORKSPACE:/data:ro" \
@@ -87,12 +101,15 @@ jobs:
               rlespinasse/drawio-desktop-headless@sha256:b7fe022af559d73240111aaa97b07c516d2201c4837f73f0d5c36d6568ca941e \
               -x -f svg --theme light --embed-svg-images \
               -o "/output/${render_name}.svg" \
-              "/output/${render_name}.drawio"
+              "/output/${render_name}.drawio" || render_status=$?
+            accept_completed_timeout \
+              "$render_status" "$RUNNER_TEMP/diagram-renders/${render_name}.svg"
 
+            render_status=0
             docker run --rm \
               -u "$(id -u):$(id -g)" \
               -e HOME=/home/drawio \
-              -e DRAWIO_DESKTOP_COMMAND_TIMEOUT=60s \
+              -e DRAWIO_DESKTOP_COMMAND_TIMEOUT=20s \
               -v /etc/passwd:/etc/passwd:ro \
               -v "$RUNNER_TEMP/drawio-home:/home/drawio" \
               -v "$GITHUB_WORKSPACE:/data:ro" \
@@ -101,7 +118,9 @@ jobs:
               rlespinasse/drawio-desktop-headless@sha256:b7fe022af559d73240111aaa97b07c516d2201c4837f73f0d5c36d6568ca941e \
               -x -f png \
               -o "/output/${render_name}.png" \
-              "/output/${render_name}.drawio"
+              "/output/${render_name}.drawio" || render_status=$?
+            accept_completed_timeout \
+              "$render_status" "$RUNNER_TEMP/diagram-renders/${render_name}.png"
           done
 
       - name: Check committed renders are current
