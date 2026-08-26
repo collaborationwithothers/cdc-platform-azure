@@ -118,8 +118,8 @@ jobs:
               "$render_status" "$RUNNER_TEMP/diagram-renders/${render_name}.svg"
 
             if [[ "$render_name" == incremental-snapshot-* ]]; then
-              # Draw.io's Linux PNG export hangs on these large diagrams.
-              # Rasterize its completed SVG with a pinned, verified resvg.
+              # Draw.io's Linux PNG export hangs on some diagrams in this set.
+              # Rasterize the set consistently with a pinned, verified resvg.
               "$resvg_dir/resvg" \
                 --background '#ffffff' \
                 --stylesheet "$resvg_stylesheet" \
