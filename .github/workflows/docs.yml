@@ -93,6 +93,7 @@ jobs:
               -u "$(id -u):$(id -g)" \
               -e HOME=/home/drawio \
               -e DRAWIO_DESKTOP_COMMAND_TIMEOUT=60s \
+              -e XVFB_OPTIONS="-nolisten unix -screen 0 1920x1400x24" \
               -v /etc/passwd:/etc/passwd:ro \
               -v "$RUNNER_TEMP/drawio-home:/home/drawio" \
               -v "$GITHUB_WORKSPACE:/data:ro" \
@@ -106,39 +107,20 @@ jobs:
               "$render_status" "$RUNNER_TEMP/diagram-renders/${render_name}.svg"
 
             render_status=0
-            if [[ "$render_name" == incremental-snapshot-* ]]; then
-              # Draw.io writes these complex PNGs on macOS but hangs before
-              # writing some of them on Linux. Rasterize the completed SVG.
-              dimensions="$(
-                head -c 500 "$RUNNER_TEMP/diagram-renders/${render_name}.svg" \
-                  | sed -n 's/.*width="\([0-9][0-9]*\)px" height="\([0-9][0-9]*\)px".*/\1,\2/p'
-              )"
-              test -n "$dimensions"
-              timeout 20s google-chrome \
-                --headless=new \
-                --disable-gpu \
-                --hide-scrollbars \
-                --force-device-scale-factor=1 \
-                --force-color-profile=srgb \
-                --screenshot="$RUNNER_TEMP/diagram-renders/${render_name}.png" \
-                --window-size="$dimensions" \
-                "file://$RUNNER_TEMP/diagram-renders/${render_name}.svg" \
-                || render_status=$?
-            else
-              docker run --rm \
-                -u "$(id -u):$(id -g)" \
-                -e HOME=/home/drawio \
-                -e DRAWIO_DESKTOP_COMMAND_TIMEOUT=60s \
-                -v /etc/passwd:/etc/passwd:ro \
-                -v "$RUNNER_TEMP/drawio-home:/home/drawio" \
-                -v "$GITHUB_WORKSPACE:/data:ro" \
-                -v "$RUNNER_TEMP/diagram-renders:/output" \
-                -w /data \
-                rlespinasse/drawio-desktop-headless@sha256:527dfc14dc2b15d8aed93c29c724c1711a8fef235cd0667124d4f1ff8cd71f52 \
-                -x -f png \
-                -o "/output/${render_name}.png" \
-                "/output/${render_name}.drawio" || render_status=$?
-            fi
+            docker run --rm \
+              -u "$(id -u):$(id -g)" \
+              -e HOME=/home/drawio \
+              -e DRAWIO_DESKTOP_COMMAND_TIMEOUT=60s \
+              -e XVFB_OPTIONS="-nolisten unix -screen 0 1920x1400x24" \
+              -v /etc/passwd:/etc/passwd:ro \
+              -v "$RUNNER_TEMP/drawio-home:/home/drawio" \
+              -v "$GITHUB_WORKSPACE:/data:ro" \
+              -v "$RUNNER_TEMP/diagram-renders:/output" \
+              -w /data \
+              rlespinasse/drawio-desktop-headless@sha256:527dfc14dc2b15d8aed93c29c724c1711a8fef235cd0667124d4f1ff8cd71f52 \
+              -x -f png \
+              -o "/output/${render_name}.png" \
+              "/output/${render_name}.drawio" || render_status=$?
             accept_completed_timeout \
               "$render_status" "$RUNNER_TEMP/diagram-renders/${render_name}.png"
           done
