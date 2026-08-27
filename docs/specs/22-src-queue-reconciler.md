@@ -375,7 +375,7 @@ Emits, SPEC-LEVEL metric names: `reconciler.drift.confirmed`,
 `reconciler.drift.within_grace`, `reconciler.sweep.duration`,
 `reconciler.attribution.mismatch`, `reconciler.watermark.aged_out`.
 
-Events this area emits, from observability.md section 5:
+Events this area emits, from observability.md section 2:
 `Reconciler.SweepStarted`, `SweepCompleted`, `DriftFlagged`, `DriftRepaired`,
 `AttributionVerified`, `AttributionMismatch`.
 
