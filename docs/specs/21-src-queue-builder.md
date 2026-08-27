@@ -222,7 +222,7 @@ Writes: `QueueState`, `StreamAttribution`.
 
 Serves: the queue API routes above.
 
-Events this area emits, from observability.md section 5:
+Events this area emits, from observability.md section 2:
 `QueueBuilder.EventReceived`, `EventApplied`, `DuplicateSkipped`,
 `GapDetected`, `HeadLossDetected`, `RepairRequested`, `RepairApplied`,
 `EventParked`, `PartitionBlocked`. Six alert rules bind to these names, so they

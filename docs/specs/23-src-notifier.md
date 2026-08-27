@@ -35,7 +35,8 @@ success. It is not an error.
 
 ### Poison events: retry, pause, wait, then park
 
-Both consumers end at the same place. observability.md v0.3 makes parking
+Both consumers end at the same place. [observability.md](../observability.md)
+section 2 makes parking
 consumer-level: every consumer that meets an unprocessable event parks it and
 advances, so none can crash-loop or silently skip. What differs is how quickly
 each gets there.
@@ -146,7 +147,7 @@ Writes: `SentNotifications` through `Lexfield.QueueStore`.
 Emits, SPEC-LEVEL metric names: `notifier.sent`, `notifier.skipped_duplicate`,
 `notifier.record_conflict`.
 
-Events this area emits, from observability.md section 5:
+Events this area emits, from observability.md section 2:
 `Notifier.EventReceived`, `DuplicateSkipped`, `NotificationSent`,
 `SendRecorded`, `EventParked`.
 
@@ -158,7 +159,8 @@ suspecting a lost notification. Collapsing them into one event would erase the
 only evidence that distinguishes the two.
 
 `EventParked` is the same event name the queue-builder emits, under this
-service's own prefix, and that is deliberate. observability.md v0.3 makes parking
+service's own prefix, and that is deliberate.
+[observability.md](../observability.md) section 2 makes parking
 a consumer-level behaviour rather than a queue-builder specialty: every consumer
 that meets an unprocessable event parks it and advances, so no consumer can
 crash-loop or silently skip on poison. The poison alerts in section 2 read the

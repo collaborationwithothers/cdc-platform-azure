@@ -57,12 +57,12 @@ note needs correcting.
 
 ### Incident runbooks, one anchor per alert
 
-[observability.md](../observability.md) section 8 names fifteen anchors:
+[observability.md](../observability.md) section 8 names seventeen anchors:
 `recover-connect`, `recover-internal-topics`, `recover-queuestate`,
 `recover-reconciler`, `recover-task-api`, `recover-connector-auth`,
 `attribution-breach`, `poison-triage`, `recover-connector`,
 `retune-grace-window`, `loss-investigation`, `recover-notifier`,
-`spend-review`, `destroy-disposable`, `lag-investigation`.
+`spend-review`, `destroy-disposable`, `lag-investigation`, `gitops-diverged`, `recover-ingress`.
 
 The reader model is stated in that document and it is the thing that makes these
 hard to write: a stranger, at 03:00, with the dashboard and this page and nothing
@@ -101,7 +101,7 @@ name the boundary and name who to escalate to.
 
 ### Dashboards
 
-Four, as code, from observability.md section 6: Fleet, Correctness, Consumers,
+Four, as code, from observability.md section 4: Fleet, Correctness, Consumers,
 Spend. The definitions live with the alert rules in infra/disposable; what this
 area owns is the one-page description of what each panel answers, which is what
 makes a stranger able to read them.

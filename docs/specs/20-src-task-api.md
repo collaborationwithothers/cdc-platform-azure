@@ -28,7 +28,7 @@ test class rather than started per test.
 
 `src/Lexfield.Observability/` holds the one call every service makes at startup,
 described next. It ships in this ticket because
-[observability.md](../observability.md) section 4 makes its field list mandatory
+[observability.md](../observability.md) section 3 makes its field list mandatory
 in all four services, and a standard that arrives after three services exist is
 a standard three services do not follow.
 
@@ -36,7 +36,7 @@ a standard three services do not follow.
 
 Every service calls one extension method, `AddLexfieldObservability(serviceName)`,
 and gets four things. All of it is SPEC-LEVEL; the design authority is
-observability.md sections 3, 4, and 5, and this is how those become code.
+observability.md sections 2 and 3, and this is how those become code.
 
 **1. Telemetry export.** The Azure Monitor OpenTelemetry distro, package
 `Azure.Monitor.OpenTelemetry.AspNetCore`, via `UseAzureMonitor()`. It reads its
@@ -222,7 +222,7 @@ The HTTP routes and the changes response shape are in
 [00-shared-contracts.md](00-shared-contracts.md). The outbox row shape and the
 event envelope are there too. This area owns all of them.
 
-Events this area emits, from observability.md section 5, and they are an
+Events this area emits, from observability.md section 2, and they are an
 interface because alert rules and dashboards bind to the names:
 `TaskApi.TransitionCommitted`, `TaskApi.OutboxWritten`, `TaskApi.RepairRead`,
 `TaskApi.ChangesFeedRead`, `TaskApi.ChangesFeedUnavailable`, `TaskApi.FaultInjected`. The last one exists so the
@@ -252,7 +252,7 @@ local.
 | Traceparent written in the transaction | containers | POST a transition inside a started activity, assert the `Outbox` row's `TraceParent` matches it. Then force the outbox insert to fail and assert no partially traced state survives, which is the same rollback test reading one more column. |
 | Untraced write path | containers | POST with no active activity, assert the row is written with `TraceParent` null and nothing throws. The load generator runs this way, so a regression here stops every load run. |
 | Mandatory log fields | unit | Capture the log output of one transition and assert every line carries service, eventName, traceparent, and tenantId, with taskId and version on the lines that have them. Asserted on the enricher rather than on hand-written call sites, because the enricher is the thing that makes the guarantee. |
-| Vocabulary events emitted | unit | Assert the six task-api event names appear exactly where observability.md section 5 says they do. An alert keyed to an event name that nobody emits is an alert that never fires. |
+| Vocabulary events emitted | unit | Assert the six task-api event names appear exactly where observability.md section 2 says they do. An alert keyed to an event name that nobody emits is an alert that never fires. |
 
 Every row above except the last runs with zero Azure.
 
