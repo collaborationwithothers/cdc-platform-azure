@@ -1,117 +1,203 @@
-# Custom Connect worker image
+# Kafka Connect worker image
 
-This image is a Strimzi Kafka Connect worker with three things added: the
-Debezium SQL Server connector, the Microsoft JDBC driver, and the azure-identity
-libraries. It carries no custom code of ours.
+## Current state
 
-It exists because a stock Debezium image cannot authenticate to Azure SQL with a
-managed identity. The plugin archive ships the JDBC driver but no azure-identity
-at all, and `driver.authentication=ActiveDirectoryDefault` needs azure-identity
-on the connector's classpath. Without it a connector registers fine, reports
-healthy, and fails the moment it opens its first connection.
+This repository is a multi-tenant change-data-capture platform. Each tenant has
+an Azure SQL database, and committed changes travel through Kafka to consumers.
+
+This image runs Kafka Connect for the tenant databases. Kafka Connect is the
+worker runtime that loads plugins and runs connectors. A connector is a plugin
+that moves data between Kafka and an external system.
+
+Debezium is the connector that reads SQL Server change data capture (CDC)
+records and publishes events to Kafka, a named stream of messages.
+
+The image is based on Strimzi, the Kubernetes operator that supplies the Kafka
+worker configuration and entrypoint.
+
+It adds the Debezium SQL Server connector, the Microsoft JDBC driver, and the
+Azure identity libraries needed by that connector.
+
+A plugin path is a directory that Kafka Connect scans for connector libraries.
+This image uses `/opt/kafka/plugins/debezium-connector-sqlserver` for the
+Debezium plugin and its libraries.
+
+A JDBC driver is a Java library that lets a connector connect to SQL Server.
+
+A stock Debezium image includes the JDBC driver but no `azure-identity` library.
+
+The connector setting `driver.authentication=ActiveDirectoryDefault` needs that
+library to use an Azure managed identity. A managed identity is an Azure-issued
+identity for a workload.
+
+Without `azure-identity`, registration can succeed while the first SQL
+connection fails.
 
 ## What is in it
 
 | Piece | Version | Why |
 | --- | --- | --- |
-| Strimzi Kafka base image | 1.2.0 for Kafka 4.3.1 | Matches `infra/disposable/kafka/kafka.yaml`. Strimzi's own image is the required base because the operator supplies the worker configuration and entrypoint scripts inside it. |
-| Debezium SQL Server connector | 3.6.1.Final | Newest Final release on Maven Central as of 2026-08-24. Brings the outbox event router with it. |
-| mssql-jdbc | 12.10.2.jre11 | Replaces the driver Debezium bundles. See below. |
-| azure-identity and its tree | 1.15.3 | The credential library `ActiveDirectoryDefault` calls into. Microsoft pairs this version with driver 12.10. |
+| Strimzi Kafka base image | 1.2.0 for Kafka 4.3.1 | Matches `infra/disposable/kafka/kafka.yaml`. The operator supplies the worker configuration and entrypoint. |
+| Debezium SQL Server connector | 3.6.1.Final | Newest Final release on Maven Central as of 2026-08-24. It includes the outbox event router, which turns source outbox rows into business events. |
+| mssql-jdbc | 12.10.2.jre11 | Replaces the driver Debezium bundles. |
+| azure-identity and its dependency tree | 1.15.3 | The credential library used by `ActiveDirectoryDefault`, including the transitive `azure-core` and MSAL4J libraries. Microsoft pairs this version with driver 12.10. |
 
-Both base images are pinned by digest rather than by tag, because a tag is a
-moving pointer and this image is the artifact the ADR-006 identity spike
-attributes its result to.
+The Dockerfile pins both base images by digest rather than tag. A tag can move
+to different content.
+
+The identity spike has not run. ADR-006 requires its pending result to be tied
+to this digest-pinned image, and issue #94 owns that work.
 
 ## The version coupling, which is the load-bearing part
 
-Blueprint section 13 lists the mssql-jdbc, azure-identity, and MSAL4J
-combination on the Connect classpath as a learning item. That is another way of
-saying a wrong combination fails when a connector opens a connection rather than
-when this image builds, which is the worst place for it to fail: at 400
-connectors the first sign is one tenant's stream going quiet.
+The driver and identity library versions are coupled. A mismatch can pass the
+image build and fail when a connector opens its first SQL connection.
 
-Microsoft documents one azure-identity version per driver version, and the
-pairing is not advisory. `ActiveDirectoryDefault` resolves credentials through
-azure-identity's `DefaultAzureCredential` chain, and Workload Identity, the
-mechanism ADR-006 depends on, entered that chain at driver 12.4.
+Blueprint section 13 records the driver, `azure-identity`, and MSAL4J combination
+as a learning item. The pinned values are therefore a documented baseline, not
+a claim that live Azure authentication has already been proven.
 
-This image pins driver 12.10.2 rather than the newer 13.4.0 on purpose. Driver
-12.10 is the newest version for which Microsoft still documents the composition
-of that chain. For 13.x the dependency table gives the azure-identity pairing but
-the chain-composition table stops at 12.10, so "Workload Identity is in 13.4.0's
-chain" is a reasonable reading rather than a documented fact, and ADR-006 rests
-entirely on that fact. The counterargument a reviewer will reach independently is
-that pinning one line behind current misses later fixes and the chain almost
-certainly did not change. True, and the pin still stands while the spike is the
-thing being proven; once it passes, moving to the current driver is an ordinary
-upgrade against a known good baseline rather than a variable in an experiment.
+At the design scale of 400 connectors, one tenant's stream could then go quiet
+before the problem is obvious. The 400-connector figure is design reasoning,
+not a production measurement.
+
+Microsoft documents one `azure-identity` version for each driver version. The
+`ActiveDirectoryDefault` mode resolves credentials through Azure's
+`DefaultAzureCredential` chain.
+
+Workload Identity gives an Azure pod a federated identity. It entered that chain
+at driver 12.4.
+
+The image pins driver 12.10.2 instead of the newer 13.4.0. Driver 12.10 is the
+newest version for which Microsoft documents the chain composition. For 13.x,
+the dependency table gives the pairing but the chain table stops at 12.10.
+
+Therefore, saying that Workload Identity is in the 13.4.0 chain is a reasonable
+reading, not a documented fact. ADR-006 depends on that distinction.
+
+Pinning 12.10.2 keeps the identity spike on a documented baseline. After the
+spike, upgrading can be assessed as a separate change.
+
+The counterargument is that the older line may miss later fixes and that the
+chain probably did not change. That is possible. The pin remains while the
+spike is being proven because changing the driver would add another variable.
 
 Sources: [Entra authentication modes](https://learn.microsoft.com/sql/connect/jdbc/connecting-using-azure-active-directory-authentication)
 and [JDBC driver feature dependencies](https://learn.microsoft.com/sql/connect/jdbc/feature-dependencies-of-microsoft-jdbc-driver-for-sql-server).
 
 ## Why the bundled driver is removed
 
-Debezium 3.6.1.Final ships `mssql-jdbc-12.4.2.jre8.jar` inside its plugin
-archive. Everything in one plugin directory shares one classloader, so leaving
-that jar beside the 12.10.2 jar would put two drivers under the same class names
-and let one win, and which one wins is not something a reader of the Dockerfile
-could work out. The Dockerfile deletes it by exact filename, and `rm` fails when
-the file is absent, so a future Debezium release that renames it stops the build.
-The same reasoning drives the duplicate check that runs after Maven resolves the
-identity tree, which fails the build on any artifact appearing twice inside the
-plugin directory.
+The Debezium 3.6.1.Final archive contains
+`mssql-jdbc-12.4.2.jre8.jar`.
 
-A plugin's library can also collide with the worker's copy of the same library,
-which that check cannot see because it never looks outside the plugin directory.
-`jackson` is the case that bit during this ticket. azure-identity pulls jackson
-in, and Connect's plugin classloader is parent-last, so `JsonNode` inside the
-plugin resolved to the plugin's copy. Debezium's `CloudEventsConverter`
-reflectively looks up `JsonConverter.convertToConnect(Schema, JsonNode)` on the
-worker's converter, whose signature uses the worker's `JsonNode`, and two classes
-of the same name make that lookup fail. The worker logged a scanner error on
-every start while the image still looked healthy.
+Libraries in one plugin directory share one classloader, the runtime component
+that loads Java classes. Keeping both driver versions would let one replace the
+other without a clear signal.
 
-`slf4j-api` and the three `jackson` core artifacts are therefore declared
-`provided`, leaving the worker's copies as the only copies. Kafka 4.3.1 ships
-jackson 2.21.2 and azure-core 1.55.2 asks for 2.17.2, and jackson keeps binary
-compatibility across 2.x minors, so one copy serves both.
+The Dockerfile removes the old jar by exact filename. `rm` fails when that file
+is absent, so a future Debezium archive that renames it stops the image build.
+The duplicate check also fails when Maven places two versions of one artifact.
+
+That check cannot see a library collision between the plugin and the worker's
+own classpath. The `jackson` libraries exposed this boundary.
+
+`azure-identity` pulls Jackson into the plugin. The plugin classloader is
+parent-last, so its `JsonNode` can differ from the worker's `JsonNode`.
+
+Debezium's `CloudEventsConverter` reflectively looks up
+`JsonConverter.convertToConnect(Schema, JsonNode)` on the worker's converter.
+The differing `JsonNode` classes make that lookup fail even though the worker
+reports healthy.
+
+During the earlier failure, the worker logged a scanner error on every start
+while still reporting healthy. The smoke test captures scanner output to expose
+this classpath boundary.
+
+The image marks `slf4j-api` and the three Jackson core artifacts as `provided`.
+That leaves the worker's copies as the only copies.
+
+Kafka 4.3.1 ships Jackson 2.21.2, while `azure-core` 1.55.2 asks for 2.17.2.
+Jackson keeps binary compatibility across these 2.x minor versions, so one
+copy serves both.
 
 ## What the image does not carry
 
-Two things were cut on 2026-08-24, recorded on issue #65. There is no Key Vault
-configuration provider, because the SQL-auth fallback is re-shaped to Kubernetes
-Secrets hydrated by External Secrets Operator and read through Kafka's built-in
-file and env configuration providers, so no third-party provider jar exists to
-bake in. There is no single message transform of ours, because ADR-005 is
-re-shaped so task-api authors the compound key `{tenantId}-{taskId}`, leaving the
-chain as stock transforms only.
+The current image has no Azure Key Vault configuration provider. A configuration
+provider is a plugin that resolves a worker setting from an external store.
+Azure Key Vault is not a built-in provider in this image.
 
-The smoke test asserts both absences, because a cut that is only written down
-tends to come back.
+The documented SQL-auth fallback uses Kubernetes Secrets hydrated by External
+Secrets Operator and Kafka's built-in file or environment providers.
+
+The repository has no Connect-specific deployed resource proving that fallback
+end to end. The image therefore does not claim that secret-loading path works.
+
+A retired custom plugin is code removed from the current image. This image has
+no custom jar, including no `PrefixKey` jar.
+
+`PrefixKey` was a custom single-message transform that prefixed a Kafka record
+key. The current task-api authors the compound key `{tenantId}-{taskId}`, and
+the Connect chain uses stock transforms.
+
+The Dockerfile installs no Azure Key Vault provider. The smoke test checks the
+plugin path for any `lexfield-*.jar`, which prevents retired PrefixKey behavior
+from returning silently.
 
 ## Building and testing it
 
     docker build --file connect/image/Dockerfile --tag cdc-connect:local connect/image
     connect/image/smoke-test.sh cdc-connect:local
 
-The smoke test is this ticket's acceptance check, and it answers the question an
-image cannot answer by starting successfully: did the plugins actually load. It
-uses Kafka's offline plugin lister, `connect-plugin-path.sh`, which needs no
-broker and no running worker, which is why this ticket verifies as `unit`. Its
-five assertions are that the scanner reports no error, that the connector and the
-outbox router are found, that `InsertHeader` is present, that the pinned driver
-and azure-identity tree are present, and that neither Debezium's bundled driver
-nor any jar of ours is. The first matters most, and its standard error is
-captured deliberately: the lister exits 0 even when the scanner fails to
-initialize a plugin, so an exit code alone would have let the jackson collision
-above go green.
+The smoke test runs Docker with the image's worker entrypoint overridden. It
+uses Kafka's offline plugin lister, `connect-plugin-path.sh`, to inspect image
+contents without a broker or a running worker.
 
-## What it still does not prove
+It captures scanner output because a zero exit code alone does not prove that
+every plugin initialized.
 
-The smoke test proves the classpath resolves. It does not prove the driver
-authenticates, which needs real Entra, nor that the chain produces the right key,
-headers, and envelope, which needs SQL Server and Kafka together. The container
-test in `tests/Lexfield.Connect.Tests/` covers the second. The first is the
-ADR-006 identity spike, a live ticket, and the reason the pinning above is
-written down at this length.
+The test checks these boundaries:
+
+- The plugin scanner reports no error.
+- The SQL Server connector and outbox event router are discoverable.
+- The worker classpath contains the stock transforms jar that carries `InsertHeader`.
+- The plugin path contains the pinned JDBC driver, `azure-identity`, and its `azure-core` and `msal4j` dependencies.
+- The retired Debezium driver and every `lexfield-*.jar` are absent.
+
+The smoke test is a unit-level image check. It does not start Kafka or SQL
+Server, and it does not add a prose-quality CI check.
+
+## Current evidence
+
+The smoke test proves that the built image contains the checked artifacts and
+that Kafka Connect's offline scanner reports no error for the plugin path. It
+does not prove that Azure credentials work or that a connector publishes an
+event.
+
+The separate container tests run this image with SQL Server and Kafka. They
+prove the compound key, tenant and traceparent headers, plain event envelope,
+DELETE filtering, and distinct keys for two tenants with the same task ID.
+
+## Unknowns
+
+Real Entra authentication remains pending. The ADR-006 identity spike needs a
+live Azure environment and records its result in that decision.
+
+The container tests do not establish production scale, live recovery, or the
+behavior of a deployed Azure workload. This smoke test does not establish
+those boundaries either.
+
+## Historical evidence
+
+Issue #65 records the 2026-08-24 decision to remove the bundled driver and
+custom plugins from this image.
+
+Issue #211 later confirmed that the image has no Azure Key Vault provider and no
+`PrefixKey` jar. It also notes that the fallback secret path and old
+documentation remain incomplete or stale.
+
+PR #193 deleted the obsolete `connect/smt/` source and its `PrefixKey`
+implementation. Older documentation and Git history may retain the name. Those
+references are historical evidence, not contents of this image.
+
+The smoke test checks the built image boundary rather than deleting that
+evidence.
