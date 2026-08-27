@@ -132,10 +132,21 @@ jobs:
             accept_completed_timeout \
               "$render_status" "$RUNNER_TEMP/diagram-renders/${render_name}.svg"
 
+            if [[ "$render_name" == "alert-dashboard-runbook" ]]; then
+              echo "The Draw.io PNG exporter is not byte-deterministic for ${render_name}; this job always uses the pinned SVG-to-PNG renderer for the committed comparison artifact."
+              "$resvg_dir/resvg" \
+                --background '#ffffff' \
+                --stylesheet "$resvg_stylesheet" \
+                "$RUNNER_TEMP/diagram-renders/${render_name}.svg" \
+                "$RUNNER_TEMP/diagram-renders/${render_name}.png"
+              continue
+            fi
+
             render_status=0
             export_with_drawio \
               png "/output/${render_name}.drawio" "/output/${render_name}.png" \
               || render_status=$?
+
             if (( render_status == 0 )); then
               continue
             fi
