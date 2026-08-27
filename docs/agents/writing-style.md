@@ -1,12 +1,19 @@
 # Writing style
 
 This file is the concrete half of the "Writing standards" section in AGENTS.md.
-That section holds the rules; this file holds the exemplar that shows the
+The first-time reader contract in docs/agents/reader-contract.md defines the
+reader and the required context. This file holds the exemplar that shows the
 target register, the banned-constructions list that reviews enforce, and the
-Learned rules list that grows by the correction ratchet. Read this file before
-writing any substantial doc and match the exemplar's register.
+Learned rules list that grows by the correction ratchet. Read both files before
+writing any substantial doc. The contract decides what the reader must know;
+this file decides how to say it.
 
 ## The register: one sample, before and after
+
+The After paragraph follows the first-time reader contract: it names the
+component's place in the system, explains its terms, and shows the operational
+consequence. The Before paragraph intentionally shows a failure of both the
+writing register and the first-time reader contract.
 
 Both paragraphs below describe the same feature and contain the same facts.
 The first is the register agents drift into by default. The second is the
@@ -25,12 +32,16 @@ Before (do not write like this):
 
 After (write like this):
 
-> The queue-builder notices when an event went missing. Every transition
-> carries a version number incremented in the same database transaction as the
-> change, so the sequence per task has no legitimate gaps. When the
-> queue-builder sees version 7 arrive after version 5, it knows 6 was lost,
-> marks that task's queue entry unreliable, and fetches current truth from
-> task-api to correct it.
+> The queue-builder is the service that reads workflow transitions from Kafka,
+> a named stream of messages, and writes the work-queue projection, its copy of
+> task data for fast reads. A workflow transition is a task state change
+> carried in an event, a message describing that change. The queue-builder
+> notices when an event went missing. Every transition carries a version number
+> incremented in the same database transaction as the change, so the sequence
+> per task has no legitimate gaps. When the queue-builder sees
+> version 7 arrive after version 5, it knows 6 was lost, marks that task's queue
+> entry unreliable, and fetches current truth from task-api, the service that
+> exposes source workflow state, to correct it.
 
 Why the second one works:
 

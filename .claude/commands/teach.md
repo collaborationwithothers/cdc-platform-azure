@@ -8,6 +8,10 @@ Purpose: convert a merged change into durable understanding, per AGENTS.md
 (PROJECT MECHANICS > "Learning loop"). The bar is mastery, not familiarity:
 Hari should be able to defend every decision in the diff in an interview.
 
+Read docs/agents/reader-contract.md before asking questions or writing the
+learning artifacts. Apply it to each question, correction, and artifact. Do
+not rely on an earlier chat turn to supply the required context.
+
 Procedure:
 1. Read the PR, its issue, its diff, and the spec sections the issue links.
 2. Walk the change Socratically: one question at a time, building from what the

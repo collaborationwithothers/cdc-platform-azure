@@ -15,6 +15,23 @@ tool-neutral role) live in each tool's own file, not here:
 - Claude Code: CLAUDE.md and .claude/commands/*.md.
 - Codex CLI: .codex/config.toml.
 
+## First-time reader contract
+
+Every new human-facing output must stand alone. Assume the reader is an Azure
+engineer who has never seen this repository and is new to event-driven
+architecture, distributed systems, Kafka, Kafka Connect, and Debezium. The
+output supplies the system context, defines unfamiliar terms at first use,
+states why the result matters, and does not require an earlier chat turn or a
+link to reconstruct the point.
+
+This contract applies to new output and to technically editable
+model-produced history authored by `haripraghash-bot`. It does not rewrite
+existing commit messages or chat history, and it does not change content
+authored by `haripraghash`. Keep `Current state`, `Historical evidence`, and
+`Unknowns` separate whenever more than one applies. Read
+docs/agents/reader-contract.md for the output-specific examples and final
+self-review.
+
 ## Style precedence
 - This file and CLAUDE.md override the global ~/.claude/CLAUDE.md response style.
 - Global brevity rules do not apply to: ADRs, README content, PR descriptions,
@@ -193,13 +210,16 @@ match its register.
 - Open with the point: every doc and PR description starts with two or three
   plain sentences a reader could stop after and still leave right.
 - Explain why before what. One idea per sentence. Gloss jargon on first use;
-  the glossary in docs/blueprint.md is the shared vocabulary, and a term
-  defined there may be used freely with a link.
-- Output budgets: a PR review summary fits in 20 lines; a status or pickup
-  comment fits in 5; a review finding states the problem in one plain sentence
-  before detail.
-- Anchor before detail; at most three new concepts per doc; layered structure
-  (point, picture, detail); one concept at a time.
+  the glossary in docs/blueprint.md is the shared vocabulary, and a central
+  term still gets a short reminder when the output must stand alone.
+- Output budgets guide attention. They never override the first-time reader
+  contract. Use the shortest self-contained form, even when required context
+  needs more than a customary line or concept budget. A review finding still
+  states the problem in one plain sentence before its supporting detail.
+- Anchor before detail; keep the first layer to at most three new concepts when
+  that still leaves the output self-contained. Required context takes priority
+  over the concept guide. Use layered structure (point, picture, detail) and
+  one concept at a time.
 - Procedural register for anything an operator must execute: condition before
   action, one principal action per step, name the actor, exact order, repeat
   the noun when a pronoun could bind twice.
