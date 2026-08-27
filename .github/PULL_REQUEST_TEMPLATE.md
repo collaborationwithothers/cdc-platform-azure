@@ -2,26 +2,36 @@
 
 ## The concept
 
-<!-- Ten lines max. The one idea this PR adds, stated as a change to the
-reader's mental model: what was true of the system before this PR, what is
-true after, and the design decision if one was made. No file names here; the
-concept must make sense without the diff. Link the blueprint or ADR section
-for rationale rather than restating it. A reader who stops here must leave
-with the right idea. -->
+<!-- This repository is a multi-tenant change-data-capture platform on Azure.
+Each tenant's Azure SQL database is a source. Debezium reads committed changes
+and publishes events to Kafka, a named stream of messages, for .NET consumers.
+Explain the affected component and its plain role before naming files. Keep
+the concept self-contained. This repository template is canonical and
+overrides a conflicting generic skill template. Required context takes
+priority over brevity. -->
 
-Before this PR:
+**Context and affected component:**
 
-After this PR:
+**Why this matters:**
+
+**Before this PR:**
+
+**After this PR:**
+
+**Current state:**
+
+**Historical evidence (when this PR edits bot-authored history):**
+
+**Unknowns:**
 
 Closes #
 
 ## Reading order: core files first
 
-<!-- Split every changed file into two lists. Core: the files that carry the
-concept (aim for one to three). Supporting: every other file, one line each
-naming the repo rule that pulled it in (docs land with code, gate evidence,
-runbook currency). Reading the core files alone must be enough to understand
-the change. -->
+<!-- Split every changed file into two lists. Core files carry the concept.
+Supporting files carry tests, gate evidence, or documentation required by the
+repository rules. Reading the core files alone must be enough to understand
+the change. Do not omit a file or context to make the description shorter. -->
 
 Core:
 
@@ -31,13 +41,31 @@ Supporting:
 
 -
 
+## Concrete example when behavior depends on sequence or failure
+
+<!-- Required when this PR changes ordering, retries, concurrency, or failure
+behavior. Give a concrete before-and-after sequence with actors, inputs, and
+the result. Otherwise write "Not applicable: this PR does not change ordering,
+retries, concurrency, or failure behavior." -->
+
+Scenario:
+
+Before:
+
+After:
+
 ## Verification
 
-<!-- The ticket's declared method and the evidence it ran. -->
+<!-- The ticket's declared method and the evidence it ran. Name what the check
+proves and the boundary it does not cover. -->
 
 Method (unit / containers / live):
 
 Evidence (test run link or command output summary):
+
+Proven boundary:
+
+Unverified boundary:
 
 ## PR size
 
@@ -62,6 +90,17 @@ Within declared paths: yes / no (reason)
 
 ## Review summary
 
-<!-- 20 lines max. What changed, why, and links to the Microsoft Learn or
-project documentation that justify every Azure, Debezium, Connect, Strimzi, or
-Kafka configuration claim in the diff. -->
+<!-- What changed, why, and links to the Microsoft Learn or project
+documentation that justify every Azure, Debezium, Connect, Strimzi, or Kafka
+configuration claim in the diff. Keep it self-contained; do not remove context
+or evidence to make the summary shorter. -->
+
+## Publication check
+
+<!-- Render this pull request description in GitHub before submitting it.
+Reread the rendered result as an Azure engineer who is new to this repository,
+Kafka, and event-driven systems. Confirm that the affected component, why the
+change matters, current verification state, and any unknowns are clear without
+an earlier chat turn. -->
+
+Rendered and reread: yes / no
