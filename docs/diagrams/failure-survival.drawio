@@ -5,11 +5,11 @@
       <root>
         <mxCell id="0" />
         <mxCell id="1" parent="0" />
-        <mxCell id="title" value="What survives each kind of failure" style="text;html=1;align=left;verticalAlign=middle;fontSize=25;fontStyle=1;fontColor=#1f4e79;" parent="1" vertex="1">
+        <mxCell id="title" value="Failure recovery for this Azure change-data-capture platform" style="text;html=1;align=left;verticalAlign=middle;fontSize=25;fontStyle=1;fontColor=#1f4e79;" parent="1" vertex="1">
           <mxGeometry as="geometry" x="40.0" y="20.0" width="1200.0" height="40.0" />
         </mxCell>
-        <mxCell id="subtitle" value="Start by naming the failure. A pod restart is a resume problem. A full disposable teardown is a rebuild problem." style="text;html=1;align=left;verticalAlign=middle;fontSize=14;fontColor=#555555;" parent="1" vertex="1">
-          <mxGeometry as="geometry" x="40.0" y="60.0" width="1500.0" height="30.0" />
+        <mxCell id="subtitle" value="Shows what survives and how an operator recovers after pod restart, worker loss, Kafka state loss, or disposable teardown.&lt;br&gt;Connect offset: the connector resume bookmark. Schema history: the stored table shape used to decode changes. Internal Kafka topics: shared connector state, not business events." style="text;html=1;align=left;verticalAlign=middle;fontSize=14;fontColor=#555555;" parent="1" vertex="1">
+          <mxGeometry as="geometry" x="40.0" y="60.0" width="1720.0" height="55.0" />
         </mxCell>
         <mxCell id="pod-zone" value="Connect pod restarts" style="swimlane;startSize=30;whiteSpace=wrap;html=1;fillColor=#f5f9ff;strokeColor=#4472c4;strokeWidth=2;verticalAlign=top;align=center;spacingTop=8;fontSize=15;fontStyle=1;connectable=0;" parent="1" vertex="1">
           <mxGeometry as="geometry" x="40.0" y="120.0" width="400.0" height="790.0" />
