@@ -7,7 +7,7 @@ namespace Lexfield.Onboarding.Tests;
 public sealed class ConnectorGrantFlagTests(SqlServerFixture sql)
 {
     [Fact]
-    public async Task Runner_skips_the_connector_grant_step_and_says_so_when_no_identity_is_supplied()
+    public async Task Onboarding_explains_that_connector_access_was_skipped_when_identity_is_omitted()
     {
         const string tenantId = "lexfield-002";
         const string databaseName = "onboarding_flag_off";
@@ -20,6 +20,11 @@ public sealed class ConnectorGrantFlagTests(SqlServerFixture sql)
             connectorIdentity: null,
             log: messages.Add);
 
-        Assert.Contains(messages, message => message.Contains("skip", StringComparison.OrdinalIgnoreCase));
+        Assert.True(
+            messages.Any(message => message.Contains("connector grant skipped", StringComparison.OrdinalIgnoreCase)),
+            "Onboarding should explain that connector access was skipped when no connector identity was supplied.");
+        Assert.Contains(
+            messages,
+            message => message.Contains(tenantId, StringComparison.Ordinal));
     }
 }
