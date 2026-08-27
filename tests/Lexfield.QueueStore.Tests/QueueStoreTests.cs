@@ -101,7 +101,19 @@ public sealed class QueueStoreTests(SqlServerFixture sql) : IAsyncLifetime
             var higher = higherStore.ApplyAsync(new QueueStateUpdate(
                 "lexfield-concurrent", taskId, TaskState.Completed, 8, "team-a", "priya"));
 
-            await WaitForBothWritersToBlockAsync(applicationPrefix);
+            try
+            {
+                await WaitForBothWritersToBlockAsync(applicationPrefix);
+            }
+            catch (TimeoutException)
+            {
+                // Release the key-range lock, then observe both writers so a
+                // duplicate-key or deadlock error is not hidden by the timeout.
+                await blockerTransaction.RollbackAsync();
+                await Task.WhenAll(lower, higher);
+                throw;
+            }
+
             await blockerTransaction.CommitAsync();
             await Task.WhenAll(lower, higher);
 

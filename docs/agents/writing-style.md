@@ -150,3 +150,8 @@ above them. Seeded from the sibling repo's repo-neutral rules.
   that; do not call the mechanisms equivalent unless the source establishes it.
 - 2026-08-26: Explain Change Tracking as changed primary keys plus versions, not
   row history, before introducing watermarks, retention, or snapshot isolation.
+- 2026-08-27: A pull request size limit never justifies compressing reader-facing
+  prose until its reasoning or evidence boundary becomes unclear. Split the work
+  or use a Hari-approved exception instead.
+- 2026-08-27: A test proves only the path it exercises. Name that boundary in the
+  write-up before stating any broader production-scale or design-scale risk.

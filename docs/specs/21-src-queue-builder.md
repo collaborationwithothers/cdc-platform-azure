@@ -18,6 +18,9 @@ It cannot alter existing tables.
 The first schema change must add versioning.
 QueueStore is shared with the reconciler and notifier. That shared use is why
 it is a project rather than a folder inside queue-builder.
+For v1, the deployment runner calls `QueueStoreDatabase.MigrateAsync` once and
+waits for it to finish before queue-builder, reconciler, or notifier starts.
+Those services do not run the migration themselves.
 
 Its single most important method is the guarded upsert, and it is the only way
 any code in the repo writes `QueueState`:
@@ -61,10 +64,11 @@ Queue-builder leaves the Kafka offset uncommitted, so redelivery retries the
 event. The reconciler keeps its drift observation, so its next sweep retries
 the comparison and repair.
 
-The target match uses only the primary key.
-The version guard stays in `WHEN MATCHED`.
-The test proves both writes reach the missing-key race and the higher version
-wins.
+The primary key alone belongs in `ON` because it identifies the target row.
+Putting the version there would make an older event look like a missing row and
+send it down the insert path. The version guard therefore stays in
+`WHEN MATCHED`. The repeated test proves both writers reach that missing-key
+race and the higher version wins.
 
 Sources:
 
