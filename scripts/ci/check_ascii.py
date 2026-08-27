@@ -1,15 +1,11 @@
 #!/usr/bin/env python3
-"""Fail when documentation contains a non-ASCII character.
+"""Check documentation artifacts against the repository ASCII punctuation rule.
 
-AGENTS.md requires ASCII punctuation everywhere: no em dashes, no en dashes, no
-smart quotes. The cheapest rule that enforces it is stricter and simpler than a
-punctuation allowlist: every byte in a documentation file must be a plain ASCII
-byte (codepoint 0 through 127). A smart quote, a non-breaking space, or an em
-dash is a codepoint above 127, so this catches all of them and never has to
-enumerate which characters are "punctuation".
-
-Files that are not valid UTF-8 text (images, for example) are treated as binary
-and skipped, so a PNG committed under docs/ does not trip the check.
+Each UTF-8 file under the requested roots is the checked artifact. The rule
+allows only codepoints 0 through 127, so non-ASCII punctuation fails CI and can
+make documentation hard to read consistently. Correction is to replace each
+reported character with an ASCII equivalent. Non-UTF-8 files are binary
+artifacts and remain outside this text check.
 """
 
 from __future__ import annotations
@@ -34,7 +30,12 @@ class Violation:
             name = unicodedata.name(self.char)
         except ValueError:
             name = "unnamed character"
-        return f"{self.path}:{self.line}:{self.column}: {codepoint} {name}"
+        return (
+            f"{self.path}:{self.line}:{self.column}: {codepoint} {name}; "
+            "rule violation: documentation text must use ASCII codepoints 0 through 127; "
+            "consequence: the documentation check fails; "
+            "correction: replace this character with an ASCII equivalent"
+        )
 
 
 def iter_text_files(roots: list[Path]) -> list[Path]:
@@ -62,7 +63,7 @@ def scan_paths(roots: list[Path]) -> list[Violation]:
         try:
             text = path.read_text(encoding="utf-8")
         except (UnicodeDecodeError, ValueError):
-            # Not UTF-8 text: treat as binary and skip.
+            # This binary artifact is outside the UTF-8 documentation text rule; correction: none is needed.
             continue
         violations.extend(scan_text(path, text))
     return violations
@@ -75,21 +76,27 @@ def main(argv: list[str] | None = None) -> int:
         nargs="*",
         default=["docs"],
         type=Path,
-        help="files or directories to scan (default: docs)",
+        help="UTF-8 documentation artifacts to scan; non-ASCII text fails the repository rule (default: docs)",
     )
     args = parser.parse_args(argv)
     roots = args.roots if args.roots else [Path("docs")]
 
     violations = scan_paths(roots)
     if violations:
-        print("Non-ASCII characters found (ASCII punctuation only, per AGENTS.md):")
+        print("ASCII check failed: documentation artifacts contain characters outside the repository ASCII punctuation rule.")
         for violation in violations:
             print(f"  {violation.describe()}")
-        print(f"{len(violations)} violation(s).")
+        print(
+            f"{len(violations)} violation(s); consequence: CI blocks these documentation artifacts; "
+            "correction: replace every reported character with an ASCII equivalent."
+        )
         return 1
 
     scanned = ", ".join(str(root) for root in roots)
-    print(f"ASCII check passed: no non-ASCII characters under {scanned}.")
+    print(
+        f"ASCII check passed: documentation artifacts under {scanned} contain only ASCII codepoints 0 through 127, "
+        "so the repository punctuation rule is satisfied; correction: none is needed."
+    )
     return 0
 
 

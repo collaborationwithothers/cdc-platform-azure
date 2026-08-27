@@ -1,5 +1,10 @@
 #!/usr/bin/env python3
-"""Check that alerts, runbook anchors, and runbook steps stay connected."""
+"""Check observability and runbook artifacts that connect alerts to action.
+
+An alert needs an operator response; an anchor names its runbook section, whose
+first step gives a command or path. Missing links fail CI; repair the named
+catalogue, anchor, step, or script reference.
+"""
 
 from __future__ import annotations
 
@@ -38,7 +43,7 @@ def section_lines(text: str, heading: str) -> list[str]:
     try:
         start = lines.index(heading) + 1
     except ValueError as exc:
-        raise ValueError(f"Missing required section: {heading}") from exc
+        raise ValueError(f"Observability document artifact is missing required section '{heading}'. Rule: the alert catalogue and required-anchor list must be present. Consequence: CI cannot connect alerts to runbook actions. Correction: restore the named section and rerun the check.") from exc
 
     end = len(lines)
     for index in range(start, len(lines)):
@@ -51,19 +56,19 @@ def section_lines(text: str, heading: str) -> list[str]:
 def parse_alerts(text: str) -> list[Alert]:
     lines = [line for line in section_lines(text, ALERT_CATALOGUE) if line.startswith("|")]
     if len(lines) < 2:
-        raise ValueError("Alert catalogue must contain a header and at least one row.")
+        raise ValueError("Observability alert-catalogue artifact must contain a header and at least one row. Rule: every declared alert is checked against the runbook-anchor list. Consequence: CI cannot verify the alert-to-action connection. Correction: add the table header and at least one alert row.")
 
     headers = [cell.strip().lower() for cell in lines[0].strip("|").split("|")]
     required = {"alert", "sev", "runbook"}
     if not required.issubset(headers):
-        raise ValueError("Alert catalogue must contain Alert, Sev, and Runbook columns.")
+        raise ValueError("Observability alert-catalogue artifact is missing an Alert, Sev, or Runbook column. Rule: those columns identify the signal, severity, and operator action. Consequence: CI cannot verify the alert-to-runbook mapping. Correction: restore all three column names and rerun the check.")
 
     positions = {name: headers.index(name) for name in required}
     alerts = []
     for line in lines[2:]:
         cells = [cell.strip() for cell in line.strip("|").split("|")]
         if len(cells) != len(headers):
-            raise ValueError(f"Alert catalogue row has {len(cells)} cells, expected {len(headers)}: {line}")
+            raise ValueError(f"Observability alert-catalogue artifact row has {len(cells)} cells, expected {len(headers)}: {line}. Rule: each alert row must match the table header. Consequence: CI cannot read this alert's runbook anchor. Correction: add or remove cells until the row matches the header.")
         alerts.append(
             Alert(
                 name=cells[positions["alert"]],
@@ -156,12 +161,9 @@ def check(observability: Path, runbooks: Path, repo_root: Path) -> list[str]:
 
     for alert in alerts:
         if alert.runbook != "none" and alert.runbook not in required_anchors:
-            errors.append(
-                f"{observability}: alert '{alert.name}' points at missing required anchor "
-                f"'{alert.runbook}'."
-            )
+            errors.append(f"{observability}: alert '{alert.name}' points at missing required anchor '{alert.runbook}'. Rule: every alert must point to a required runbook anchor. Consequence: an operator cannot find the action for this alert. Correction: add '{alert.runbook}' to the required-anchor list or point the alert at an existing anchor.")
     for anchor in sorted(required_anchors - used_anchors):
-        errors.append(f"{observability}: required anchor '{anchor}' has no alert.")
+        errors.append(f"{observability}: required anchor '{anchor}' has no alert. Rule: every required runbook anchor must be used by an alert. Consequence: this runbook section can drift without an alert that reaches it. Correction: add an alert row for '{anchor}' or remove the unused anchor.")
 
     sections = find_runbook_sections(runbooks, required_anchors)
     sev1_anchors = {alert.runbook for alert in alerts if alert.severity == "1"}
@@ -169,38 +171,35 @@ def check(observability: Path, runbooks: Path, repo_root: Path) -> list[str]:
         if section.anchor in sev1_anchors and (
             section.first_step is None or not step_has_command_or_path(section.first_step)
         ):
-            errors.append(
-                f"{section.path}:{section.line}: sev1 anchor '{section.anchor}' first step "
-                "must name a command or path."
-            )
+            errors.append(f"{section.path}:{section.line}: sev1 anchor '{section.anchor}' first step must name a command or path. Rule: every severity-1 runbook starts with executable operator action. Consequence: an urgent alert leaves the operator without a first action. Correction: put the command or repository path in the first numbered step.")
 
     for path in sorted(runbooks.rglob("*.md")):
         for line, reference in script_references(path):
             if not (repo_root / reference).is_file():
-                errors.append(f"{path}:{line}: referenced script '{reference}' does not exist.")
+                errors.append(f"{path}:{line}: referenced script '{reference}' does not exist. Rule: every runbook script reference must name a repository file. Consequence: the documented operator action cannot run. Correction: create '{reference}' or update the step to name an existing script.")
     return errors
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--observability", type=Path, default=Path("docs/observability.md"))
-    parser.add_argument("--runbooks", type=Path, default=Path("docs/runbooks"))
-    parser.add_argument("--repo-root", type=Path, default=Path.cwd())
+    parser.add_argument("--observability", type=Path, default=Path("docs/observability.md"), help="Observability document artifact containing alert and anchor tables")
+    parser.add_argument("--runbooks", type=Path, default=Path("docs/runbooks"), help="Runbook artifacts whose anchors and first steps are checked")
+    parser.add_argument("--repo-root", type=Path, default=Path.cwd(), help="Repository artifact root used to resolve documented script paths")
     args = parser.parse_args(argv)
 
     try:
         errors = check(args.observability, args.runbooks, args.repo_root)
     except (OSError, ValueError) as exc:
-        print(f"runbook anchors: ERROR: {exc}")
+        print(f"runbook anchors: ERROR: observability artifact '{args.observability}' and runbook artifacts '{args.runbooks}' could not be checked. Rule: alert anchors and operator steps must be readable before CI can verify them. Consequence: CI cannot confirm a safe incident path. Correction: repair the named artifact and rerun the check. Detail: {exc}")
         return 2
 
     if errors:
-        print("Runbook anchor check failed:")
+        print("Runbook anchor check failed: observability and runbook artifacts violate the alert-to-action rules; each diagnostic names the consequence and correction.")
         for error in errors:
             print(f"  {error}")
         return 1
 
-    print("Runbook anchor check passed.")
+    print("Runbook anchor check passed: observability alert rows, required anchors, runbook first steps, and script references satisfy the repository alert-to-action rules; consequence: CI confirms these catalogue, anchor, first-step, and script-reference rules; correction: none is needed.")
     return 0
 
 
