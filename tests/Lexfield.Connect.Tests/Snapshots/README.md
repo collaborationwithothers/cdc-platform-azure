@@ -8,7 +8,9 @@ Outbox row, an announcement row written with a business change, can be re-read
 without restarting the connector. An incremental snapshot is a Debezium
 re-read of current table rows while normal CDC remains enabled. A Kafka topic
 is a named stream of messages. The connector stays `RUNNING`, but this test
-does not write a concurrent live change during the snapshot.
+does not write a concurrent live change during the snapshot. This matters
+because an operator needs evidence that a snapshot command can re-emit current
+table state without restarting the connector.
 
 ## What the fixture runs
 
