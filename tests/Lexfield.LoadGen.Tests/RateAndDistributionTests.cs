@@ -11,7 +11,7 @@ namespace Lexfield.LoadGen.Tests;
 public class RateAndDistributionTests
 {
     [Fact]
-    public async Task Rate_limiter_holds_the_configured_rate()
+    public async Task The_run_issues_events_on_the_configured_rate_schedule()
     {
         var time = new FakeTimeProvider();
         var start = time.GetUtcNow();
@@ -30,7 +30,7 @@ public class RateAndDistributionTests
     }
 
     [Fact]
-    public async Task Rate_limiter_catches_up_rather_than_stretching_the_run()
+    public async Task The_rate_schedule_catches_up_after_the_run_falls_behind()
     {
         var time = new FakeTimeProvider();
         var limiter = new RateLimiter(eventsPerSecond: 10, time);
@@ -48,13 +48,22 @@ public class RateAndDistributionTests
         Assert.Equal(TimeSpan.FromSeconds(0.1), limiter.DelayBeforeNext());
     }
 
-    [Fact]
-    public void Rate_limiter_rejects_a_rate_that_is_not_positive()
-        => Assert.Throws<ArgumentOutOfRangeException>(
-            () => new RateLimiter(eventsPerSecond: 0, TimeProvider.System));
+    [Theory]
+    [InlineData(0)]
+    [InlineData(-1)]
+    [InlineData(double.NaN)]
+    [InlineData(double.PositiveInfinity)]
+    public void A_non_finite_or_non_positive_rate_is_rejected_before_a_run_starts(double rate)
+    {
+        var error = Assert.Throws<ArgumentOutOfRangeException>(
+            () => new RateLimiter(rate, TimeProvider.System));
+
+        Assert.Contains("Events per second", error.Message, StringComparison.Ordinal);
+        Assert.Contains("--rate", error.Message, StringComparison.Ordinal);
+    }
 
     [Fact]
-    public void Uniform_distribution_spreads_events_across_every_tenant()
+    public void A_uniform_distribution_spreads_events_across_every_synthetic_tenant()
     {
         var distribution = TenantKeyDistribution.Parse("uniform", tenantCount: 4);
         var counts = Draw(distribution, draws: 40_000);
@@ -64,7 +73,7 @@ public class RateAndDistributionTests
     }
 
     [Fact]
-    public void Hot_distribution_sends_the_configured_share_to_the_hot_tenants()
+    public void A_hot_distribution_sends_its_configured_share_to_the_hot_tenant_set()
     {
         var distribution = TenantKeyDistribution.Parse("hot:2:0.8", tenantCount: 10);
         var counts = Draw(distribution, draws: 40_000);
@@ -85,9 +94,16 @@ public class RateAndDistributionTests
     [InlineData("hot:0:0.8")]
     [InlineData("hot:10:0.8")]
     [InlineData("hot:2:1.5")]
-    public void A_distribution_that_cannot_be_honoured_is_rejected(string specification)
-        => Assert.ThrowsAny<Exception>(
+    [InlineData("hot:2:Infinity")]
+    public void An_invalid_tenant_distribution_is_rejected_with_a_safe_error(string specification)
+    {
+        var error = Record.Exception(
             () => TenantKeyDistribution.Parse(specification, tenantCount: 10));
+
+        Assert.True(error is (FormatException or ArgumentOutOfRangeException)
+            && error.Message.Contains("tenant", StringComparison.OrdinalIgnoreCase),
+            $"Distribution '{specification}' should be rejected with a tenant-specific safe error.");
+    }
 
     private static Dictionary<string, int> Draw(TenantKeyDistribution distribution, int draws)
     {
