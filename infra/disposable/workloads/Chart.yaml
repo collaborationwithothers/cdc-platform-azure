@@ -1,5 +1,0 @@
-apiVersion: v2
-name: cdc-platform-workloads
-description: Build-scale .NET workload deployments and telemetry wiring
-type: application
-version: 0.1.0

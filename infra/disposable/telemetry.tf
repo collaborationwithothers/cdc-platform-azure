@@ -1,16 +1,5 @@
 locals {
-  persistent_log_analytics_workspace_id     = try(data.terraform_remote_state.persistent.outputs.log_analytics_workspace_id, null)
-  persistent_app_insights_connection_string = try(data.terraform_remote_state.persistent.outputs.app_insights_connection_string, null)
-  workload_telemetry = {
-    sampler     = "microsoft.fixed_percentage"
-    sampler_arg = "1.0"
-    workloads = [
-      { name = "task-api", image = "cdc-platform/task-api:dev" },
-      { name = "queue-builder", image = "cdc-platform/queue-builder:dev" },
-      { name = "queue-reconciler", image = "cdc-platform/queue-reconciler:dev" },
-      { name = "notifier", image = "cdc-platform/notifier:dev" },
-    ]
-  }
+  persistent_log_analytics_workspace_id = try(data.terraform_remote_state.persistent.outputs.log_analytics_workspace_id, null)
 }
 
 data "azurerm_monitor_diagnostic_categories" "aks" {
@@ -74,25 +63,4 @@ resource "azurerm_monitor_diagnostic_setting" "aks_control_plane" {
       category = enabled_log.value
     }
   }
-}
-
-resource "helm_release" "workloads" {
-  count            = local.persistent_app_insights_connection_string == null ? 0 : 1
-  name             = "cdc-platform-workloads"
-  chart            = "${path.module}/workloads"
-  namespace        = "platform"
-  create_namespace = true
-  wait             = false
-
-  values = [yamlencode({
-    telemetry = local.workload_telemetry
-    workloads = local.workload_telemetry.workloads
-  })]
-
-  set_sensitive = [{
-    name  = "applicationInsightsConnectionString"
-    value = local.persistent_app_insights_connection_string
-  }]
-
-  depends_on = [azurerm_kubernetes_cluster.platform]
 }

@@ -1,8 +1,6 @@
-# Plan-only assertions for the disposable telemetry boundary. Provider and
-# persistent remote state values are mocked, so this test contacts no Azure
-# service and creates no resource.
-mock_provider "helm" {}
-
+# Plan-only assertions for the disposable monitoring boundary. The provider
+# and persistent remote state values are mocked, so this test contacts no
+# Azure service and creates no resource.
 mock_provider "azurerm" {
   override_during = plan
 
@@ -44,7 +42,7 @@ mock_provider "azurerm" {
   }
 }
 
-run "wires_container_and_application_telemetry" {
+run "wires_aks_monitoring" {
   command = plan
 
   variables {
@@ -61,7 +59,6 @@ run "wires_container_and_application_telemetry" {
     values = {
       outputs = {
         acr_id                         = "/subscriptions/mock/resourceGroups/rg-cdc-platform-persistent/providers/Microsoft.ContainerRegistry/registries/cdcplatformmock"
-        app_insights_connection_string = "test-only-placeholder"
         connect_identity_id            = "/subscriptions/mock/resourceGroups/rg-cdc-platform-persistent/providers/Microsoft.ManagedIdentity/userAssignedIdentities/id-connect"
         eso_identity_client_id         = "mock-eso-client-id"
         eso_identity_id                = "/subscriptions/mock/resourceGroups/rg-cdc-platform-persistent/providers/Microsoft.ManagedIdentity/userAssignedIdentities/id-external-secrets"
@@ -111,20 +108,4 @@ run "wires_container_and_application_telemetry" {
     error_message = "AKS control-plane diagnostics must use resource-specific tables."
   }
 
-  assert {
-    condition     = helm_release.workloads[0].set_sensitive[0].name == "applicationInsightsConnectionString"
-    error_message = "The workload release must pass the connection string only through a sensitive Helm value."
-  }
-
-  assert {
-    condition = (length(yamldecode(helm_release.workloads[0].values[0]).workloads) == 4 &&
-      yamldecode(helm_release.workloads[0].values[0]).telemetry.sampler == "microsoft.fixed_percentage" &&
-    yamldecode(helm_release.workloads[0].values[0]).telemetry.sampler_arg == "1.0")
-    error_message = "All four workload values must receive the shared sampler settings."
-  }
-
-  assert {
-    condition     = !strcontains(helm_release.workloads[0].values[0], "InstrumentationKey=") && !strcontains(helm_release.workloads[0].values[0], "IngestionEndpoint=")
-    error_message = "The non-secret workload values must not contain an Application Insights connection string."
-  }
 }
