@@ -60,7 +60,7 @@ class RunbookAnchorCheckTests(unittest.TestCase):
             capture_output=True,
         )
 
-    def test_alert_pointing_at_missing_anchor_fails(self):
+    def test_alert_with_missing_required_anchor_names_the_missing_operator_path(self):
         self.write_observability(
             ["| Connector stopped | task state | any | 1 | Fleet | recover-connect |"],
             "recover-connector.",
@@ -71,8 +71,11 @@ class RunbookAnchorCheckTests(unittest.TestCase):
         self.assertEqual(result.returncode, 1)
         self.assertIn("recover-connect", result.stdout)
         self.assertIn("missing required anchor", result.stdout)
+        self.assertIn("Rule: every alert must point to a required runbook anchor", result.stdout)
+        self.assertIn("Consequence: an operator cannot find the action for this alert", result.stdout)
+        self.assertIn("Correction: add 'recover-connect' to the required-anchor list", result.stdout)
 
-    def test_required_anchor_without_alert_fails(self):
+    def test_unused_required_anchor_explains_the_missing_alert_link(self):
         self.write_observability(
             ["| Healed drift | drift | any | 3 | Correctness | none |"],
             "recover-connect.",
@@ -83,8 +86,11 @@ class RunbookAnchorCheckTests(unittest.TestCase):
         self.assertEqual(result.returncode, 1)
         self.assertIn("recover-connect", result.stdout)
         self.assertIn("has no alert", result.stdout)
+        self.assertIn("Rule: every required runbook anchor must be used by an alert", result.stdout)
+        self.assertIn("Consequence: this runbook section can drift", result.stdout)
+        self.assertIn("Correction: add an alert row for 'recover-connect'", result.stdout)
 
-    def test_referenced_script_that_does_not_exist_fails(self):
+    def test_missing_runbook_script_names_the_unusable_operator_action_and_correction(self):
         self.write_observability(
             ["| Connector stopped | task state | any | 1 | Fleet | recover-connect |"],
             "recover-connect.",
@@ -96,8 +102,11 @@ class RunbookAnchorCheckTests(unittest.TestCase):
         self.assertEqual(result.returncode, 1)
         self.assertIn("scripts/ops/recover-connect.sh", result.stdout)
         self.assertIn("does not exist", result.stdout)
+        self.assertIn("Rule: every runbook script reference must name a repository file", result.stdout)
+        self.assertIn("Consequence: the documented operator action cannot run", result.stdout)
+        self.assertIn("Correction: create 'scripts/ops/recover-connect.sh'", result.stdout)
 
-    def test_script_on_a_continuation_line_that_does_not_exist_fails(self):
+    def test_missing_script_on_a_continuation_line_has_the_same_actionable_diagnostic(self):
         self.write_observability(
             ["| Connector stopped | task state | any | 1 | Fleet | recover-connect |"],
             "recover-connect.",
@@ -113,8 +122,11 @@ class RunbookAnchorCheckTests(unittest.TestCase):
         self.assertEqual(result.returncode, 1)
         self.assertIn("scripts/ops/recover-connect.sh", result.stdout)
         self.assertIn("does not exist", result.stdout)
+        self.assertIn("Rule: every runbook script reference must name a repository file", result.stdout)
+        self.assertIn("Consequence: the documented operator action cannot run", result.stdout)
+        self.assertIn("Correction: create 'scripts/ops/recover-connect.sh'", result.stdout)
 
-    def test_script_reference_outside_a_step_is_ignored(self):
+    def test_script_mentioned_outside_a_numbered_step_is_not_an_operator_action(self):
         self.write_observability(
             ["| Connector stopped | task state | any | 1 | Fleet | recover-connect |"],
             "recover-connect.",
@@ -128,8 +140,12 @@ class RunbookAnchorCheckTests(unittest.TestCase):
         result = self.run_check()
 
         self.assertEqual(result.returncode, 0, result.stdout)
+        self.assertIn("Runbook anchor check passed", result.stdout)
+        self.assertIn("observability alert rows, required anchors, runbook first steps, and script references", result.stdout)
+        self.assertIn("consequence: CI confirms these catalogue, anchor, first-step, and script-reference rules", result.stdout)
+        self.assertIn("correction: none is needed", result.stdout)
 
-    def test_sev1_first_step_with_only_a_verb_fails(self):
+    def test_severity_one_runbook_first_step_names_an_executable_command_or_path(self):
         self.write_observability(
             ["| Connector stopped | task state | any | 1 | Fleet | recover-connect |"],
             "recover-connect.",
@@ -141,8 +157,11 @@ class RunbookAnchorCheckTests(unittest.TestCase):
         self.assertEqual(result.returncode, 1)
         self.assertIn("recover-connect", result.stdout)
         self.assertIn("first step must name a command or path", result.stdout)
+        self.assertIn("Rule: every severity-1 runbook starts with executable operator action", result.stdout)
+        self.assertIn("Consequence: an urgent alert leaves the operator without a first action", result.stdout)
+        self.assertIn("Correction: put the command or repository path in the first numbered step", result.stdout)
 
-    def test_committed_repository_passes_before_incident_runbooks_exist(self):
+    def test_committed_repository_satisfies_the_alert_to_action_rules(self):
         result = subprocess.run(
             [
                 sys.executable,
@@ -157,6 +176,10 @@ class RunbookAnchorCheckTests(unittest.TestCase):
         )
 
         self.assertEqual(result.returncode, 0, result.stdout)
+        self.assertIn("Runbook anchor check passed", result.stdout)
+        self.assertIn("observability alert rows, required anchors, runbook first steps, and script references", result.stdout)
+        self.assertIn("consequence: CI confirms these catalogue, anchor, first-step, and script-reference rules", result.stdout)
+        self.assertIn("correction: none is needed", result.stdout)
 
 
 if __name__ == "__main__":
