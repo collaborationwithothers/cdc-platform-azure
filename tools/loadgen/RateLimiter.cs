@@ -20,10 +20,11 @@ public sealed class RateLimiter
 
     public RateLimiter(double eventsPerSecond, TimeProvider time)
     {
-        if (eventsPerSecond <= 0)
+        if (!double.IsFinite(eventsPerSecond) || eventsPerSecond <= 0)
         {
             throw new ArgumentOutOfRangeException(
-                nameof(eventsPerSecond), eventsPerSecond, "Rate must be greater than zero.");
+                nameof(eventsPerSecond), eventsPerSecond,
+                "Events per second must be greater than zero. Use a positive --rate value.");
         }
 
         this.eventsPerSecond = eventsPerSecond;
