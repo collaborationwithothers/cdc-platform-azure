@@ -1,3 +1,5 @@
+using System.Globalization;
+
 namespace Lexfield.LoadGen;
 
 /// <summary>
@@ -28,13 +30,16 @@ public sealed class TenantKeyDistribution
     /// <summary>
     /// Parses a distribution: <c>uniform</c>, or <c>hot:COUNT:SHARE</c> where
     /// COUNT tenants receive SHARE of the events, for example <c>hot:8:0.8</c>.
+    /// Tenant keys always use the fixed <c>synthetic-tenant-</c> prefix so the
+    /// generator cannot silently target a different tenant identity.
     /// </summary>
     public static TenantKeyDistribution Parse(string specification, int tenantCount)
     {
         if (tenantCount < 1)
         {
             throw new ArgumentOutOfRangeException(
-                nameof(tenantCount), tenantCount, "A run needs at least one tenant.");
+                nameof(tenantCount), tenantCount,
+                "A run needs at least one synthetic tenant. Use --tenants N where N is at least 1.");
         }
 
         var keys = Enumerable.Range(1, tenantCount)
@@ -48,24 +53,27 @@ public sealed class TenantKeyDistribution
 
         var parts = specification.Split(':');
         if (parts.Length != 3 || !parts[0].Equals("hot", StringComparison.Ordinal)
-            || !int.TryParse(parts[1], out var hot)
-            || !double.TryParse(parts[2], System.Globalization.NumberStyles.Float,
-                System.Globalization.CultureInfo.InvariantCulture, out var share))
+            || !int.TryParse(parts[1], NumberStyles.Integer, CultureInfo.InvariantCulture, out var hot)
+            || !double.TryParse(parts[2], NumberStyles.Float, CultureInfo.InvariantCulture, out var share))
         {
             throw new FormatException(
-                $"Distribution '{specification}' is not 'uniform' or 'hot:COUNT:SHARE'.");
+                $"Tenant distribution '{specification}' is invalid. Use 'uniform' or " +
+                "'hot:COUNT:SHARE', for example 'hot:8:0.8'.");
         }
 
         if (hot < 1 || hot >= tenantCount)
         {
             throw new ArgumentOutOfRangeException(nameof(specification), hot,
-                $"A hot set needs between 1 and {tenantCount - 1} tenants so a cold set remains.");
+                $"A hot tenant set needs between 1 and {tenantCount - 1} tenants so a " +
+                "cold tenant set remains for the other events. Use hot:COUNT:SHARE.");
         }
 
-        if (share is <= 0 or > 1)
+        if (!double.IsFinite(share) || share <= 0 || share > 1)
         {
             throw new ArgumentOutOfRangeException(
-                nameof(specification), share, "Hot share must be greater than 0 and at most 1.");
+                nameof(specification), share,
+                "Hot tenant share must be greater than 0 and at most 1. Use a decimal " +
+                "fraction such as 0.8 in hot:COUNT:SHARE.");
         }
 
         return new TenantKeyDistribution(keys, hot, share);
