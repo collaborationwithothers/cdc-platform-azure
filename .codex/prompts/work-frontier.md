@@ -1,21 +1,25 @@
 # Codex frontier prompt (thin shim; process text lives in AGENTS.md)
 
-Run the frontier workflow defined in AGENTS.md (PROJECT MECHANICS > "Frontier
-workflow"), acting as the "codex" agent in AGENTS.md's dual-agent handoff
-protocol:
+Require the operator-supplied session ID before claiming work. Read
+`CODEX_SESSION_ID` from the environment when the loop supplies it. If it is
+missing, ask for the ID and stop; never infer one. Claim with the exact label
+`in-progress:{session-id}`, then reread the issue labels before reading further
+or editing.
 
-- Branch prefix: codex/
-- On start, apply the in-progress:codex label.
-- On the PR, add the agent:codex label.
-- If the ticket already carries in-progress:claude, follow the takeover steps in
-  AGENTS.md ("Dual-agent operation"): read the ticket and the full branch diff
-  before changing anything, swap the in-progress label (remove in-progress:claude,
-  add in-progress:codex), keep the original branch name, add agent:codex
-  ALONGSIDE the existing agent:claude label, resume on the same branch, and
-  record the takeover in the PR description (started by X, resumed by Y at
-  commit Z).
+Run the parallel frontier workflow defined in AGENTS.md (PROJECT MECHANICS >
+"Frontier workflow"), acting as the Codex session:
+
+- Branch prefix: `codex/`.
+- Follow the collision back-off in AGENTS.md. If another `in-progress:*` label
+  appears alongside yours, remove yours and select the next claimable issue.
+- Treat a ticket as abandoned only after 48 hours with no branch push. Follow
+  the documented takeover steps then. Never take over unconditionally.
+- On the PR, add the `agent:codex` label.
+- Read `docs/agents/reader-contract.md` before writing any pickup, progress,
+  blocker, completion, issue, PR, comment, or review text. The output must stand
+  alone for a first-time reader.
 
 Follow AGENTS.md's frontier selection rule, read order, issue-start verification
-step, branch/implement/PR/CI steps, finish steps, and hard stops exactly. Do NOT
-merge. Do NOT start another issue. Governance review is Claude/Opus-only; do not
-attempt it.
+step, branch, implementation, PR, CI, and finish steps exactly. Do not merge.
+Do not modify ticket scope. Governance review is Claude/Opus-only; do not
+attempt it. Reread each published GitHub artifact after posting.
