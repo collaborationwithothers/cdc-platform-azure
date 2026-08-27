@@ -14,9 +14,10 @@ public static class TaskApiAuthentication
                 options.Audience = configuration["Authentication:Audience"];
                 options.RequireHttpsMetadata = true;
             })
-            .Validate(options => !string.IsNullOrWhiteSpace(options.Authority)
-                && !string.IsNullOrWhiteSpace(options.Audience),
-                "Authentication:Authority and Authentication:Audience are required.")
+            .Validate(options => !string.IsNullOrWhiteSpace(options.Authority),
+                "Task API cannot start because Authentication:Authority (the token issuer URL) is missing. Set it in appsettings.json or through the Authentication__Authority environment variable.")
+            .Validate(options => !string.IsNullOrWhiteSpace(options.Audience),
+                "Task API cannot start because Authentication:Audience (the identifier for this API) is missing. Set it in appsettings.json or through the Authentication__Audience environment variable.")
             .ValidateOnStart();
         services.AddAuthorization(options => options.AddPolicy("TenantRoute", policy =>
         {
