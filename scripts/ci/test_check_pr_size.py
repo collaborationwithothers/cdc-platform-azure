@@ -68,7 +68,7 @@ class PrSizeCommandTests(unittest.TestCase):
             capture_output=True,
         )
 
-    def test_under_both_limits_passes(self):
+    def test_pull_request_within_file_and_line_limits_explains_why_it_passes(self):
         self.write({"src/a.txt": 4, "src/b.txt": 5})
         self.commit("under limits")
 
@@ -76,8 +76,12 @@ class PrSizeCommandTests(unittest.TestCase):
 
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("pr-size: PASS", result.stdout)
+        self.assertIn("artifact: pull request diff, the files and lines changed between base and head", result.stdout)
+        self.assertIn(f"rule: at most {MAX_FILES} changed files and {MAX_LINES} changed lines", result.stdout)
+        self.assertIn("consequence: the pull request is within the repository size rule", result.stdout)
+        self.assertIn("correction: none is needed", result.stdout)
 
-    def test_exactly_at_both_limits_passes(self):
+    def test_pull_request_at_both_limits_passes_without_an_exception(self):
         self.write(
             {f"src/{index}.txt": MAX_LINES if index == 0 else 0 for index in range(MAX_FILES)}
         )
@@ -88,8 +92,12 @@ class PrSizeCommandTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn(f"files: {MAX_FILES} / {MAX_FILES}", result.stdout)
         self.assertIn(f"changed lines: {MAX_LINES} / {MAX_LINES}", result.stdout)
+        self.assertIn("artifact: pull request diff", result.stdout)
+        self.assertIn("rule: at most", result.stdout)
+        self.assertIn("consequence: the pull request is within the repository size rule", result.stdout)
+        self.assertIn("correction: none is needed", result.stdout)
 
-    def test_file_limit_exceeded_fails(self):
+    def test_excess_changed_files_identifies_the_limit_and_split_correction(self):
         self.write({f"src/{index}.txt": 1 for index in range(MAX_FILES + 1)})
         self.commit("too many files")
 
@@ -98,8 +106,12 @@ class PrSizeCommandTests(unittest.TestCase):
         self.assertEqual(result.returncode, 1)
         self.assertIn("pr-size: FAIL", result.stderr)
         self.assertIn(f"files: {MAX_FILES + 1} / {MAX_FILES}", result.stderr)
+        self.assertIn("artifact: pull request diff", result.stderr)
+        self.assertIn("rule: at most", result.stderr)
+        self.assertIn("consequence: CI blocks this pull request", result.stderr)
+        self.assertIn("Correction: split the change into a smaller behavior slice", result.stderr)
 
-    def test_line_limit_exceeded_fails(self):
+    def test_excess_changed_lines_identifies_the_limit_and_split_correction(self):
         self.write({"src/large.txt": MAX_LINES + 1})
         self.commit("too many lines")
 
@@ -107,8 +119,12 @@ class PrSizeCommandTests(unittest.TestCase):
 
         self.assertEqual(result.returncode, 1)
         self.assertIn(f"changed lines: {MAX_LINES + 1} / {MAX_LINES}", result.stderr)
+        self.assertIn("artifact: pull request diff", result.stderr)
+        self.assertIn("rule: at most", result.stderr)
+        self.assertIn("consequence: CI blocks this pull request", result.stderr)
+        self.assertIn("Correction: split the change into a smaller behavior slice", result.stderr)
 
-    def test_hari_exception_passes_and_reports_exception(self):
+    def test_hari_exception_passes_and_names_the_required_exception_evidence(self):
         self.write({"src/large.txt": MAX_LINES + 1})
         self.commit("approved exception")
 
@@ -117,8 +133,12 @@ class PrSizeCommandTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("pr-size: PASS (approved exception)", result.stdout)
         self.assertIn("The slice cannot be split safely.", result.stdout)
+        self.assertIn("artifact: pull request diff", result.stdout)
+        self.assertIn("rule: at most", result.stdout)
+        self.assertIn("consequence: Hari's approved exception permits this pull request", result.stdout)
+        self.assertIn("correction: keep the exception label and exact Approved exception justification field", result.stdout)
 
-    def test_exception_without_justification_fails(self):
+    def test_exception_without_written_reason_identifies_missing_required_evidence(self):
         self.write({"src/large.txt": MAX_LINES + 1})
         self.commit("unjustified exception")
 
@@ -126,8 +146,12 @@ class PrSizeCommandTests(unittest.TestCase):
 
         self.assertEqual(result.returncode, 1)
         self.assertIn("missing a written exception justification", result.stderr)
+        self.assertIn("artifact: pull request diff", result.stderr)
+        self.assertIn("Rule: an approved exception requires Hari's label and a non-empty reason", result.stderr)
+        self.assertIn("Consequence: CI blocks this pull request", result.stderr)
+        self.assertIn("Correction: replace `Approved exception justification: N/A`", result.stderr)
 
-    def test_new_base_exposes_inherited_parent_files(self):
+    def test_base_commit_controls_which_changed_files_count_against_the_rule(self):
         self.write({f"parent/{index}.txt": 1 for index in range(MAX_FILES)})
         parent = self.commit("parent")
         self.write({"child/owned.txt": 1})
@@ -139,8 +163,11 @@ class PrSizeCommandTests(unittest.TestCase):
         self.assertEqual(child_only.returncode, 0, child_only.stderr)
         self.assertEqual(inherited.returncode, 1)
         self.assertIn(f"files: {MAX_FILES + 1} / {MAX_FILES}", inherited.stderr)
+        self.assertIn("artifact: pull request diff", inherited.stderr)
+        self.assertIn("consequence: CI blocks this pull request", inherited.stderr)
+        self.assertIn("Correction: split the change into a smaller behavior slice", inherited.stderr)
 
-    def test_policy_ignored_paths_exclude_matching_changes(self):
+    def test_ignored_policy_paths_are_excluded_from_the_measured_artifact(self):
         policy = self.repo / ".git/pr-size-policy.json"
         policy.write_text(
             json.dumps({**POLICY_DATA, "ignored_paths": ["generated/*.lock"]}), encoding="utf-8"
@@ -153,8 +180,12 @@ class PrSizeCommandTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn(f"files: 1 / {MAX_FILES}", result.stdout)
         self.assertNotIn("generated/cache.lock", result.stdout)
+        self.assertIn("artifact: pull request diff", result.stdout)
+        self.assertIn("rule: at most", result.stdout)
+        self.assertIn("consequence: the pull request is within the repository size rule", result.stdout)
+        self.assertIn("correction: none is needed", result.stdout)
 
-    def test_exception_justification_accepts_following_paragraph(self):
+    def test_exception_justification_field_accepts_the_following_reason_paragraph(self):
         self.write({"src/large.txt": MAX_LINES + 1})
         self.commit("multiline justification")
         body = "Approved exception justification:\n\nThe complete slice cannot be smaller.\n\nApproved exception link: https://example.test"
@@ -163,8 +194,11 @@ class PrSizeCommandTests(unittest.TestCase):
 
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("The complete slice cannot be smaller.", result.stdout)
+        self.assertIn("artifact: pull request diff", result.stdout)
+        self.assertIn("consequence: Hari's approved exception permits this pull request", result.stdout)
+        self.assertIn("correction: keep the exception label and exact Approved exception justification field", result.stdout)
 
-    def test_tests_and_documentation_count_as_files_and_lines(self):
+    def test_documentation_and_tests_count_as_changed_pull_request_artifacts(self):
         self.write({"docs/guide.md": 3, "scripts/ci/test_example.py": 4})
         self.commit("docs and tests")
 
@@ -175,8 +209,11 @@ class PrSizeCommandTests(unittest.TestCase):
         self.assertIn(f"changed lines: 7 / {MAX_LINES}", result.stdout)
         self.assertIn("docs/guide.md", result.stdout)
         self.assertIn("scripts/ci/test_example.py", result.stdout)
+        self.assertIn("artifact: pull request diff", result.stdout)
+        self.assertIn("consequence: the pull request is within the repository size rule", result.stdout)
+        self.assertIn("correction: none is needed", result.stdout)
 
-    def test_workflow_rechecks_current_pr_metadata(self):
+    def test_workflow_rechecks_current_pull_request_metadata_after_an_edit(self):
         workflow = (ROOT / ".github/workflows/pr-size.yml").read_text(encoding="utf-8")
 
         self.assertIn("edited", workflow)
