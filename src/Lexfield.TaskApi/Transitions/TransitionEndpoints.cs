@@ -1,4 +1,5 @@
 using Lexfield.Contracts;
+using Lexfield.TaskApi.FaultInjection;
 
 namespace Lexfield.TaskApi.Transitions;
 
@@ -8,14 +9,20 @@ public static class TransitionEndpoints
     {
         endpoints.MapPost("/tenants/{tenantId}/tasks/{taskId:int}/transitions", async (
             string tenantId, int taskId, TransitionRequest request,
-            TenantCatalog catalog, ILogger<TaskTransition> logger, CancellationToken cancellationToken) =>
+            bool suppressOutbox, TenantCatalog catalog, IConfiguration configuration,
+            ILogger<TaskTransition> logger, CancellationToken cancellationToken) =>
         {
             if (request.To is null || request.ExpectedVersion is null
                 || string.IsNullOrWhiteSpace(request.Actor)) return Results.BadRequest();
-            var transition = new TaskTransition(catalog, logger);
-            var outcome = await transition.ExecuteAsync(new TransitionCommand(
+            if (suppressOutbox && !OutboxSuppressionTransition.IsEnabled(configuration))
+                return Results.BadRequest();
+
+            var command = new TransitionCommand(
                 tenantId, taskId, request.To.Value, request.Actor, request.ExpectedVersion.Value,
-                request.TeamId, request.AssigneeId), cancellationToken);
+                request.TeamId, request.AssigneeId);
+            var outcome = suppressOutbox
+                ? await new OutboxSuppressionTransition(catalog, logger).ExecuteAsync(command, cancellationToken)
+                : await new TaskTransition(catalog, logger).ExecuteAsync(command, cancellationToken);
             return outcome switch
             {
                 TransitionOutcome.Success => Results.Ok(
