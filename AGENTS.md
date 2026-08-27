@@ -228,8 +228,10 @@ match its register.
   dated line to Learned rules in docs/agents/writing-style.md, in the open PR
   if one exists. A correction applied without a Learned-rules line is
   incomplete work.
-- Every PR description completes the template's "The concept" section (ten
-  lines max, no file names) and its "Reading order: core files first" section.
+- Every PR description completes the template's "The concept" section in the
+  shortest self-contained form, with no file names, and its "Reading order:
+  core files first" section. Required reader context overrides a customary
+  line limit.
 
 ## PROJECT MECHANICS
 
