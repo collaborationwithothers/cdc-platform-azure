@@ -7,13 +7,13 @@
 # NO credentials, tokens, or user-specific paths belong in this file, ever.
 
 # ---------------------------------------------------------------------------
-# Policy: conservative baseline for INTERACTIVE use.
+# Policy: conservative baseline for each INTERACTIVE session.
 #
-# The non-interactive loop shim (.codex/loop.sh) does NOT rely on these values;
-# it passes the permissive settings it needs as explicit `codex exec` flags, so
-# interactive sessions stay conservative while the loop never blocks on an
-# approval prompt with nobody there to answer it. See .codex/loop.sh and
-# COMPATIBILITY.md.
+# Multiple Codex and Claude sessions may run at the same time. The frontier
+# claim protocol in AGENTS.md, including `in-progress:{session-id}` labels,
+# prevents two sessions from working one ticket. The non-interactive loop shim
+# passes the permissive settings it needs as explicit `codex exec` flags, so an
+# unattended session never blocks on an approval prompt. See .codex/loop.sh.
 #   - approval_policy = "on-request": interactive Codex asks before risky
 #     commands. The loop overrides this to "never" (Codex docs: use "never" for
 #     non-interactive runs).
@@ -71,7 +71,7 @@ args = ["--with", "mcp[cli]==1.29.0", "drawio-mcp==1.0.2"]
 #     explicit flags (.codex/loop.sh);
 #   - review posture is not a Codex concern at all: governance review is
 #     Claude/Opus-only for every bot PR and does not fail over to Codex
-#     (AGENTS.md, "Dual-agent operation").
+#     (AGENTS.md, "Governance review workflow").
 # An operator who wants a distinct implement/review model or reasoning effort for
 # interactive Codex use can create the corresponding $CODEX_HOME/*.config.toml
 # files locally; model slugs are deliberately left unpinned (Codex model ids
