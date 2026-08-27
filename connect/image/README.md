@@ -85,8 +85,7 @@ Secrets hydrated by External Secrets Operator and read through Kafka's built-in
 file and env configuration providers, so no third-party provider jar exists to
 bake in. There is no single message transform of ours, because ADR-005 is
 re-shaped so task-api authors the compound key `{tenantId}-{taskId}`, leaving the
-chain as stock transforms only; `connect/smt/` still exists from issue #64, and
-this image deliberately does not copy its jar.
+chain as stock transforms only.
 
 The smoke test asserts both absences, because a cut that is only written down
 tends to come back.
