@@ -4,7 +4,7 @@
 {{- $repoURL := get $delivery "repoURL" | default "https://github.com/collaborationwithothers/cdc-platform-azure.git" -}}
 {{- $targetRevision := get $delivery "targetRevision" | default "main" -}}
 {{- if not (has $provider $validProviders) -}}
-{{- fail (printf "externalSecrets.provider must be one of disabled, fake, or azureKeyVault; got %s" $provider) -}}
+{{- fail (printf "GitOps root chart rendering failed. Input artifact: externalSecrets.provider in the root chart values. Supplied value: %q. Existing rule: the provider must be one of disabled, fake, or azureKeyVault. Consequence: the chart cannot choose a backend adapter for External Secrets Operator (ESO), the controller that syncs external secret-store values into Kubernetes Secrets, so it cannot render the Argo CD Application objects that tell the cluster what to sync. Safe correction: set externalSecrets.provider to disabled (install ESO without a SecretStore), fake (use a synthetic SecretStore for local Kubernetes reconciliation checks), or azureKeyVault (use the adapter that reads Key Vault through Azure workload identity). Proven boundary: this run rejected the provider setting only; it does not prove ESO installation, Azure workload identity, or Key Vault access." $provider) -}}
 {{- end -}}
 apiVersion: argoproj.io/v1alpha1
 kind: Application
