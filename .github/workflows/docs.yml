@@ -1,4 +1,4 @@
-name: docs
+name: Verify documentation and diagram render artifacts
 
 on:
   pull_request:
@@ -22,42 +22,42 @@ concurrency:
 
 jobs:
   ascii:
-    name: ascii punctuation
+    name: Check documentation for ASCII-only punctuation
     # AGENTS.md: workflows run on ubuntu-latest only.
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
+      - name: Check out documentation sources
         uses: actions/checkout@v7
 
-      - name: Test the ASCII check
+      - name: Test the documentation punctuation checker
         run: python3 -m unittest scripts/ci/test_check_ascii.py -v
 
-      - name: Check ASCII punctuation across docs
+      - name: Check docs/ contains only ASCII punctuation
         run: python3 scripts/ci/check_ascii.py docs
 
   runbook-anchors:
-    name: runbook anchors
+    name: Check alert links to operator runbook steps
     # AGENTS.md: workflows run on ubuntu-latest only.
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
+      - name: Check out documentation and runbook sources
         uses: actions/checkout@v7
 
-      - name: Test the runbook-anchor check
+      - name: Test the alert and runbook link checker
         run: python3 -m unittest tests/ci/test_check_runbook_anchors.py -v
 
-      - name: Check runbook anchors
+      - name: Check that every alert names an existing runbook step
         run: python3 scripts/ci/check_runbook_anchors.py
 
   diagram-renders:
-    name: diagram renders
+    name: Render and compare Draw.io diagram artifacts
     # AGENTS.md: workflows run on ubuntu-latest only.
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
+      - name: Check out editable diagram sources and committed renders
         uses: actions/checkout@v7
 
-      - name: Render Draw.io diagrams
+      - name: Render SVG and PNG files from editable diagram sources
         shell: bash
         run: |
           set -euo pipefail
@@ -65,7 +65,7 @@ jobs:
           mkdir -p "$RUNNER_TEMP/drawio-home" "$RUNNER_TEMP/diagram-renders"
           sources=(docs/diagrams/*.drawio)
           if (( ${#sources[@]} == 0 )); then
-            echo "No Draw.io sources found."
+            echo "No editable Draw.io sources (*.drawio) were found in docs/diagrams/. The diagram-render job cannot produce SVG and PNG artifacts to compare, so the job fails. Add at least one source there, commit it, and rerun."
             exit 1
           fi
 
@@ -76,7 +76,7 @@ jobs:
               return
             fi
             if (( status == 124 )) && [[ -s "$output" ]]; then
-              echo "Draw.io timed out after writing $output; exact comparison will verify it."
+              echo "Draw.io export timed out after writing $output; this job will compare that generated artifact with the committed render. A match passes this check; a mismatch fails and requires re-rendering from the editable .drawio source."
               return
             fi
             exit "$status"
@@ -126,6 +126,9 @@ jobs:
             export_with_drawio \
               svg "/output/${render_name}.drawio" "/output/${render_name}.svg" \
               || render_status=$?
+            if (( render_status != 0 && render_status != 124 )); then
+              echo "SVG rendering failed for editable source $source; no verified ${render_name}.svg artifact is available for comparison, so this job will fail. Read the renderer error above, fix the source or renderer input, and rerun."
+            fi
             accept_completed_timeout \
               "$render_status" "$RUNNER_TEMP/diagram-renders/${render_name}.svg"
 
@@ -145,13 +148,14 @@ jobs:
               && [[ "$render_name" != "alert-dashboard-runbook" ]]; then
               if (( render_status == 124 )) \
                 && [[ -s "$RUNNER_TEMP/diagram-renders/${render_name}.png" ]]; then
-                echo "Draw.io timed out after writing ${render_name}.png; exact comparison will verify it."
+                echo "Draw.io PNG export timed out after writing ${render_name}.png; this job will compare that generated PNG with the committed artifact. A match passes this check; a mismatch fails and requires re-rendering from the editable $source source."
                 continue
               fi
+              echo "PNG rendering failed for editable source $source; no verified ${render_name}.png artifact is available for comparison, so this job will fail. Read the renderer error above, fix the source or renderer input, and rerun."
               exit "$render_status"
             fi
 
-            echo "Draw.io PNG export failed for ${render_name}; using the pinned renderer."
+            echo "Draw.io PNG export failed for ${render_name}; this job uses its pinned SVG-to-PNG renderer so it can still compare the generated artifact with the committed PNG. The comparison must pass; if it fails, re-render $source and commit the updated PNG."
             rm -f "$RUNNER_TEMP/diagram-renders/${render_name}.png"
             "$resvg_dir/resvg" \
               --background '#ffffff' \
@@ -160,14 +164,14 @@ jobs:
               "$RUNNER_TEMP/diagram-renders/${render_name}.png"
           done
 
-      - name: Check committed renders are current
+      - name: Compare generated renders with committed diagram artifacts
         shell: bash
         run: |
           set -euo pipefail
           shopt -s nullglob
           sources=(docs/diagrams/*.drawio)
           if (( ${#sources[@]} == 0 )); then
-            echo "No Draw.io sources found."
+            echo "No editable Draw.io sources (*.drawio) were found in docs/diagrams/. The comparison job cannot identify the source for committed SVG and PNG artifacts, so the job fails. Add at least one source there, commit it, and rerun."
             exit 1
           fi
 
@@ -178,11 +182,31 @@ jobs:
               "${stem}.svg" > "$RUNNER_TEMP/${render_name}.committed.svg"
             sed -E 's/ge-svg-[A-Za-z0-9_-]+/ge-svg-deterministic/g' \
               "$RUNNER_TEMP/diagram-renders/${render_name}.svg" > "$RUNNER_TEMP/${render_name}.generated.svg"
-            cmp -- "$RUNNER_TEMP/${render_name}.committed.svg" "$RUNNER_TEMP/${render_name}.generated.svg"
-            cmp -- "${stem}.png" "$RUNNER_TEMP/diagram-renders/${render_name}.png"
+            if cmp -- "$RUNNER_TEMP/${render_name}.committed.svg" "$RUNNER_TEMP/${render_name}.generated.svg"; then
+              :
+            else
+              comparison_status=$?
+              if (( comparison_status == 1 )); then
+                echo "Stale SVG render: generated artifact $RUNNER_TEMP/${render_name}.generated.svg differs from committed artifact ${stem}.svg. The committed render no longer matches editable source $source, so this job fails. Re-render the source with this workflow's pinned renderer and commit the updated SVG."
+              else
+                echo "SVG render comparison could not read $RUNNER_TEMP/${render_name}.committed.svg or $RUNNER_TEMP/${render_name}.generated.svg (cmp exit $comparison_status). This job fails because it cannot verify the committed artifact. Check that rendering completed and both files exist, then rerun."
+              fi
+              exit "$comparison_status"
+            fi
+            if cmp -- "${stem}.png" "$RUNNER_TEMP/diagram-renders/${render_name}.png"; then
+              :
+            else
+              comparison_status=$?
+              if (( comparison_status == 1 )); then
+                echo "Stale PNG render: generated artifact $RUNNER_TEMP/diagram-renders/${render_name}.png differs from committed artifact ${stem}.png. The committed render no longer matches editable source $source, so this job fails. Re-render the source with this workflow's pinned renderer and commit the updated PNG."
+              else
+                echo "PNG render comparison could not read committed artifact ${stem}.png or generated artifact $RUNNER_TEMP/diagram-renders/${render_name}.png (cmp exit $comparison_status). This job fails because it cannot verify the committed artifact. Check that rendering completed and both files exist, then rerun."
+              fi
+              exit "$comparison_status"
+            fi
           done
 
-      - name: Upload generated renders after a mismatch
+      - name: Upload generated diagram artifacts after a diagram-job failure
         if: failure()
         uses: actions/upload-artifact@v7
         with:
