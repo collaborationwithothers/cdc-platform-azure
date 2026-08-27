@@ -69,35 +69,95 @@ jobs:
             exit 1
           fi
 
+          accept_completed_timeout() {
+            local status="$1"
+            local output="$2"
+            if (( status == 0 )); then
+              return
+            fi
+            if (( status == 124 )) && [[ -s "$output" ]]; then
+              echo "Draw.io timed out after writing $output; exact comparison will verify it."
+              return
+            fi
+            exit "$status"
+          }
+
+          export_with_drawio() {
+            local format="$1"
+            local input="$2"
+            local output="$3"
+            local -a export_args=(-x -f "$format")
+            if [[ "$format" == "svg" ]]; then
+              export_args+=(--theme light --embed-svg-images)
+            fi
+
+            docker run --rm \
+              -u "$(id -u):$(id -g)" \
+              -e HOME=/home/drawio \
+              -e DRAWIO_DESKTOP_COMMAND_TIMEOUT=60s \
+              -v /etc/passwd:/etc/passwd:ro \
+              -v "$RUNNER_TEMP/drawio-home:/home/drawio" \
+              -v "$GITHUB_WORKSPACE:/data:ro" \
+              -v "$RUNNER_TEMP/diagram-renders:/output" \
+              -w /data \
+              rlespinasse/drawio-desktop-headless@sha256:527dfc14dc2b15d8aed93c29c724c1711a8fef235cd0667124d4f1ff8cd71f52 \
+              "${export_args[@]}" -o "$output" "$input"
+          }
+
+          resvg_dir="$RUNNER_TEMP/resvg"
+          resvg_archive="$RUNNER_TEMP/resvg-linux-x86_64.tar.gz"
+          resvg_stylesheet="$RUNNER_TEMP/drawio-fallback.css"
+          mkdir -p "$resvg_dir"
+          curl -fsSL \
+            https://github.com/linebender/resvg/releases/download/v0.48.1/resvg-linux-x86_64.tar.gz \
+            -o "$resvg_archive"
+          echo "fa8c26495a187e592c501db15bf9e8a9fdc051d4b2b336b39703d5b59f912b9d  $resvg_archive" \
+            | sha256sum -c -
+          tar -xzf "$resvg_archive" -C "$resvg_dir"
+          printf '%s\n' 'svg > switch > a { display: none; }' > "$resvg_stylesheet"
+
           for source in "${sources[@]}"; do
             stem="${source%.drawio}"
             render_name="$(basename "$stem")"
+            render_source="$RUNNER_TEMP/diagram-renders/${render_name}.drawio"
+            sed 's/flowAnimation=1;//g' "$source" > "$render_source"
 
-            docker run --rm \
-              -u "$(id -u):$(id -g)" \
-              -e HOME=/home/drawio \
-              -v /etc/passwd:/etc/passwd:ro \
-              -v "$RUNNER_TEMP/drawio-home:/home/drawio" \
-              -v "$GITHUB_WORKSPACE:/data:ro" \
-              -v "$RUNNER_TEMP/diagram-renders:/output" \
-              -w /data \
-              rlespinasse/drawio-desktop-headless@sha256:b7fe022af559d73240111aaa97b07c516d2201c4837f73f0d5c36d6568ca941e \
-              -x -f svg --theme light --embed-svg-images \
-              -o "/output/${render_name}.svg" \
-              "$source"
+            render_status=0
+            export_with_drawio \
+              svg "/output/${render_name}.drawio" "/output/${render_name}.svg" \
+              || render_status=$?
+            accept_completed_timeout \
+              "$render_status" "$RUNNER_TEMP/diagram-renders/${render_name}.svg"
 
-            docker run --rm \
-              -u "$(id -u):$(id -g)" \
-              -e HOME=/home/drawio \
-              -v /etc/passwd:/etc/passwd:ro \
-              -v "$RUNNER_TEMP/drawio-home:/home/drawio" \
-              -v "$GITHUB_WORKSPACE:/data:ro" \
-              -v "$RUNNER_TEMP/diagram-renders:/output" \
-              -w /data \
-              rlespinasse/drawio-desktop-headless@sha256:b7fe022af559d73240111aaa97b07c516d2201c4837f73f0d5c36d6568ca941e \
-              -x -f png \
-              -o "/output/${render_name}.png" \
-              "$source"
+            render_status=0
+            export_with_drawio \
+              png "/output/${render_name}.drawio" "/output/${render_name}.png" \
+              || render_status=$?
+            if (( render_status == 0 )); then
+              continue
+            fi
+            if [[ "$render_name" != incremental-snapshot-* ]] \
+              && [[ "$render_name" != "tenant-onboarding" ]] \
+              && [[ "$render_name" != "failure-survival" ]] \
+              && [[ "$render_name" != "tenant-routing-isolation" ]] \
+              && [[ "$render_name" != "identity-permissions" ]] \
+              && [[ "$render_name" != "no-events-troubleshooting" ]] \
+              && [[ "$render_name" != "alert-dashboard-runbook" ]]; then
+              if (( render_status == 124 )) \
+                && [[ -s "$RUNNER_TEMP/diagram-renders/${render_name}.png" ]]; then
+                echo "Draw.io timed out after writing ${render_name}.png; exact comparison will verify it."
+                continue
+              fi
+              exit "$render_status"
+            fi
+
+            echo "Draw.io PNG export failed for ${render_name}; using the pinned renderer."
+            rm -f "$RUNNER_TEMP/diagram-renders/${render_name}.png"
+            "$resvg_dir/resvg" \
+              --background '#ffffff' \
+              --stylesheet "$resvg_stylesheet" \
+              "$RUNNER_TEMP/diagram-renders/${render_name}.svg" \
+              "$RUNNER_TEMP/diagram-renders/${render_name}.png"
           done
 
       - name: Check committed renders are current
@@ -121,3 +181,10 @@ jobs:
             cmp -- "$RUNNER_TEMP/${render_name}.committed.svg" "$RUNNER_TEMP/${render_name}.generated.svg"
             cmp -- "${stem}.png" "$RUNNER_TEMP/diagram-renders/${render_name}.png"
           done
+
+      - name: Upload generated renders after a mismatch
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: generated-diagram-renders
+          path: ${{ runner.temp }}/diagram-renders

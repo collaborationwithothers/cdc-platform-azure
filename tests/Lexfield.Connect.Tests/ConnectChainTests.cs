@@ -62,7 +62,7 @@ public sealed class ConnectChainTests(ConnectChainFixture chain)
         Assert.Equal(string.Empty, await chain.FindCustomPluginJarsAsync());
 
         var config = ConnectChainFixture.GenerateConfig(ConnectChainFixture.TenantOne, DatabaseOne);
-        Assert.Equal("outbox,tenantHeader", config["transforms"]);
+        Assert.Equal("dropNonOutbox,outbox,tenantHeader", config["transforms"]);
         var serialized = JsonSerializer.Serialize(config);
         Assert.DoesNotContain("rekey", serialized, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("PrefixKey", serialized, StringComparison.OrdinalIgnoreCase);

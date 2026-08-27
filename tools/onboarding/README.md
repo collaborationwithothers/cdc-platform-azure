@@ -16,9 +16,9 @@ The manifest must be a JSON array with `tenantId`, `database`, and
 `streamIsolated` for each tenant. Pass the manifest path and connection string
 as the first and second arguments; do not commit either input or print it.
 
-The runner creates the tables, enables CDC on `dbo.Outbox`, enables Change
-Tracking on `dbo.WorkflowTask`, enables snapshot isolation, and writes the
-`TenantInfo` claim.
+The runner creates the tables, enables CDC on `dbo.DebeziumSignal` and
+`dbo.Outbox`, enables Change Tracking on `dbo.WorkflowTask`, enables snapshot
+isolation, and writes the `TenantInfo` claim.
 
 The third argument is optional and names the [Entra](../../docs/blueprint.md)
 identity the Kafka connector authenticates as (for example `id-connect`). Omit

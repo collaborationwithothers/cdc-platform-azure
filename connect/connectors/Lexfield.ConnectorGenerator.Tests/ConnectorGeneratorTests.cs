@@ -43,7 +43,12 @@ public sealed class ConnectorGeneratorTests
         using var run = Generate(ThreeTenants);
         var config = ReadConfig(run.Output, "lexfield-001");
 
-        Assert.Equal("outbox,tenantHeader", config["transforms"]);
+        Assert.Equal("dropNonOutbox,outbox,tenantHeader", config["transforms"]);
+        Assert.Equal("org.apache.kafka.connect.transforms.Filter", config["transforms.dropNonOutbox.type"]);
+        Assert.Equal("isOutbox", config["transforms.dropNonOutbox.predicate"]);
+        Assert.Equal("true", config["transforms.dropNonOutbox.negate"]);
+        Assert.Equal("org.apache.kafka.connect.transforms.predicates.TopicNameMatches", config["predicates.isOutbox.type"]);
+        Assert.Equal("tenant-lexfield-001\\.tenant-001\\.dbo\\.Outbox", config["predicates.isOutbox.pattern"]);
         Assert.Equal("AggregateId", config["transforms.outbox.table.field.event.key"]);
         Assert.Contains("TraceParent:header:traceparent", config["transforms.outbox.table.fields.additional.placement"]);
         Assert.Equal("true", config["driver.encrypt"]);
