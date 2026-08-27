@@ -33,7 +33,8 @@ The test exercises one row, task `6801`, in this order:
 1. The fixture subscribes a new consumer, a reader of topic messages, to
    `workflow-transitions` and inserts an Outbox row with payload
    `{"taskId":6801,"from":"Created","to":"Assigned","version":1}`, and
-   sets its aggregate ID to `lexfield-001-6801`.
+   sets its aggregate ID, the Outbox field used as the message key, to
+   `lexfield-001-6801`.
 2. The consumer receives the original event. It then waits five seconds and
    expects no second event for that key. This baseline makes the later snapshot
    emission distinguishable from ordinary streaming.
@@ -48,13 +49,14 @@ The test exercises one row, task `6801`, in this order:
 5. The `Filter`, a Kafka Connect transform that drops records, removes
    non-Outbox records, including signal-table control records, before the
    `EventRouter`, the transform that unwraps the Outbox row into a business
-   event. `tenantHeader` then adds the tenant header. The configured chain is
+   event. `tenantHeader` then adds the tenant header, message metadata that
+   identifies the source tenant. The configured chain is
    `dropNonOutbox,outbox,tenantHeader`.
 6. The consumer receives the re-emitted event. The test requires key
    `lexfield-001-6801`, the exact payload above, and exact `tenantId`,
    `eventType`, `eventId`, and `traceparent` header names and byte values from
-   the original. It also requires the connector and every connector task to
-   report `RUNNING`.
+   the original. It also requires the connector and every connector task, a
+   unit of connector work run by Kafka Connect, to report `RUNNING`.
 
 The original event must be consumed before the command. Without that baseline,
 a message after the signal could be mistaken for the first delivery rather than
