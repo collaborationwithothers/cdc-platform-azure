@@ -1,0 +1,130 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<mxfile host="drawio-mcp" modified="2026-08-26T18:34:13.000Z" agent="drawio-mcp/1.0" version="24.7.17" type="device" compressed="false">
+  <diagram name="Identity and permissions" id="identity-permissions">
+    <mxGraphModel dx="1354" dy="981" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1800" pageHeight="1100" background="none" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="title" value="Who proves identity, who grants access, and who checks the tenant" style="text;html=1;align=left;verticalAlign=middle;fontSize=25;fontStyle=1;fontColor=#1f4e79;" parent="1" vertex="1">
+          <mxGeometry as="geometry" x="40.0" y="20.0" width="1500.0" height="40.0" />
+        </mxCell>
+        <mxCell id="subtitle" value="Authentication proves who a caller is. Authorization limits what that identity can do. Attribution checks which tenant an event belongs to." style="text;html=1;align=left;verticalAlign=middle;fontSize=14;fontColor=#555555;" parent="1" vertex="1">
+          <mxGeometry as="geometry" x="40.0" y="60.0" width="1600.0" height="30.0" />
+        </mxCell>
+        <mxCell id="kafka-zone" value="Kafka: mutual TLS proves identity; topic access rules grant permission" style="swimlane;startSize=28;whiteSpace=wrap;html=1;fillColor=#fff8e6;strokeColor=#d6b656;strokeWidth=2;verticalAlign=top;align=left;spacingLeft=10;spacingTop=8;fontSize=15;fontStyle=1;connectable=0;" parent="1" vertex="1">
+          <mxGeometry as="geometry" x="40.0" y="120.0" width="1710.0" height="270.0" />
+        </mxCell>
+        <mxCell id="operations" value="operations identity&lt;br&gt;&lt;font style=&quot;font-size:12px&quot;&gt;may write connect-signals&lt;br&gt;and notifier-control&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=14;fontStyle=1;" parent="1" vertex="1">
+          <mxGeometry as="geometry" x="90.0" y="200.0" width="210.0" height="100.0" />
+        </mxCell>
+        <mxCell id="signals" value="connect-signals&lt;br&gt;&lt;font style=&quot;font-size:12px&quot;&gt;snapshot commands only&lt;/font&gt;" style="shape=cylinder;whiteSpace=wrap;html=1;fillColor=#fce4d6;strokeColor=#c55a11;fontSize=14;fontStyle=1;" parent="1" vertex="1">
+          <mxGeometry as="geometry" x="350.0" y="200.0" width="190.0" height="100.0" />
+        </mxCell>
+        <mxCell id="connect-user" value="connect identity&lt;br&gt;&lt;font style=&quot;font-size:12px&quot;&gt;reads signals&lt;br&gt;writes transition + internal topics&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;fontSize=14;fontStyle=1;" parent="1" vertex="1">
+          <mxGeometry as="geometry" x="600.0" y="190.0" width="220.0" height="115.0" />
+        </mxCell>
+        <mxCell id="workflow" value="workflow topics&lt;br&gt;&lt;font style=&quot;font-size:12px&quot;&gt;shared + stream-isolated&lt;/font&gt;" style="shape=cylinder;whiteSpace=wrap;html=1;fillColor=#fce4d6;strokeColor=#c55a11;fontSize=14;fontStyle=1;" parent="1" vertex="1">
+          <mxGeometry as="geometry" x="880.0" y="200.0" width="200.0" height="100.0" />
+        </mxCell>
+        <mxCell id="queue-user" value="queue-builder identity&lt;br&gt;&lt;font style=&quot;font-size:12px&quot;&gt;reads workflow topics&lt;br&gt;writes parked events&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#70ad47;fontSize=14;fontStyle=1;" parent="1" vertex="1">
+          <mxGeometry as="geometry" x="1140.0" y="190.0" width="220.0" height="115.0" />
+        </mxCell>
+        <mxCell id="notifier-user" value="notifier identity&lt;br&gt;&lt;font style=&quot;font-size:12px&quot;&gt;reads workflow + control&lt;br&gt;writes parked events&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#70ad47;fontSize=14;fontStyle=1;" parent="1" vertex="1">
+          <mxGeometry as="geometry" x="1430.0" y="190.0" width="220.0" height="115.0" />
+        </mxCell>
+        <mxCell id="sql-zone" value="Azure SQL: workload identity primary path" style="swimlane;startSize=28;whiteSpace=wrap;html=1;fillColor=#f5f9ff;strokeColor=#4472c4;strokeWidth=2;verticalAlign=top;align=left;spacingLeft=10;spacingTop=8;fontSize=15;fontStyle=1;connectable=0;" parent="1" vertex="1">
+          <mxGeometry as="geometry" x="40.0" y="430.0" width="1080.0" height="300.0" />
+        </mxCell>
+        <mxCell id="connect-sa" value="Connect service account&lt;br&gt;&lt;font style=&quot;font-size:12px&quot;&gt;Kubernetes workload identity label + client ID&lt;br&gt;exchanges its service account token&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#4472c4;fontSize=14;fontStyle=1;" parent="1" vertex="1">
+          <mxGeometry as="geometry" x="90.0" y="520.0" width="220.0" height="105.0" />
+        </mxCell>
+        <mxCell id="managed-id" value="id-connect&lt;br&gt;&lt;font style=&quot;font-size:12px&quot;&gt;user-assigned managed identity&lt;br&gt;reads change records + signal markers&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#4472c4;fontSize=14;fontStyle=1;" parent="1" vertex="1">
+          <mxGeometry as="geometry" x="380.0" y="510.0" width="240.0" height="115.0" />
+        </mxCell>
+        <mxCell id="sql-db" value="Tenant Azure SQL database&lt;br&gt;&lt;font style=&quot;font-size:12px&quot;&gt;db_datareader&lt;br&gt;EXECUTE on cdc schema&lt;br&gt;INSERT + SELECT on DebeziumSignal&lt;/font&gt;" style="shape=cylinder;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=14;fontStyle=1;" parent="1" vertex="1">
+          <mxGeometry as="geometry" x="700.0" y="490.0" width="250.0" height="145.0" />
+        </mxCell>
+        <mxCell id="spike-note" value="Current boundary&lt;br&gt;&lt;font style=&quot;font-size:12px&quot;&gt;ActiveDirectoryDefault uses no database password. Shipping remains gated by the live authentication and reconnect spike.&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=13;fontStyle=1;align=left;spacingLeft=8;" parent="1" vertex="1">
+          <mxGeometry as="geometry" x="760.0" y="650.0" width="310.0" height="60.0" />
+        </mxCell>
+        <mxCell id="aks-icon" value="Kubernetes" style="shape=image;aspect=fixed;html=1;verticalLabelPosition=bottom;verticalAlign=top;align=center;fontSize=12;image=img/lib/azure2/containers/Kubernetes_Services.svg;" parent="1" vertex="1">
+          <mxGeometry as="geometry" x="300.0" y="650.0" width="55.0" height="55.0" />
+        </mxCell>
+        <mxCell id="mi-icon" value="Managed identity" style="shape=image;aspect=fixed;html=1;verticalLabelPosition=bottom;verticalAlign=top;align=center;fontSize=12;image=img/lib/azure2/identity/Managed_Identities.svg;" parent="1" vertex="1">
+          <mxGeometry as="geometry" x="570.0" y="650.0" width="55.0" height="55.0" />
+        </mxCell>
+        <mxCell id="sql-icon" value="Azure SQL" style="shape=image;aspect=fixed;html=1;verticalLabelPosition=bottom;verticalAlign=top;align=center;fontSize=12;image=img/lib/azure2/databases/SQL_Database.svg;" parent="1" vertex="1">
+          <mxGeometry as="geometry" x="980.0" y="500.0" width="55.0" height="55.0" />
+        </mxCell>
+        <mxCell id="vault-zone" value="Key Vault: runtime application secrets" style="swimlane;startSize=28;whiteSpace=wrap;html=1;fillColor=#f4ecf7;strokeColor=#9673a6;strokeWidth=2;verticalAlign=top;align=left;spacingLeft=10;spacingTop=8;fontSize=15;fontStyle=1;connectable=0;" parent="1" vertex="1">
+          <mxGeometry as="geometry" x="1150.0" y="430.0" width="600.0" height="300.0" />
+        </mxCell>
+        <mxCell id="eso-id" value="External Secrets identity&lt;br&gt;&lt;font style=&quot;font-size:12px&quot;&gt;Key Vault Secrets User&lt;br&gt;reads secret values from the platform vault&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#4472c4;fontSize=14;fontStyle=1;" parent="1" vertex="1">
+          <mxGeometry as="geometry" x="1190.0" y="520.0" width="210.0" height="110.0" />
+        </mxCell>
+        <mxCell id="vault" value="Azure Key Vault&lt;br&gt;&lt;font style=&quot;font-size:12px&quot;&gt;Cloudflare API token&lt;br&gt;Argo sign-in client secret&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=14;fontStyle=1;" parent="1" vertex="1">
+          <mxGeometry as="geometry" x="1470.0" y="520.0" width="210.0" height="110.0" />
+        </mxCell>
+        <mxCell id="vault-note" value="This is not the connector's primary Azure SQL path." style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#9673a6;fontSize=12;" parent="1" vertex="1">
+          <mxGeometry as="geometry" x="1260.0" y="660.0" width="300.0" height="45.0" />
+        </mxCell>
+        <mxCell id="kv-icon" value="Key Vault" style="shape=image;aspect=fixed;html=1;verticalLabelPosition=bottom;verticalAlign=top;align=center;fontSize=12;image=img/lib/azure2/security/Key_Vaults.svg;" parent="1" vertex="1">
+          <mxGeometry as="geometry" x="1680.0" y="500.0" width="50.0" height="50.0" />
+        </mxCell>
+        <mxCell id="attr-zone" value="Tenant attribution: detect a wrong connector header" style="swimlane;startSize=28;whiteSpace=wrap;html=1;fillColor=#f1f8f1;strokeColor=#70ad47;strokeWidth=2;verticalAlign=top;align=left;spacingLeft=10;spacingTop=8;fontSize=15;fontStyle=1;connectable=0;" parent="1" vertex="1">
+          <mxGeometry as="geometry" x="40.0" y="770.0" width="1710.0" height="230.0" />
+        </mxCell>
+        <mxCell id="source-key" value="task-api writes key&lt;br&gt;&lt;font style=&quot;font-size:12px&quot;&gt;{tenantId}-{taskId}&lt;br&gt;inside the source transaction&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#4472c4;fontSize=14;fontStyle=1;" parent="1" vertex="1">
+          <mxGeometry as="geometry" x="120.0" y="850.0" width="240.0" height="100.0" />
+        </mxCell>
+        <mxCell id="header" value="connector adds header&lt;br&gt;&lt;font style=&quot;font-size:12px&quot;&gt;tenantId from connector config&lt;br&gt;this value can be misconfigured&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=14;fontStyle=1;" parent="1" vertex="1">
+          <mxGeometry as="geometry" x="530.0" y="850.0" width="250.0" height="100.0" />
+        </mxCell>
+        <mxCell id="reconciler" value="reconciler compares&lt;br&gt;&lt;font style=&quot;font-size:12px&quot;&gt;observed tenantId header&lt;br&gt;with dbo.TenantInfo claim&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#70ad47;fontSize=14;fontStyle=1;" parent="1" vertex="1">
+          <mxGeometry as="geometry" x="950.0" y="850.0" width="250.0" height="100.0" />
+        </mxCell>
+        <mxCell id="alarm" value="Mismatch: sev1 alarm&lt;br&gt;&lt;font style=&quot;font-size:12px&quot;&gt;pause the connector first&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontSize=14;fontStyle=1;" parent="1" vertex="1">
+          <mxGeometry as="geometry" x="1370.0" y="850.0" width="240.0" height="100.0" />
+        </mxCell>
+        <mxCell id="e1" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#9673a6;strokeWidth=2;endArrow=block;flowAnimation=1;" parent="1" edge="1" source="operations" target="signals">
+          <mxGeometry as="geometry" relative="1" />
+        </mxCell>
+        <mxCell id="e2" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#d79b00;strokeWidth=2;endArrow=block;flowAnimation=1;" parent="1" edge="1" source="signals" target="connect-user">
+          <mxGeometry as="geometry" relative="1" />
+        </mxCell>
+        <mxCell id="e3" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#d79b00;strokeWidth=2;endArrow=block;flowAnimation=1;" parent="1" edge="1" source="connect-user" target="workflow">
+          <mxGeometry as="geometry" relative="1" />
+        </mxCell>
+        <mxCell id="e4" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#70ad47;strokeWidth=2;endArrow=block;flowAnimation=1;" parent="1" edge="1" source="workflow" target="queue-user">
+          <mxGeometry as="geometry" relative="1" />
+        </mxCell>
+        <mxCell id="e5" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#70ad47;strokeWidth=2;endArrow=block;flowAnimation=1;exitX=0.5;exitY=1;entryX=0.5;entryY=1;exitX=0.5;exitY=1.0;exitDx=0;exitDy=0;exitPerimeter=0;entryX=0.5;entryY=1.0;entryDx=0;entryDy=0;entryPerimeter=0;exitX=0.5;exitY=1.0;exitDx=0;exitDy=0;exitPerimeter=0;entryX=0.5;entryY=1.0;entryDx=0;entryDy=0;entryPerimeter=0;exitX=0.5;exitY=1.0;exitDx=0;exitDy=0;exitPerimeter=0;entryX=0.5;entryY=1.0;entryDx=0;entryDy=0;entryPerimeter=0;exitX=0.5;exitY=1.0;exitDx=0;exitDy=0;exitPerimeter=0;entryX=0.5;entryY=1.0;entryDx=0;entryDy=0;entryPerimeter=0;" parent="1" edge="1" source="workflow" target="notifier-user">
+          <mxGeometry as="geometry" relative="1">
+            <Array as="points">
+              <mxPoint x="980.0" y="340.0" />
+              <mxPoint x="1540.0" y="340.0" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e6" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#4472c4;strokeWidth=2;endArrow=block;flowAnimation=1;fontSize=12;labelBackgroundColor=#ffffff;" parent="1" edge="1" source="connect-sa" target="managed-id">
+          <mxGeometry as="geometry" relative="1" />
+        </mxCell>
+        <mxCell id="e7" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#9673a6;strokeWidth=2;endArrow=block;flowAnimation=1;fontSize=12;labelBackgroundColor=#ffffff;" parent="1" edge="1" source="managed-id" target="sql-db">
+          <mxGeometry as="geometry" relative="1" />
+        </mxCell>
+        <mxCell id="e8" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#9673a6;strokeWidth=2;endArrow=block;flowAnimation=1;fontSize=12;labelBackgroundColor=#ffffff;" parent="1" edge="1" source="eso-id" target="vault">
+          <mxGeometry as="geometry" relative="1" />
+        </mxCell>
+        <mxCell id="e9" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#4472c4;strokeWidth=2;endArrow=block;flowAnimation=1;" parent="1" edge="1" source="source-key" target="header">
+          <mxGeometry as="geometry" relative="1" />
+        </mxCell>
+        <mxCell id="e10" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#70ad47;strokeWidth=2;endArrow=block;flowAnimation=1;" parent="1" edge="1" source="header" target="reconciler">
+          <mxGeometry as="geometry" relative="1" />
+        </mxCell>
+        <mxCell id="e11" value="If different" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;strokeColor=#b85450;strokeWidth=2;endArrow=block;flowAnimation=1;fontSize=12;" parent="1" edge="1" source="reconciler" target="alarm">
+          <mxGeometry as="geometry" relative="1" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>
