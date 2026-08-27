@@ -1,0 +1,15 @@
+applicationInsightsConnectionString: ""
+
+telemetry:
+  sampler: microsoft.fixed_percentage
+  sampler_arg: "1.0"
+
+workloads:
+  - name: task-api
+    image: cdc-platform/task-api:dev
+  - name: queue-builder
+    image: cdc-platform/queue-builder:dev
+  - name: queue-reconciler
+    image: cdc-platform/queue-reconciler:dev
+  - name: notifier
+    image: cdc-platform/notifier:dev
