@@ -1,4 +1,4 @@
-name: connect-image
+name: Build and publish the Kafka Connect worker image
 
 # Builds the custom Kafka Connect worker image and proves its plugins loaded. The
 # build job needs no Azure and runs on every pull request, so the plugin check
@@ -36,27 +36,45 @@ env:
 
 jobs:
   build:
-    name: build and smoke test
+    name: Build and verify the Kafka Connect worker image
     # AGENTS.md: workflows run on ubuntu-latest only.
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v7
+      - name: Check out image and smoke-test sources
+        uses: actions/checkout@v7
 
-      - name: Build the image
+      - name: Build the worker image for SQL Server change events
         run: |
+          echo "Building Kafka Connect worker image $IMAGE_NAME:$GITHUB_SHA. Kafka Connect is the worker that runs Debezium, which reads committed SQL Server changes; this image supplies that worker's plugins. A build failure blocks plugin verification and publication."
           docker build \
             --file connect/image/Dockerfile \
             --tag "${IMAGE_NAME}:${GITHUB_SHA}" \
             connect/image
+          {
+            echo "### Built Kafka Connect worker image"
+            echo
+            echo "- Image: $IMAGE_NAME:$GITHUB_SHA"
+            echo "- Purpose: this worker image runs Debezium to read committed SQL Server changes and publish them to Kafka."
+            echo "- Proven here: the Docker build completed; the next step checks the required plugins and libraries."
+          } >> "$GITHUB_STEP_SUMMARY"
 
       # The acceptance check for this ticket. connect/image/README.md lists the
-      # four assertions and what each one guards against.
-      - name: Smoke test the plugin path
-        run: connect/image/smoke-test.sh "${IMAGE_NAME}:${GITHUB_SHA}"
+      # five assertions and what each one guards against.
+      - name: Verify the image plugins and required libraries
+        run: |
+          echo "Checking Kafka Connect worker image $IMAGE_NAME:$GITHUB_SHA. A plugin is an add-on loaded by the worker; this smoke test checks the Debezium SQL Server connector and its required libraries are discoverable, not Azure authentication or SQL Server-to-Kafka delivery. A failure blocks publication."
+          connect/image/smoke-test.sh "${IMAGE_NAME}:${GITHUB_SHA}"
+          {
+            echo "### Verified Kafka Connect worker image"
+            echo
+            echo "- Image: $IMAGE_NAME:$GITHUB_SHA"
+            echo "- Proven here: the Debezium SQL Server connector, the database-change reader; its outbox event router, which turns announcement rows into Kafka messages; the JDBC driver, which connects to SQL Server; and Azure identity libraries, which support credential authentication, are present, and removed duplicates are absent."
+            echo "- Not proven here: Azure authentication or delivery from SQL Server through Kafka."
+          } >> "$GITHUB_STEP_SUMMARY"
 
   push:
-    name: push to ACR (Hari-dispatched, gated)
+    name: Publish the verified worker image to Azure Container Registry (manual dispatch only)
     if: github.event_name == 'workflow_dispatch'
     needs: build
     runs-on: ubuntu-latest
@@ -66,9 +84,11 @@ jobs:
       id-token: write
       contents: read
     steps:
-      - uses: actions/checkout@v7
+      - name: Check out image and smoke-test sources for publication
+        uses: actions/checkout@v7
 
-      - uses: azure/login@v2
+      - name: Sign in to Azure for registry access with the federated identity
+        uses: azure/login@v2
         with:
           client-id: ${{ secrets.AZURE_CLIENT_ID }}
           tenant-id: ${{ secrets.AZURE_TENANT_ID }}
@@ -81,15 +101,24 @@ jobs:
       # One immutable tag, no floating tag: the disposable layer's KafkaConnect
       # resource pins a tag that must keep meaning the same image, and a moving
       # tag would let a redeploy silently change the worker.
-      - name: Build and push
+      - name: Build, verify, and publish the commit-tagged worker image
         env:
           ACR_LOGIN_SERVER: ${{ vars.ACR_LOGIN_SERVER }}
         run: |
-          : "${ACR_LOGIN_SERVER:?repository variable is not set}"
+          : "${ACR_LOGIN_SERVER:?the ACR_LOGIN_SERVER repository variable is missing; this job cannot name the image destination. Add the variable to the gated environment and dispatch this workflow again}"
+          echo "Logging into Azure Container Registry $ACR_LOGIN_SERVER with this workflow's federated identity. The login is required before the verified Kafka Connect worker image can be published; if it fails, the image remains unpublished. Check the azure-plan environment and federated credential, then dispatch again."
           az acr login --name "${ACR_LOGIN_SERVER%%.*}"
 
           reference="${ACR_LOGIN_SERVER}/${IMAGE_NAME}:$(git rev-parse --short=12 HEAD)"
+          echo "Building image with commit-derived reference $reference. The tag is derived from the checked-out commit rather than being a floating tag, so the source revision is visible in the published reference."
           docker build --file connect/image/Dockerfile --tag "${reference}" connect/image
+          echo "Verifying $reference before publication. The smoke test proves the image classpath and plugin contents; it does not prove Azure authentication or end-to-end SQL Server-to-Kafka delivery."
           connect/image/smoke-test.sh "${reference}"
           docker push "${reference}"
-          echo "### Pushed \`${reference}\`" >> "${GITHUB_STEP_SUMMARY}"
+          {
+            echo "### Published Kafka Connect worker image"
+            echo
+            echo "- Image: \`${reference}\`"
+            echo "- Proven before publication: the Docker build completed and the smoke test found the required plugins and libraries, including the Debezium SQL Server connector that reads SQL Server changes."
+            echo "- Not proven by this workflow: Azure authentication or end-to-end delivery from SQL Server through Kafka."
+          } >> "${GITHUB_STEP_SUMMARY}"
