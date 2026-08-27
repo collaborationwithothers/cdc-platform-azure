@@ -116,6 +116,9 @@
         <mxCell id="legend" value="Green names surviving state. Blue names the recovery action. Yellow names the delivery boundary an operator must expect." style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#999999;fontSize=12;align=left;spacingLeft=8;" parent="1" vertex="1">
           <mxGeometry as="geometry" x="40.0" y="950.0" width="1200.0" height="50.0" />
         </mxCell>
+        <mxCell id="node-loss-note" value="Deliberate node-loss recovery: design-only; unimplemented and unrehearsed." style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontSize=12;fontStyle=1;align=left;spacingLeft=8;" parent="1" vertex="1">
+          <mxGeometry as="geometry" x="1260.0" y="950.0" width="500.0" height="50.0" />
+        </mxCell>
       </root>
     </mxGraphModel>
   </diagram>
