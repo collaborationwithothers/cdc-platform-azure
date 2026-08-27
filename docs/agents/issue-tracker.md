@@ -17,6 +17,26 @@ status duplication in docs, the vault, or project boards.
 - large-pr-approved: PR size exception; only Hari applies it.
 - auto-merge-ok: the narrow agent-mergeable class; only Hari applies it.
 
+## Canonical GitHub shapes
+
+This repository is a multi-tenant change-data-capture platform on Azure. Each
+tenant's Azure SQL database is a source database. Debezium, a connector that
+reads committed database changes, publishes events to Kafka, a named stream of
+messages, and .NET consumers process those events.
+
+The repository's GitHub shapes put that context into the artifact a reader
+sees. `.github/ISSUE_TEMPLATE/agent-work.yml` is the canonical human issue
+form. `.github/PULL_REQUEST_TEMPLATE.md` is the canonical pull request shape.
+`docs/agents/github-comment-shapes.md` supplies reusable issue, pull request,
+and handoff comments. These repository shapes override a generic bundled skill
+shape when the two differ. Do not edit bundled skill files to resolve that
+difference.
+
+The issue form and the issue tracker rules use the same field names: Behavior,
+Blocked by, Paths, Verification, Acceptance checklist, Out of scope, and Size
+forecast. Use `none` when a field has no applicable item. The form does not
+apply lifecycle labels or run prose checks; Hari controls readiness labels.
+
 ## Blocking edges
 
 Every ticket lists the issues that must close before it can start, as GitHub
@@ -47,6 +67,27 @@ Title: imperative, scoped. Body sections, all required before ready-for-agent:
   verification run.
 - Out of scope: what this ticket explicitly does not do.
 - Size forecast: files, additions plus deletions.
+
+Start the Behavior field with the repository, affected component, and reader
+context. Define a Kafka topic as a named stream of messages and a consumer as
+a service that reads those messages when either term is central to the work.
+State why the behavior matters and name the verification boundary. A link may
+add evidence, but it cannot carry context required to understand the ticket.
+
+## Publication and handoff
+
+Before publishing an issue, pull request, or comment, render the GitHub
+artifact and reread it as an Azure engineer who is new to this repository and
+to Kafka-based distributed systems. Confirm that the result, its consequence,
+and its verification state are clear without an earlier chat turn. Keep
+`Current state`, `Historical evidence`, and `Unknowns` separate when more than
+one applies. Required context takes priority over a customary line limit.
+
+Use the comment shapes in `docs/agents/github-comment-shapes.md` for pickup,
+progress, blocker, verification, completion, takeover, review finding, and
+historical rewrite messages. Replace every bracketed placeholder before
+posting. A comment reports the boundary it proves; it does not turn a unit
+check into a container or live result.
 
 ## Agent skill operations (gh CLI)
 

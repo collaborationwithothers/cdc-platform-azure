@@ -1,0 +1,94 @@
+name: Agent work
+description: Propose a scoped change to the Azure change-data-capture platform.
+body:
+  - type: markdown
+    attributes:
+      value: |
+        This repository is a multi-tenant change-data-capture platform on Azure. Each tenant's Azure SQL database is a source database. Debezium reads committed database changes and publishes events, messages describing those changes, to Kafka, a named stream of messages, for .NET consumers.
+
+        This issue form is canonical and overrides a conflicting generic skill template. Write every field for an Azure engineer who is new to this repository, Kafka, and event-driven systems. Explain the affected component, why the behavior matters, and how it will be verified. Links add evidence but cannot carry required context. Use `none` when a field has no applicable item. Before submitting, render the issue and reread it without earlier conversation.
+  - type: textarea
+    id: context
+    attributes:
+      label: Context and affected component
+      description: Describe the repository area, the component's plain role, and the consequence a reader should understand before the governance fields below.
+      placeholder: |
+        Context: This repository moves committed changes from tenant Azure SQL databases through Debezium to Kafka, a named stream of messages.
+        Affected component: [component] is the [plain role].
+        Consequence: [why this work matters]
+    validations:
+      required: true
+  - type: textarea
+    id: behavior
+    attributes:
+      label: Behavior
+      description: State what becomes independently true. Start with the affected component, its plain role, the repository context, and the consequence for the source, event stream, consumer, operator, or reader.
+      placeholder: |
+        Context: [component] is the [plain role] in the path from a tenant Azure SQL database through Debezium to Kafka.
+        Behavior: [independently true result]
+        Why it matters: [concrete consequence]
+    validations:
+      required: true
+  - type: textarea
+    id: blocked-by
+    attributes:
+      label: Blocked by
+      description: List one blocking issue per line, or write none. A blocker is work that must close before this issue can start.
+      placeholder: |
+        none
+        or
+        - #123: [why this issue must close first]
+    validations:
+      required: true
+  - type: textarea
+    id: paths
+    attributes:
+      label: Paths
+      description: List the exact files or directories this issue owns. Explain any path that needs to be shared with another open issue.
+      placeholder: |
+        - src/[component]/[file]
+        - docs/[document]
+    validations:
+      required: true
+  - type: textarea
+    id: verification
+    attributes:
+      label: Verification
+      description: Choose unit, containers, or live. Give the exact command, test, or live check, and state the boundary it proves. Do not claim production scale from a narrow check.
+      placeholder: |
+        Method: unit
+        Run: [exact command or test]
+        Proves: [specific behavior]
+        Does not prove: [unexercised integration, scale, or live Azure behavior]
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance-checklist
+    attributes:
+      label: Acceptance checklist
+      description: Add one checkable item per line. Each item must be verifiable from the diff or the declared verification run.
+      placeholder: |
+        - [ ] [observable behavior or evidence]
+        - [ ] [test or documentation evidence]
+    validations:
+      required: true
+  - type: textarea
+    id: out-of-scope
+    attributes:
+      label: Out of scope
+      description: Name the behaviors, paths, or deferred work this issue will not change. Write none if there are no exclusions.
+      placeholder: |
+        - [excluded behavior or path]
+        - [deferred item]
+        or
+        none
+    validations:
+      required: true
+  - type: input
+    id: size-forecast
+    attributes:
+      label: Size forecast
+      description: Give the expected file count and additions plus deletions before coding.
+      placeholder: 5 files; at most 250 additions plus deletions
+    validations:
+      required: true
