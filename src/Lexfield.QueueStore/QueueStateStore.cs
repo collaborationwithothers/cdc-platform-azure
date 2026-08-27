@@ -45,7 +45,8 @@ public sealed class QueueStateStore(string connectionString)
 
     // Microsoft documents HOLDLOCK for uniqueness, not deadlock freedom.
     // SQL error 1205 deliberately propagates; QueueStore has no internal retry.
-    // V12: https://github.com/collaborationwithothers/cdc-platform-azure/issues/45#issuecomment-5414678461
+    // Verification V12 concurrency decision:
+    // https://github.com/collaborationwithothers/cdc-platform-azure/issues/45#issuecomment-5414678461
     private const string GuardedUpsert = """
         MERGE INTO dbo.QueueState WITH (HOLDLOCK) AS target
         USING (VALUES (

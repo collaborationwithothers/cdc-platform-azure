@@ -47,8 +47,9 @@ public sealed class SqlServerFixture : IAsyncLifetime
         CreateDatabaseAsync(databaseName);
 
     /// <summary>
-    /// Creates a database and applies the platform QueueState schema to it.
-    /// The real one is a single Azure SQL database shared by three services.
+    /// Creates a database and applies the complete six-table QueueStore schema.
+    /// In the platform, one Azure SQL database stores these tables for
+    /// queue-builder, reconciler, and notifier.
     /// </summary>
     public async Task<string> CreateQueueStoreDatabaseAsync(string databaseName)
     {

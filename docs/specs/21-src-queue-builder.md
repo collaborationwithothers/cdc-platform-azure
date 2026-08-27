@@ -40,16 +40,20 @@ There is deliberately no unguarded write path. The blueprint's write invariant
 holds "on all paths, live and repair", and the cheapest way to make that true is
 to leave no second door.
 
-**V12 chose the locking shape.** A queue-builder live write and a reconciler
-repair can target the same missing row. Two queue-builder instances cannot:
-one task key maps to one partition with one owner. The reconciler is outside
-that ownership, so the store must handle both writers.
+**The concurrency verification chose one locked `MERGE` statement.**
+[Verification question V12](https://github.com/collaborationwithothers/cdc-platform-azure/issues/45#issuecomment-5414678461)
+asked how QueueStore should handle two writers for the same missing row. A
+queue-builder live write and a reconciler repair can create that race. Two
+queue-builder instances cannot: one task key maps to one partition with one
+owner. The reconciler is outside that ownership, so the store must handle both
+writers.
 
 Microsoft recommends considering separate `INSERT` and `UPDATE` logic because
-it might block less than `MERGE` under heavy concurrency. V12 rejected it here:
-keeping the missing-row check and write atomic would require an explicit
-transaction and lock hints across multiple statements. The parameterized,
-single-row `MERGE` keeps that decision and write in one statement.
+it might block less than `MERGE` under heavy concurrency. The verification
+rejected it here: keeping the missing-row check and write atomic would require
+an explicit transaction and lock hints across multiple statements. The
+parameterized, single-row `MERGE` keeps that decision and write in one
+statement.
 
 `HOLDLOCK` applies `SERIALIZABLE` semantics and retains locks on the target
 until the transaction ends. Microsoft documents its unique-key protection,
@@ -258,7 +262,7 @@ exists anywhere in this suite.
 | Repair rate limiting | containers | Inject 100 gaps for one tenant. Assert repair calls leave at the bucket's rate, that the excess waits in the queue rather than being issued, and that the queue drains as tokens refill. |
 | Repair shedding is counted, not silent | containers | Overfill the waiting queue past its capacity. Assert the oldest waiting repair is discarded, `repair.shed` increments, and the reconciler subsequently repairs that task. Proves a shed repair is delayed rather than lost. |
 | Repair failure gives up rather than blocking | containers | Point the repair client at a task-api that always fails. Assert two retries, then `repair.failed`, and assert the consumer keeps processing other messages throughout. A consumer that blocks on a failing source stops every other tenant on its partitions. |
-| Guarded upsert under concurrent writers | containers | Two writers apply to the same `(tenantId, taskId)` concurrently, one at a lower version and one higher, repeated across many iterations. Assert no duplicate key error, no deadlock, exactly one row, and the higher version wins. This is the test that decides whether V12's answer was applied correctly. |
+| Guarded upsert under concurrent writers | containers | Two writers apply to the same `(tenantId, taskId)` concurrently, one at a lower version and one higher, repeated across many iterations. Assert no duplicate key error, no deadlock, exactly one row, and the higher version wins. This test proves the recorded concurrency decision was applied correctly. |
 | Skip and park | containers | Produce a malformed value and a message with no `tenantId` header. Assert both land on the parked topic with a reason, the consumer's offset advances, and the next good message is applied. |
 | Rebalance redelivery | containers | Start a second host instance mid-stream, let the group rebalance, assert no duplicate effects and no lost application. Blueprint failure mode 5 is a designed-for case, so it gets a test rather than a claim. |
 | Attribution recording | containers | Produce for two tenants, assert two `StreamAttribution` rows with the right topics. |
