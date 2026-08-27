@@ -155,8 +155,7 @@ jobs:
               && [[ "$render_name" != "failure-survival" ]] \
               && [[ "$render_name" != "tenant-routing-isolation" ]] \
               && [[ "$render_name" != "identity-permissions" ]] \
-              && [[ "$render_name" != "no-events-troubleshooting" ]] \
-              && [[ "$render_name" != "alert-dashboard-runbook" ]]; then
+              && [[ "$render_name" != "no-events-troubleshooting" ]]; then
               if (( render_status == 124 )) \
                 && [[ -s "$RUNNER_TEMP/diagram-renders/${render_name}.png" ]]; then
                 echo "Draw.io PNG export timed out after writing ${render_name}.png; this job will compare that generated PNG with the committed artifact. A match passes this check; a mismatch fails and requires re-rendering from the editable $source source."
