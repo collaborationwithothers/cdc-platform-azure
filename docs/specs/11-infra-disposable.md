@@ -116,7 +116,7 @@ order:
    absent, per [00-shared-contracts.md](00-shared-contracts.md).
    `DebeziumSignal` is the connector's incremental-snapshot watermarking table;
    see [30-connect.md](30-connect.md).
-2. Enable CDC on the database, then on `dbo.Outbox` only.
+2. Enable CDC on the database, then on `dbo.DebeziumSignal` and `dbo.Outbox`.
 3. Enable Change Tracking on the database, then on `dbo.WorkflowTask` only,
    with `TRACK_COLUMNS_UPDATED = OFF`. SPEC-LEVEL: column tracking is off
    because the reconciler needs changed task ids, not changed columns.
@@ -299,7 +299,7 @@ mode 9 requires.
 | --- | --- | --- |
 | All Terraform | unit | `fmt -check`, `validate`, `tflint`, and mocked plan assertions in CI. The plan asserts both identity switches, both two-node `Standard_D2s_v6` pools, the ACR role binding, the Connect federation target, and the cluster-name output. |
 | Kafka and Connect manifests | unit | Schema-validate the rendered custom resources against the pinned Strimzi CRDs, offline. No cluster needed. |
-| Onboarding T-SQL, steps 1, 2, 3, 4, 6 | containers | Run the runner against a Testcontainers SQL Server. Assert: tables exist, including `dbo.DebeziumSignal`; `sys.databases.is_cdc_enabled`; a capture instance on `dbo.Outbox` and none on `dbo.WorkflowTask`; `sys.change_tracking_tables` contains `WorkflowTask` and nothing else; `sys.databases.snapshot_isolation_state` is on for the database; the `TenantInfo` row holds the expected tenantId. Then run the whole thing a second time and assert nothing changed and nothing threw, which is the actual idempotency claim. |
+| Onboarding T-SQL, steps 1, 2, 3, 4, 6 | containers | Run the runner against a Testcontainers SQL Server. Assert: tables exist, including `dbo.DebeziumSignal`; `sys.databases.is_cdc_enabled`; capture instances on `dbo.DebeziumSignal` and `dbo.Outbox` and none on `dbo.WorkflowTask`; `sys.change_tracking_tables` contains `WorkflowTask` and nothing else; `sys.databases.snapshot_isolation_state` is on for the database; the `TenantInfo` row holds the expected tenantId. Then run the whole thing a second time and assert nothing changed and nothing threw, which is the actual idempotency claim. |
 | Onboarding step 5 | live | `CREATE USER FROM EXTERNAL PROVIDER` and its grants need a real Entra-backed server. The signal-table INSERT and SELECT grant is part of this step, so it too is verified during the identity spike, not in the container test. Excluded from the container test by a flag. Labelled `needs-live-test`. |
 | KQL queries | unit | Each query parsed and validated offline. Query correctness against real data is verified during the live measurement tickets, not here. |
 | Alert rules cover the catalogue | unit | Assert one rule exists per row of observability.md section 2, matched by name, and that each carries its severity and links its dashboard and runbook anchor. A catalogue row with no rule is a documented alert nobody gets. |
