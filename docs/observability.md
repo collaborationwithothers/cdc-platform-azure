@@ -1,36 +1,78 @@
 # Observability and operations design
 
-Design authority for how this platform is operated: severities, alerts,
-correlation, logging, dashboards, and SLOs. Sits beside docs/blueprint.md and
-binds the specs the same way. Status: v0.3 (2026-08-23), post-grill; twelve findings folded; parking made consumer-level.
-Thresholds marked PENDING-MEASUREMENT are published only after the section 7
-experiments run; nothing here states an unmeasured number as fact.
+This guide is the operator view of the Azure change-data-capture platform. It explains which component owns each signal, what failure the signal means, and what the operator can verify.
 
-Reader model: the on-call operator is a stranger with this doc, the runbooks,
-and dashboard access, at 03:00, without the authors.
+The intended reader is an Azure engineer visiting this repository for the first time and learning Kafka, Debezium, and distributed-system operations.
 
-## Shared health endpoint
+The labels `Current implementation/test evidence`, `Design contract only`, and `Live unknown` keep repository proof, intended behaviour, and Azure results separate. A link adds evidence; it does not replace the explanation here.
 
-The shared HTTP endpoint serves `/healthz` and `/readyz`. During process
-shutdown, the host may stop and dispose the endpoint close together. The
-endpoint treats both operations as repeatable: the first call stops the
-listener, and later calls finish without using resources already disposed.
+## 1. Platform path and evidence boundary
 
-## 1. Severity model
+Each tenant database is the source of workflow truth. SQL Server change data capture (CDC) records committed changes. An outbox is a database table that stores an event beside the business change it announces.
 
-Three tiers. sev1 pages a human immediately. sev2 raises an alert handled in
-business hours. sev3 is a dashboard trend with no notification.
+Debezium is a connector that reads CDC records generated for the outbox table and publishes events to Kafka, a message-streaming platform.
 
-Derivation rule: sev1 = many tenants stopped, or any tenant's data integrity
-in doubt, or spend at the ceiling. sev2 = one tenant degraded, or a
-guarantee's headroom shrinking. sev3 = self-healed events and expected
-behaviour made visible.
+TaskApi writes the task change and outbox row in one transaction.
+
+Kafka Connect is the service that runs the Debezium connector. A consumer is a service that reads a Kafka event and applies it to its own state.
+
+The operator follows this path from left to right: database commit, CDC record, Debezium read, Kafka append, consumer read, and consumer write. A delay or failure at one boundary changes which owner and evidence to inspect.
+
+Telemetry is the health, log, metric, and trace data collected from that path.
+
+**Current implementation/test evidence:** TaskApi registers the shared observability library. Tests capture its structured JSON log shape and the two health responses in process.
+
+**Design contract only:** QueueBuilder is a planned consumer that applies task events to QueueState, its query database. Reconciler is a planned repair service that compares QueueState with source truth.
+
+Notifier is a planned consumer that records and sends a notification attempt. These three services, their cross-service queries, and their operator recovery flows are not implemented.
+
+**Live unknown:** no disposable deployment injects faults or proves telemetry ingestion into Azure. No latency, availability, recovery, or cost result is claimed here.
+
+**Historical evidence:** older guide revisions treated Spot eviction as routine. Current Terraform and plan tests require regular AKS capacity, so that wording is obsolete.
+
+Node loss is now a deliberate design drill. The drill has not been implemented or rehearsed.
+
+Evidence: [AKS node pools](../infra/disposable/aks.tf) and [regular-capacity plan tests](../infra/disposable/tests/cluster.tftest.hcl).
+
+Evidence: [blueprint.md](blueprint.md) and [TaskApi wiring](../src/Lexfield.TaskApi/Program.cs).
+
+The library is in [LexfieldObservabilityExtensions.cs](../src/Lexfield.Observability/LexfieldObservabilityExtensions.cs).
+
+The tests are in [ObservabilityRegistrationTests.cs](../tests/Lexfield.Observability.Tests/ObservabilityRegistrationTests.cs).
 
 ## 2. Alert catalogue
 
-One row per alert. Signal names reference the event vocabulary (section 5)
-and platform metrics. Thresholds without numbers are PENDING-MEASUREMENT and
-derive from the SLOs (section 7) or the coupled lag experiment.
+**Signal map.** A signal is a health result, log, metric, trace, or alert about one component. The signal owner emits or controls it.
+
+Lag is elapsed delay between two stages. A grace window is the time allowed to detect and correct a late or missing event.
+
+A service-level objective (SLO) is a target for user-visible reliability. Severity (Sev) states how urgently the design expects an operator to respond.
+
+The shared `/healthz` and `/readyz` endpoints return HTTP 200 with `ok` and `ready`. They are unconditional process endpoints, not dependency readiness checks.
+
+A 200 response does not prove that SQL Server, Kafka, Connect, or a consumer is usable.
+
+During process shutdown, repeated stop and dispose calls are safe. Tests cover this endpoint lifecycle as current in-process behavior.
+
+**Current implementation/test evidence:** TaskApi implements these event names: `TransitionCommitted`, `OutboxWritten`, `RepairRead`, and `ChangesFeedRead`.
+
+It also implements `ChangesFeedUnavailable` and `FaultInjected`. `ChangesFeedUnavailable` is diagnostic context, not an alert by itself.
+
+**Design contract only:** QueueBuilder, Reconciler, and Notifier event names in the table below describe the intended signal vocabulary. Connect, Debezium, Argo CD, Istio, cert-manager, and external-dns retain their upstream names.
+
+- QueueBuilder: `EventReceived`, `EventApplied`, `DuplicateSkipped`, `GapDetected`, `HeadLossDetected`, `RepairRequested`, `RepairApplied`, `EventParked`, and `PartitionBlocked`.
+- Reconciler: `SweepStarted`, `SweepCompleted`, `DriftFlagged`, `DriftRepaired`, `AttributionVerified`, and `AttributionMismatch`.
+- Notifier: `EventReceived`, `DuplicateSkipped`, `NotificationSent`, `SendRecorded`, and `EventParked`.
+
+A Kafka topic is a named stream. A partition is an ordered slice of that stream, and an offset is a message's position in the slice. A broker is a Kafka server that stores these records.
+
+A poison event is a message that a consumer cannot parse or apply. The design parks it on a repair topic so the shared partition can advance instead of crash-looping or silently skipping it.
+
+Argo CD reconciles committed Kubernetes configuration into the cluster. Istio routes ingress traffic, cert-manager renews certificates, and external-dns publishes gateway names.
+
+The table is a 25-row catalogue. Its thresholds and severities are design
+decisions, not measurements. The two budget rows have committed Terraform and
+plan-test evidence; the other rows have no committed alert rule.
 
 | Alert | Signal | Threshold | Sev | Dashboard | Runbook |
 | --- | --- | --- | --- | --- | --- |
@@ -58,157 +100,130 @@ derive from the SLOs (section 7) or the coupled lag experiment.
 | Origin cert expiry | cert-manager renewal failing / cert under 14 days | any | 2 | Fleet | recover-ingress |
 | Ingress path broken | external-dns update failures, or gateway 5xx rate | sustained 15 min | 2 | Fleet | recover-ingress |
 | Healed drift | Reconciler.DriftRepaired | any | 3 | Correctness | none |
-| Rebalances, spot evictions, repair throttling | platform events | any | 3 | Fleet / Consumers | none |
+| Rebalances, deliberate node-loss drill, repair throttling | design events only; no current signal | any | 3 | Fleet / Consumers | none |
 
-Escalation defaults (4 h, 80 percent, 5 per hour, 15 min, 2 sweep intervals,
-5 tenants) are design choices, revisitable after measurement; they are rules,
-not measurements, so they may ship now.
+In the design, Sev1 pages a human immediately. Sev2 raises an alert for business-hours handling. Sev3 records a dashboard trend without notification.
 
-Disambiguation rule the operator needs at 03:00: schema-history errors on ONE
-connector alongside auth failures is the doomed-reconnect loop (auth path,
-recover-connector-auth); schema-history startup failures FLEET-WIDE is
-internal topic loss (recover-internal-topics). The single-versus-fleet check
-comes first, or the wrong recovery gets run.
+Sev1 means many tenants stopped, data integrity is in doubt, or spend reached the ceiling.
 
-Suppression: the teardown/recreate runbook opens an Azure Monitor suppression
-window on the stream rows before recreate and closes it once connectors report
-RUNNING, so routine session recreates never page (blueprint FM2 is a scheduled
-event, not an incident). Spot evictions are unscheduled and get no suppression;
-instead the stream rows' sustain thresholds derive from measured
-rebalance-after-eviction duration, so a routine eviction resolves inside the
-threshold and a real outage does not.
+The 4 h, 80 percent, 5 per hour, 15 min, 2 sweep intervals, and 5-tenant defaults are revisitable design choices. They are not measured platform results.
 
-## 3. Correlation design
+Check fleet scope first. One connector with auth errors and repeated schema-history recovery is a doomed reconnect loop. Fleet-wide schema-history startup failure is internal topic loss and needs a different recovery path.
 
-Two layers, both mandatory.
+Suppression is design only. The intended teardown flow suppresses stream alerts before recreation and restores them after connectors report RUNNING.
 
-Layer 1, correlation fields. The domain has a natural correlation key most
-systems lack: (tenantId, taskId, version). Every log line in every Lexfield
-service carries tenantId and, where applicable, taskId and version, as
-structured fields. The canonical investigation ("firm-118 says task 4712 went
-stale Tuesday") is one KQL query filtering those three fields across all
-services, yielding the full timeline by eye from event timestamps.
+No suppression rule or teardown integration exists. Deliberate node loss is not a current signal and has no rehearsal.
 
-Two stated exceptions to the universal-key promise, exactly where the operator
-must know them: (a) a poison event may be unparseable, so EventParked (from
-any consumer) guarantees only partition and offset, with tenantId,
-taskId, version, and traceparent stamped best-effort from the message key when
-it parses; investigating a parked event may mean reading the repair topic at
-that offset. (b) A victim of cross-tenant head-of-line blocking shows silence
-in its own tenant-scoped timeline; the explaining line is
-QueueBuilder.PartitionBlocked (partition, blocked offset, blocking tenant),
-which is not tenant-scoped by design, and the loss-investigation runbook says
-plainly: a tenant timeline that goes silent means pivot to partition lag and
-PartitionBlocked, not more tenant-scoped queries.
+## 3. Collection and correlation
 
-Layer 2, distributed tracing. task-api starts a W3C trace and writes the
-traceparent into the outbox payload in the same transaction as the event. The
-SMT chain copies it to a Kafka header; queue-builder, reconciler repairs, and
-notifier continue the trace via OpenTelemetry. Rendering, stated precisely:
-across an asynchronous Kafka hop Application Insights shows producer and
-consumer as linked related operations (span links), not one continuous
-parent-child waterfall; the operator clicks through the link, and the doc says
-so to prevent a 03:00 hunt for a Gantt bar that never existed. Sampling
-caveat, same honesty class as the stage-1 hole: App Insights samples per
-component independently and does not honour the upstream sampled-flag, so
-producer and consumer sampling must be configured identically (build scale:
-sample nothing out) or traces break at the hop.
+The persistent Terraform declares a Log Analytics workspace and an Application Insights component. The declarations are in [observability.tf](../infra/persistent/observability.tf).
 
-The stage-1 hole, stated honestly: the SQL Server capture process cannot emit
-spans, so the trace shows task-api's span, a silent gap, then the connector's
-span. The gap IS the capture lag, and it is bridged arithmetically, not with a
-span: the commit timestamp rides in the payload, the connector's read time is
-known, and the per-stage lag metric is computed from the pair. Dashboards show
-stage-1 lag as a first-class series precisely because no trace can.
+Log Analytics is the query destination. Application Insights is the Azure telemetry destination. These Terraform declarations are committed, but no live resource or telemetry ingestion is proven.
 
-## 4. Logging standard
+TaskApi conditionally registers the Azure Monitor exporter when `APPLICATIONINSIGHTS_CONNECTION_STRING` is present. The disposable layer does not currently inject that value, and no live ingestion result exists.
 
-Structured JSON everywhere. Mandatory fields per line: timestamp, service,
-level, eventName, traceparent, tenantId; taskId and version where applicable,
-and changeCount on `TaskApi.ChangesFeedRead`.
-Levels: warning and above are reserved for conditions in the alert catalogue;
-hot paths log info sparingly and never per-message chatter beyond the
-vocabulary events. All SPEC-LEVEL beyond the field list.
+OpenTelemetry is a standard for creating and exporting telemetry. The library registers a `Meter` for numeric measurements and an `ActivitySource` for trace activities.
 
-## 5. Event vocabulary (Component.Action, PascalCase)
+Tests export counters in process. There is no HTTP `/metrics` endpoint.
 
-- TaskApi: TransitionCommitted, OutboxWritten, RepairRead, ChangesFeedRead,
-  ChangesFeedUnavailable, FaultInjected (demo flag announces itself; never silent).
-  ChangesFeedUnavailable is diagnostic context, not an alert signal; reconciler work owns any alert coupling.
-- QueueBuilder: EventReceived, EventApplied, DuplicateSkipped, GapDetected,
-  HeadLossDetected, RepairRequested, RepairApplied, EventParked,
-  PartitionBlocked.
-- Reconciler: SweepStarted, SweepCompleted, DriftFlagged, DriftRepaired,
-  AttributionVerified, AttributionMismatch.
-- Notifier: EventReceived, DuplicateSkipped, NotificationSent, SendRecorded,
-  EventParked. Parking is a consumer-level behaviour on this topic, not a
-  queue-builder specialty: every consumer that meets an unprocessable event
-  parks it to the repair topic and advances, so no consumer can crash-loop or
-  silently skip on poison.
-- Connect/Debezium logs keep their upstream names; the design maps the
-  patterns the alerts depend on (task state transitions, retry exhaustion)
-  rather than renaming them. Nobody should hunt for Lexfield names in Connect
-  logs.
-- Argo CD, Istio, cert-manager, external-dns, ESO keep their upstream log and
-  metric names; the design maps the signals the three alert rows depend on
-  rather than renaming them.
+TaskApi structured JSON logs carry timestamp, service, level, eventName, traceparent, and tenantId.
 
-## 6. Dashboards (as code, four)
+They add taskId, version, and changeCount where applicable.
 
-- Fleet: connector task states, per-tenant lag, stage-1 versus stage-2 lag
-  split, grace-window headroom, rebalance and eviction events.
-- Correctness: gap, head-loss, drift, attribution counters per tenant; parked
-  events; repair rates.
-- Consumers: partition lag, throughput, repair token-bucket state,
-  SentNotifications conflict rate.
-- Spend: actuals versus the three alert tiers.
+A traceparent is a standard web-tracing string that identifies a trace and its producing operation. TaskApi writes it to the separate outbox `TraceParent` column in the same transaction as the event.
 
-Every catalogue alert links exactly one dashboard and one runbook anchor.
+The stock outbox router maps that column to the Kafka `traceparent` header. The [Connect container test](../tests/Lexfield.Connect.Tests/ConnectChainTests.cs) asserts the byte-preserving mapping.
 
-## 7. SLOs
+A missing traceparent is an untraced event, not a tenant-routing error.
 
-Three, operator-facing, compliance shown on Fleet; no error-budget machinery
-(deferred as ceremony a 3-tenant build cannot exercise honestly).
+**Design contract only:** consumers should continue a trace from that header and use tenantId, taskId, and version as the correlation key.
 
-- Freshness: p99 commit-to-queue-visible within X at design load.
-- Detection: any loss surfaced within sweep interval plus grace window (the
-  designed bound restated as a promise).
-- Delivery: notification attempted within Y of transition.
+An unparseable parked event guarantees only its Kafka partition and offset. Tenant, task, version, and trace fields are best effort because the consumer may not be able to read the message key.
 
-X and Y are PENDING-MEASUREMENT; the SLO table ships with "targets pending
-measurement" until the section 7 blueprint experiments produce them, then the
-sev2 freshness alert derives from compliance burn instead of a guessed lag
-number.
+A silent tenant timeline can mean another tenant's poison event blocked the shared partition. The operator then pivots to partition lag and `PartitionBlocked`, not another tenant-only query.
+
+Cross-service trace continuation and consumer event logs are not implemented. Kusto Query Language (KQL) queries are also not committed.
+
+**Live unknown:** Kafka-hop rendering in Application Insights and sampling continuity across components are unverified. No continuous waterfall or complete sampled trace is promised.
+
+**Design contract only:** Stage 1 is commit to CDC visibility. SQL Server emits no trace span for that capture step, so the design computes stage-1 lag from timestamps.
+
+Stage 2 is CDC visibility to Kafka append. Stage 3 is Kafka append to consumer apply. No implementation currently emits these three measured series.
+
+The logging design reserves warning and higher levels for catalogue conditions. Hot paths use information logs sparingly and avoid per-message chatter outside the named event vocabulary.
+
+## 4. Dashboards and alerts
+
+Fleet, Correctness, Consumers, and Spend are planned dashboard names in the catalogue. No dashboard definition is committed.
+
+The intended views remain connector task state and lag; correctness gaps and repairs; consumer partition lag and delivery conflicts; and spend against the three budget tiers.
+
+Most catalogue rows name one planned dashboard and one planned runbook anchor. `Healed drift` and the platform-events row name no runbook. The platform-events row spans the Fleet and Consumers dashboards.
+
+No dashboard, non-budget catalogue alert rule, KQL file, or suppression rule is committed. Section 8 lists planned runbook names, not links to existing procedures.
+
+The three operator-facing SLOs are design targets. Freshness is commit to queue-visible time. Detection is loss surfaced within the sweep interval plus grace window. Delivery is notification attempted within a target time.
+
+Freshness and delivery targets remain `PENDING-MEASUREMENT`. No guessed latency, availability, recovery, or cost figure may be read from this catalogue.
+
+## 5. Failure and recovery interpretation
+
+**Current implementation/test evidence:** treat a 200 health response as process liveness only. Check the owning signal before deciding that a dependency or downstream state is healthy.
+
+**Design contract only:** the diagnosis choices below describe intended operator decisions. The consumer services and incident runbooks they depend on are not implemented.
+
+- A fleet stream outage points first to Connect task state and broker reachability.
+- A single stopped connector points to that tenant's connector and retry history.
+- Internal topic loss is fleet-wide offsets or schema-history failure, not one tenant auth failure.
+- QueueState failure means consumer writes cannot update the service-owned projection.
+- Attribution mismatch means the connector's tenant header disagrees with source TenantInfo; pause that connector first.
+- A poison event blocks a shared partition until the consumer parks or otherwise handles it; partition lag explains tenant silence.
+- Tail drift means the source and projection differ; the reconciler's version-guarded repair reads source truth.
+- Stage-1 lag consumes grace-window headroom and can cause false drift if the window is too short.
+- A node-loss recovery is a deliberate design drill. The committed AKS pools use regular capacity, and no drill has been implemented or rehearsed.
+
+The recovery design distinguishes a process restart from full teardown. It is not an executable current runbook.
+
+A restart can resume from retained Kafka offsets. Full disposable teardown loses build-scale Kafka history.
+
+The intended rebuild reruns onboarding, takes connector snapshots, and bootstraps QueueState from source truth. No automatic replay of deleted history is claimed.
+
+## 6. Build-scale versus design-scale unknowns
+
+Build scale is three tenant databases plus the platform-owned QueueState database. Design scale is 400 tenants. The 400 figure is design reasoning, except where a dated container measurement says otherwise.
+
+The load generator can draw 400 synthetic tenant keys for a blast-radius test, but those keys map onto the three databases that exist. Such a result measures synthetic key and shared-database contention, not 400 real tenant databases.
+
+The partial-fleet threshold of five stopped connectors cannot trigger in the three-tenant build. It is a design-scale threshold.
+
+The planned container tests cover connector density, poison-event blast radius, and reconciler scaling. They do not prove live Azure capacity, real tenant isolation, node-loss recovery, telemetry ingestion, or production cost.
+
+The v1 scope cuts remain deliberate: error budgets and burn-rate policies, on-call process, routing beyond one channel, SLA reporting, synthetic probes, and high-volume log sampling are deferred.
+
+This page changes no monitoring behaviour, threshold, query, alert, dashboard, or runbook.
+
+Its verification is documentation-only: references must resolve, the table must retain 25 rows, and current, design, and live claims must stay separate.
 
 ## 8. Runbook anchors required
 
-recover-connect, recover-internal-topics, recover-queuestate,
-recover-reconciler, recover-task-api, recover-connector-auth,
-attribution-breach, poison-triage, recover-connector, retune-grace-window,
-loss-investigation, recover-notifier, spend-review, destroy-disposable,
-lag-investigation, gitops-diverged, recover-ingress. Each is a section in
-docs/runbooks/, written in the procedural register, first action first.
+- recover-connect
+- recover-internal-topics
+- recover-queuestate
+- recover-reconciler
+- recover-task-api
+- recover-connector-auth
+- attribution-breach
+- poison-triage
+- recover-connector
+- retune-grace-window
+- loss-investigation
+- recover-notifier
+- spend-review
+- destroy-disposable
+- lag-investigation
+- gitops-diverged
+- recover-ingress
 
-Binding rule: a runbook body lands in the same ticket as its alert, and no
-sev1 alert ships without its runbook. First steps must be instructions, not
-intentions; the attribution-breach shape is the bar: "1. Identify the
-connector from the alert's tenantId. 2. From the repo root:
-scripts/ops/pause-connector.sh <tenantId>. 3. Confirm paused: the script
-polls Connect REST until task state is PAUSED and prints it. Then diagnose."
+These names remain planned catalogue entries. The corresponding incident sections are not present in `docs/runbooks/`.
 
-## 9. Scope cuts
-
-Deferred, named so the boundary reads as chosen: error budgets and burn-rate
-policies; on-call rotas and incident management process; alert routing beyond
-a single channel; SLA reporting; synthetic probes; log sampling strategies at
-volumes the build cannot generate.
-
-## 10. Spec deltas this design implies
-
-- Shared contracts: traceparent field in the outbox payload; SMT maps it to a
-  Kafka header. (Contract change; touches 00-shared-contracts and 30-connect.)
-- Each .NET lane: OTel wiring, the event vocabulary, mandatory log fields,
-  metrics endpoints.
-- Docs lane: alert catalogue and dashboards as code; the runbook anchors.
-- Infra/disposable: Application Insights or OTel collector wiring to Log
-  Analytics.
+A sev1 row is not operationally executable until its runbook body and first command exist under `docs/runbooks/`.
