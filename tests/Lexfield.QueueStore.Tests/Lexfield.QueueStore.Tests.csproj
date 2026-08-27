@@ -1,34 +1,21 @@
 <Project Sdk="Microsoft.NET.Sdk">
-
   <PropertyGroup>
     <TargetFramework>net10.0</TargetFramework>
-    <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
     <IsPackable>false</IsPackable>
   </PropertyGroup>
-
   <ItemGroup>
     <PackageReference Include="Microsoft.Data.SqlClient" Version="6.1.6" />
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.14.1" />
-    <PackageReference Include="Testcontainers.Kafka" Version="4.14.0" />
-    <PackageReference Include="Testcontainers.MsSql" Version="4.14.0" />
     <PackageReference Include="xunit" Version="2.9.3" />
     <PackageReference Include="xunit.runner.visualstudio" Version="3.1.4" />
   </ItemGroup>
-
   <ItemGroup>
-    <ProjectReference Include="../../src/Lexfield.Contracts/Lexfield.Contracts.csproj" />
     <ProjectReference Include="../../src/Lexfield.QueueStore/Lexfield.QueueStore.csproj" />
-    <ProjectReference Include="../../tools/onboarding/Lexfield.Onboarding.csproj" />
+    <ProjectReference Include="../Lexfield.TestSupport/Lexfield.TestSupport.csproj" />
   </ItemGroup>
-
-  <ItemGroup>
-    <Compile Include="../Lexfield.Onboarding.Tests/**/*.cs"
-             Link="OnboardingTests/%(RecursiveDir)%(Filename)%(Extension)" />
-  </ItemGroup>
-
   <ItemGroup>
     <Using Include="Xunit" />
   </ItemGroup>
-
 </Project>

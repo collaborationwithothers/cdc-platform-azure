@@ -11,40 +11,74 @@ Paths owned: `src/Lexfield.QueueBuilder/`, `src/Lexfield.QueueStore/`,
 
 ### QueueStore
 
-`src/Lexfield.QueueStore/`. The schema in
-[00-shared-contracts.md](00-shared-contracts.md) plus its data access. Shared
-with the reconciler and the notifier, which is why it is a project and not a
-folder inside queue-builder.
+`src/Lexfield.QueueStore/`. One create-only v1 migration owns
+all six tables defined across [00-shared-contracts.md](00-shared-contracts.md)
+and [22-src-queue-reconciler.md](22-src-queue-reconciler.md).
+It cannot alter existing tables.
+The first schema change must add versioning.
+QueueStore is shared with the reconciler and notifier. That shared use is why
+it is a project rather than a folder inside queue-builder.
+For v1, the deployment runner calls `QueueStoreDatabase.MigrateAsync` once and
+waits for it to finish before queue-builder, reconciler, or notifier starts.
+Those services do not run the migration themselves.
 
 Its single most important method is the guarded upsert, and it is the only way
 any code in the repo writes `QueueState`:
 
 ```sql
-MERGE dbo.QueueState AS target
-USING (SELECT @tenantId, @taskId) AS source (TenantId, TaskId)
-   ON target.TenantId = source.TenantId AND target.TaskId = source.TaskId
- WHEN MATCHED AND target.Version < @version THEN UPDATE SET ...
- WHEN NOT MATCHED THEN INSERT ...;
+MERGE INTO dbo.QueueState WITH (HOLDLOCK) AS target
+USING (VALUES (@tenantId, @taskId, @state, @version, @teamId, @assigneeId))
+    AS source (TenantId, TaskId, State, Version, TeamId, AssigneeId)
+ON target.TenantId = source.TenantId AND target.TaskId = source.TaskId
+WHEN MATCHED AND target.Version < source.Version THEN
+    UPDATE SET ...
+WHEN NOT MATCHED THEN
+    INSERT ...;
 ```
 
 There is deliberately no unguarded write path. The blueprint's write invariant
 holds "on all paths, live and repair", and the cheapest way to make that true is
 to leave no second door.
 
-**The statement shape above is provisional, and V12 owns it.** `MERGE` with a
-`WHEN NOT MATCHED THEN INSERT` clause has a known concurrency caveat: two
-sessions can both find no matching row and both insert, unless the target is
-locked for the duration. That is not theoretical here, because there really are
-two writers on one key. queue-builder applying a live event and queue-reconciler
-applying a repair can reach `(tenantId, taskId)` at the same instant. Two
-queue-builder instances cannot, since one key always hashes to one partition and
-one partition has one owner, but that argument says nothing about the
-reconciler.
+**The concurrency verification chose one locked `MERGE` statement.**
+[Verification question V12](https://github.com/collaborationwithothers/cdc-platform-azure/issues/45#issuecomment-5414678461)
+asked how QueueStore should handle two writers for the same missing row. A
+queue-builder live write and a reconciler repair can create that race. Two
+queue-builder instances cannot: one task key maps to one partition with one
+owner. The reconciler is outside that ownership, so the store must handle both
+writers.
 
-Whatever V12 returns, the invariant does not change: a row is written only when
-the incoming version is greater than the stored one. Only the statement shape
-may change, to whichever concurrent-upsert form the documentation supports. The
-concurrency test in the verification table below exists to prove it either way.
+Microsoft recommends considering separate `INSERT` and `UPDATE` logic because
+it might block less than `MERGE` under heavy concurrency. The verification
+rejected it here: keeping the missing-row check and write atomic would require
+an explicit transaction and lock hints across multiple statements. The
+parameterized, single-row `MERGE` keeps that decision and write in one
+statement.
+
+`HOLDLOCK` applies `SERIALIZABLE` semantics and retains locks on the target
+until the transaction ends. Microsoft documents its unique-key protection,
+but not deadlock freedom. The repeated container test owns evidence for the
+intended same-key race. It does not establish behavior at scale. Microsoft
+also cautions that `MERGE` can introduce complicated concurrency issues at
+scale, so production rollout requires broader testing.
+QueueStore never retries inside the failing call, so error 1205 propagates to
+the caller.
+
+Queue-builder leaves the Kafka offset uncommitted, so redelivery retries the
+event. The reconciler keeps its drift observation, so its next sweep retries
+the comparison and repair.
+
+The primary key alone belongs in `ON` because it identifies the target row.
+Putting the version there would make an older event look like a missing row and
+send it down the insert path. The version guard therefore stays in
+`WHEN MATCHED`. The repeated test proves both writers reach that missing-key
+race and the higher version wins.
+
+Sources:
+
+- [MERGE concurrency considerations](https://learn.microsoft.com/sql/t-sql/statements/merge-transact-sql#concurrency-considerations-for-merge)
+- [HOLDLOCK](https://learn.microsoft.com/sql/t-sql/queries/hints-transact-sql-table#holdlock)
+- [Deadlocks guide](https://learn.microsoft.com/sql/relational-databases/sql-server-deadlocks-guide)
 
 ### Ordering, stated because it is easy to assume wrongly
 
@@ -228,7 +262,7 @@ exists anywhere in this suite.
 | Repair rate limiting | containers | Inject 100 gaps for one tenant. Assert repair calls leave at the bucket's rate, that the excess waits in the queue rather than being issued, and that the queue drains as tokens refill. |
 | Repair shedding is counted, not silent | containers | Overfill the waiting queue past its capacity. Assert the oldest waiting repair is discarded, `repair.shed` increments, and the reconciler subsequently repairs that task. Proves a shed repair is delayed rather than lost. |
 | Repair failure gives up rather than blocking | containers | Point the repair client at a task-api that always fails. Assert two retries, then `repair.failed`, and assert the consumer keeps processing other messages throughout. A consumer that blocks on a failing source stops every other tenant on its partitions. |
-| Guarded upsert under concurrent writers | containers | Two writers apply to the same `(tenantId, taskId)` concurrently, one at a lower version and one higher, repeated across many iterations. Assert no duplicate key error, no deadlock, exactly one row, and the higher version wins. This is the test that decides whether V12's answer was applied correctly. |
+| Guarded upsert under concurrent writers | containers | Two writers apply to the same `(tenantId, taskId)` concurrently, one at a lower version and one higher, repeated across many iterations. Assert no duplicate key error, no deadlock, exactly one row, and the higher version wins. This test proves the recorded concurrency decision was applied correctly. |
 | Skip and park | containers | Produce a malformed value and a message with no `tenantId` header. Assert both land on the parked topic with a reason, the consumer's offset advances, and the next good message is applied. |
 | Rebalance redelivery | containers | Start a second host instance mid-stream, let the group rebalance, assert no duplicate effects and no lost application. Blueprint failure mode 5 is a designed-for case, so it gets a test rather than a claim. |
 | Attribution recording | containers | Produce for two tenants, assert two `StreamAttribution` rows with the right topics. |
