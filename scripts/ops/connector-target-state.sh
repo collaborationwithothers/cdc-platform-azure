@@ -1,16 +1,29 @@
 #!/usr/bin/env bash
 #
-# Drives one tenant's Debezium connector to PAUSED or RUNNING and waits until
-# Kafka Connect reports it there. pause-connector.sh and resume-connector.sh are
-# the two entry points an operator runs; README.md beside this file explains why
-# the wait exists and what a timeout means.
+# Drives one tenant's Debezium change-capture connector to PAUSED or RUNNING and
+# waits until Kafka Connect reports that state for the connector and its tasks.
+# pause-connector.sh and resume-connector.sh are the two entry points an operator
+# runs; README.md beside this file explains the terms and what a timeout means.
 #
 # Usage: connector-target-state.sh <pause|resume> <tenantId>
 
 set -euo pipefail
 
-readonly VERB="${1:?usage: connector-target-state.sh <pause|resume> <tenantId>}"
-readonly TENANT_ID="${2:?usage: connector-target-state.sh <pause|resume> <tenantId>}"
+readonly USAGE="usage: connector-target-state.sh <pause|resume> <tenantId>; controls one tenant's Debezium change-capture connector in Kafka Connect; RUNNING means the connector and its tasks are running, PAUSED means they are paused"
+if [ "$#" -lt 1 ]; then
+  echo "FAIL: ${USAGE}" >&2
+  exit 1
+fi
+readonly VERB="$1"
+if [ "$#" -lt 2 ]; then
+  echo "FAIL: ${USAGE}" >&2
+  exit 1
+fi
+readonly TENANT_ID="$2"
+if [ -z "${TENANT_ID}" ]; then
+  echo "FAIL: tenantId must not be empty. Valid form: connector-target-state.sh <pause|resume> <tenantId>; provide the ID used in tenant-<tenantId>-outbox." >&2
+  exit 1
+fi
 
 # Connect's REST listener has no public ingress (blueprint section 9), so an
 # operator port-forwards it first and this default points at that forward.
@@ -22,7 +35,7 @@ readonly POLL_INTERVAL_SECONDS="${CONNECT_POLL_INTERVAL_SECONDS:-1}"
 case "${VERB}" in
   pause) readonly TARGET_STATE="PAUSED" ;;
   resume) readonly TARGET_STATE="RUNNING" ;;
-  *) echo "FAIL: verb must be pause or resume, not '${VERB}'" >&2; exit 2 ;;
+  *) echo "FAIL: connector action must be pause or resume, not '${VERB}'. Valid form: connector-target-state.sh <pause|resume> <tenantId>" >&2; exit 2 ;;
 esac
 
 # The generator names every connector tenant-<tenantId>-outbox; see
@@ -58,37 +71,37 @@ PYTHON
 }
 
 response="$(connect_request GET "/connectors/${CONNECTOR}/status")" \
-  || fail "cannot reach Kafka Connect at ${CONNECT_URL}; README.md gives the port-forward"
+  || fail "cannot reach the local Kafka Connect endpoint at ${CONNECT_URL}. Check the Connect endpoint and its port-forward."
 
 case "$(http_code "${response}")" in
   200) ;;
-  404) fail "connector ${CONNECTOR} does not exist at ${CONNECT_URL}" ;;
-  *) fail "GET /connectors/${CONNECTOR}/status returned HTTP $(http_code "${response}"): $(body_of "${response}")" ;;
+  404) fail "Kafka Connect connector ${CONNECTOR} does not exist at ${CONNECT_URL}. Check the tenantId and the connector name tenant-<tenantId>-outbox." ;;
+  *) fail "the local Kafka Connect endpoint at ${CONNECT_URL} returned HTTP $(http_code "${response}") for connector ${CONNECTOR}. Check the endpoint and port-forward. Response: $(body_of "${response}")" ;;
 esac
 
 # Connect answers 202 Accepted: the request is recorded and the connector and its
 # tasks transition afterwards, which is the whole reason this script polls rather
 # than reporting success here.
 response="$(connect_request PUT "/connectors/${CONNECTOR}/${VERB}")" \
-  || fail "cannot reach Kafka Connect at ${CONNECT_URL}"
+  || fail "cannot reach the local Kafka Connect endpoint at ${CONNECT_URL} while requesting ${VERB}. Check the Connect endpoint and its port-forward."
 case "$(http_code "${response}")" in
   200 | 202) ;;
-  *) fail "PUT /connectors/${CONNECTOR}/${VERB} returned HTTP $(http_code "${response}"): $(body_of "${response}")" ;;
+  *) fail "Kafka Connect rejected the requested ${VERB} for connector ${CONNECTOR} with HTTP $(http_code "${response}"): $(body_of "${response}")" ;;
 esac
 
-echo "${VERB}: ${CONNECTOR} at ${CONNECT_URL}, waiting for ${TARGET_STATE}"
+echo "request: ${VERB} Kafka Connect Debezium connector ${CONNECTOR} at ${CONNECT_URL}. Requested state: ${TARGET_STATE}. Waiting for the observed connector and task states."
 deadline=$((SECONDS + TIMEOUT_SECONDS))
 observed="no status read yet"
 while :; do
   response="$(connect_request GET "/connectors/${CONNECTOR}/status")" || true
   if [ "$(http_code "${response}")" = "200" ]; then
     if observed="$(at_target_state "${TARGET_STATE}" "$(body_of "${response}")")"; then
-      echo "${CONNECTOR}: ${observed}"
+      echo "success: ${VERB} completed for Kafka Connect Debezium connector ${CONNECTOR}. Requested state: ${TARGET_STATE}. Observed states: ${observed}."
       exit 0
     fi
   fi
   if [ "${SECONDS}" -ge "${deadline}" ]; then
-    fail "${CONNECTOR} did not reach ${TARGET_STATE} within ${TIMEOUT_SECONDS}s. Last seen: ${observed}"
+    fail "Kafka Connect Debezium connector ${CONNECTOR} did not reach the requested state ${TARGET_STATE} within ${TIMEOUT_SECONDS}s. Last observed states: ${observed}. Check the connector status and the local Connect endpoint at ${CONNECT_URL}."
   fi
   sleep "${POLL_INTERVAL_SECONDS}"
 done

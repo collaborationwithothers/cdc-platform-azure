@@ -66,8 +66,8 @@ public static class OperatorScript
 }
 
 /// <summary>
-/// The checks that need no cluster: every script refuses to run without its
-/// arguments, and the notifier script refuses a verb the notifier cannot honour.
+/// Checks that need no cluster: each command explains the component it controls
+/// when its arguments are missing, and notifier validation names the correction.
 /// </summary>
 public sealed class OperatorScriptArgumentTests
 {
@@ -83,6 +83,7 @@ public sealed class OperatorScriptArgumentTests
 
         Assert.NotEqual(0, result.ExitCode);
         Assert.Contains(expectedArguments, result.Output);
+        Assert.StartsWith("FAIL:", result.StandardError.TrimStart());
     }
 
     [Fact]
@@ -93,6 +94,57 @@ public sealed class OperatorScriptArgumentTests
 
         Assert.NotEqual(0, result.ExitCode);
         Assert.Contains("action must be retry or skip", result.Output);
+        Assert.Contains("Valid form: notifier-control.sh <retry|skip> <partition> <offset> <reason>", result.Output);
+    }
+
+    [Theory]
+    [InlineData("nope", "4102", "operator supplied an invalid number", "partition must be a non-negative integer", "a number such as 7")]
+    [InlineData("7", "nope", "operator supplied an invalid number", "offset must be a non-negative integer", "a number such as 4102")]
+    [InlineData("7", "4102", "   ", "reason must contain text", "downstream sender restored")]
+    public async Task Notifier_control_names_invalid_input_and_shows_a_valid_form(
+        string partition,
+        string offset,
+        string reason,
+        string expectedProblem,
+        string expectedForm)
+    {
+        var result = await OperatorScript.RunAsync(
+            "notifier-control.sh", ["retry", partition, offset, reason]);
+
+        Assert.NotEqual(0, result.ExitCode);
+        Assert.Contains(expectedProblem, result.Output);
+        Assert.Contains(expectedForm, result.Output);
+    }
+
+    [Theory]
+    [InlineData("pause-connector.sh", "pause")]
+    [InlineData("resume-connector.sh", "resume")]
+    [InlineData("connector-target-state.sh", "pause")]
+    public async Task Empty_tenant_id_fails_before_a_connect_request_and_explains_the_correction(
+        string script,
+        string verb)
+    {
+        var binDirectory = Directory.CreateTempSubdirectory("connect-bin").FullName;
+        var requestMarker = Path.Combine(binDirectory, "curl-requested");
+        var curlStub = Path.Combine(binDirectory, "curl");
+        await File.WriteAllTextAsync(curlStub, $"#!/usr/bin/env bash\ntouch \"{requestMarker}\"\n");
+        if (!OperatingSystem.IsWindows())
+        {
+            File.SetUnixFileMode(curlStub, UnixFileMode.UserRead | UnixFileMode.UserExecute);
+        }
+
+        string[] arguments = script == "connector-target-state.sh"
+            ? [verb, ""]
+            : [""];
+        var result = await OperatorScript.RunAsync(
+            script,
+            arguments,
+            new Dictionary<string, string> { ["PATH"] = binDirectory });
+
+        Assert.NotEqual(0, result.ExitCode);
+        Assert.Contains("tenantId must not be empty", result.StandardError);
+        Assert.Contains("Valid form:", result.StandardError);
+        Assert.False(File.Exists(requestMarker));
     }
 
     [Fact]
@@ -119,6 +171,9 @@ public sealed class OperatorScriptArgumentTests
             new Dictionary<string, string> { ["KAFKA_BIN_DIR"] = binDirectory });
 
         Assert.Equal(0, result.ExitCode);
+        Assert.Contains("request: notifier consumer action 'skip'", result.StandardOutput);
+        Assert.Contains("Kafka partition 7 at offset 4102", result.StandardOutput);
+        Assert.Contains("success: notifier control action 'skip'", result.StandardOutput);
         var recorded = (await File.ReadAllLinesAsync(recording)).ToArray();
         Assert.Contains("--topic notifier-control", recorded[0]);
         using var message = JsonDocument.Parse(recorded[1]);
@@ -286,7 +341,8 @@ public sealed class ConnectFixture : IAsyncLifetime
 
 /// <summary>
 /// The behaviour the runbook step depends on: the pause script does not report
-/// success on the accepted request, it reports it on the state Connect settles in.
+/// success on the accepted request, it reports the state Connect settles in and
+/// names both the requested and observed states.
 /// </summary>
 public sealed class ConnectorScriptTests(ConnectFixture connect) : IClassFixture<ConnectFixture>
 {
@@ -305,6 +361,10 @@ public sealed class ConnectorScriptTests(ConnectFixture connect) : IClassFixture
         var result = await OperatorScript.RunAsync("pause-connector.sh", [TenantId], Environment);
 
         Assert.Equal(0, result.ExitCode);
+        Assert.Contains("request: pause Kafka Connect Debezium connector", result.StandardOutput);
+        Assert.Contains("Requested state: PAUSED", result.StandardOutput);
+        Assert.Contains("success: pause completed for Kafka Connect Debezium connector", result.StandardOutput);
+        Assert.Contains("Observed states:", result.StandardOutput);
         Assert.Contains("connector PAUSED", result.StandardOutput);
         Assert.Contains("task 0 PAUSED", result.StandardOutput);
         // Connect accepts the pause before the states change, so a script that
@@ -323,6 +383,10 @@ public sealed class ConnectorScriptTests(ConnectFixture connect) : IClassFixture
         var result = await OperatorScript.RunAsync("resume-connector.sh", [TenantId], Environment);
 
         Assert.Equal(0, result.ExitCode);
+        Assert.Contains("request: resume Kafka Connect Debezium connector", result.StandardOutput);
+        Assert.Contains("Requested state: RUNNING", result.StandardOutput);
+        Assert.Contains("success: resume completed for Kafka Connect Debezium connector", result.StandardOutput);
+        Assert.Contains("Observed states:", result.StandardOutput);
         Assert.Contains("connector RUNNING", result.StandardOutput);
         Assert.Equal("RUNNING RUNNING", await connect.ReadStatesAsync(TenantId));
     }
@@ -335,5 +399,6 @@ public sealed class ConnectorScriptTests(ConnectFixture connect) : IClassFixture
 
         Assert.NotEqual(0, result.ExitCode);
         Assert.Contains("tenant-lexfield-absent-outbox does not exist", result.StandardError);
+        Assert.Contains("Check the tenantId", result.StandardError);
     }
 }
