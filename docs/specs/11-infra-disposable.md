@@ -251,7 +251,9 @@ stderr.
 Terraform's in-cluster delivery responsibility at Argo CD and one root
 Application. The wave-4 service Applications will own the Application Insights
 connection-string reference and the shared trace sampler settings after the
-services have deployable images. This area does not create placeholder service
+services have deployable images. Follow-up issue
+[#245](https://github.com/collaborationwithothers/cdc-platform-azure/issues/245)
+owns that deferred wiring. This area does not create placeholder service
 Deployments or a second Terraform-owned delivery path.
 
 **What this area does not do.** No OpenTelemetry Collector runs in the cluster.

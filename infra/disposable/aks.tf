@@ -31,13 +31,9 @@ resource "azurerm_kubernetes_cluster" "platform" {
     identity_ids = [azurerm_user_assigned_identity.control_plane.id]
   }
 
-  dynamic "oms_agent" {
-    for_each = local.persistent_log_analytics_workspace_id == null ? [] : [local.persistent_log_analytics_workspace_id]
-
-    content {
-      log_analytics_workspace_id      = oms_agent.value
-      msi_auth_for_monitoring_enabled = true
-    }
+  oms_agent {
+    log_analytics_workspace_id      = local.persistent_log_analytics_workspace_id
+    msi_auth_for_monitoring_enabled = true
   }
 
   network_profile {

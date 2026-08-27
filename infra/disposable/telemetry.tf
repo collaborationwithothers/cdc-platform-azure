@@ -1,5 +1,5 @@
 locals {
-  persistent_log_analytics_workspace_id = try(data.terraform_remote_state.persistent.outputs.log_analytics_workspace_id, null)
+  persistent_log_analytics_workspace_id = data.terraform_remote_state.persistent.outputs.log_analytics_workspace_id
 }
 
 data "azurerm_monitor_diagnostic_categories" "aks" {
@@ -7,7 +7,6 @@ data "azurerm_monitor_diagnostic_categories" "aks" {
 }
 
 resource "azurerm_monitor_data_collection_rule" "container_insights" {
-  count               = local.persistent_log_analytics_workspace_id == null ? 0 : 1
   name                = "dcr-cdc-platform-container-insights"
   resource_group_name = azurerm_resource_group.disposable.name
   location            = azurerm_resource_group.disposable.location
@@ -42,15 +41,13 @@ resource "azurerm_monitor_data_collection_rule" "container_insights" {
 }
 
 resource "azurerm_monitor_data_collection_rule_association" "container_insights" {
-  count                   = local.persistent_log_analytics_workspace_id == null ? 0 : 1
   name                    = "container-insights"
   target_resource_id      = azurerm_kubernetes_cluster.platform.id
-  data_collection_rule_id = azurerm_monitor_data_collection_rule.container_insights[0].id
+  data_collection_rule_id = azurerm_monitor_data_collection_rule.container_insights.id
   description             = "Associates Container Insights with the AKS cluster."
 }
 
 resource "azurerm_monitor_diagnostic_setting" "aks_control_plane" {
-  count                          = local.persistent_log_analytics_workspace_id == null ? 0 : 1
   name                           = "aks-control-plane"
   target_resource_id             = azurerm_kubernetes_cluster.platform.id
   log_analytics_workspace_id     = local.persistent_log_analytics_workspace_id

@@ -58,12 +58,12 @@ run "wires_aks_monitoring" {
     target = data.terraform_remote_state.persistent
     values = {
       outputs = {
-        acr_id                         = "/subscriptions/mock/resourceGroups/rg-cdc-platform-persistent/providers/Microsoft.ContainerRegistry/registries/cdcplatformmock"
-        connect_identity_id            = "/subscriptions/mock/resourceGroups/rg-cdc-platform-persistent/providers/Microsoft.ManagedIdentity/userAssignedIdentities/id-connect"
-        eso_identity_client_id         = "mock-eso-client-id"
-        eso_identity_id                = "/subscriptions/mock/resourceGroups/rg-cdc-platform-persistent/providers/Microsoft.ManagedIdentity/userAssignedIdentities/id-external-secrets"
-        key_vault_uri                  = "https://cdc-platform-mock.vault.azure.net/"
-        log_analytics_workspace_id     = "/subscriptions/mock/resourceGroups/rg-cdc-platform-persistent/providers/Microsoft.OperationalInsights/workspaces/cdcplatformmock"
+        acr_id                     = "/subscriptions/mock/resourceGroups/rg-cdc-platform-persistent/providers/Microsoft.ContainerRegistry/registries/cdcplatformmock"
+        connect_identity_id        = "/subscriptions/mock/resourceGroups/rg-cdc-platform-persistent/providers/Microsoft.ManagedIdentity/userAssignedIdentities/id-connect"
+        eso_identity_client_id     = "mock-eso-client-id"
+        eso_identity_id            = "/subscriptions/mock/resourceGroups/rg-cdc-platform-persistent/providers/Microsoft.ManagedIdentity/userAssignedIdentities/id-external-secrets"
+        key_vault_uri              = "https://cdc-platform-mock.vault.azure.net/"
+        log_analytics_workspace_id = "/subscriptions/mock/resourceGroups/rg-cdc-platform-persistent/providers/Microsoft.OperationalInsights/workspaces/cdcplatformmock"
       }
     }
   }
@@ -79,32 +79,32 @@ run "wires_aks_monitoring" {
   }
 
   assert {
-    condition     = contains(azurerm_monitor_data_collection_rule.container_insights[0].data_flow[0].streams, "Microsoft-ContainerLogV2")
+    condition     = contains(azurerm_monitor_data_collection_rule.container_insights.data_flow[0].streams, "Microsoft-ContainerLogV2")
     error_message = "The Container Insights DCR must select the ContainerLogV2 stream."
   }
 
   assert {
-    condition     = contains(azurerm_monitor_data_collection_rule.container_insights[0].data_flow[0].destinations, "log-analytics")
+    condition     = contains(azurerm_monitor_data_collection_rule.container_insights.data_flow[0].destinations, "log-analytics")
     error_message = "The Container Insights DCR must send data to its Log Analytics destination."
   }
 
   assert {
-    condition     = azurerm_monitor_data_collection_rule.container_insights[0].destinations[0].log_analytics[0].workspace_resource_id == data.terraform_remote_state.persistent.outputs.log_analytics_workspace_id
+    condition     = azurerm_monitor_data_collection_rule.container_insights.destinations[0].log_analytics[0].workspace_resource_id == data.terraform_remote_state.persistent.outputs.log_analytics_workspace_id
     error_message = "The Container Insights DCR must use the persistent workspace."
   }
 
   assert {
-    condition     = azurerm_monitor_data_collection_rule_association.container_insights[0].target_resource_id == azurerm_kubernetes_cluster.platform.id
+    condition     = azurerm_monitor_data_collection_rule_association.container_insights.target_resource_id == azurerm_kubernetes_cluster.platform.id
     error_message = "The Container Insights DCRA must target the AKS cluster."
   }
 
   assert {
-    condition     = azurerm_monitor_diagnostic_setting.aks_control_plane[0].log_analytics_workspace_id == data.terraform_remote_state.persistent.outputs.log_analytics_workspace_id
+    condition     = azurerm_monitor_diagnostic_setting.aks_control_plane.log_analytics_workspace_id == data.terraform_remote_state.persistent.outputs.log_analytics_workspace_id
     error_message = "AKS control-plane diagnostics must use the persistent workspace."
   }
 
   assert {
-    condition     = azurerm_monitor_diagnostic_setting.aks_control_plane[0].log_analytics_destination_type == "Dedicated"
+    condition     = azurerm_monitor_diagnostic_setting.aks_control_plane.log_analytics_destination_type == "Dedicated"
     error_message = "AKS control-plane diagnostics must use resource-specific tables."
   }
 
