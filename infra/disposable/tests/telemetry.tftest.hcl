@@ -1,7 +1,6 @@
-# Plan-only assertions for the disposable ESO federated credential. Azure and
-# persistent remote state are mocked, so this test contacts no service.
-mock_provider "helm" {}
-
+# Plan-only assertions for the disposable monitoring boundary. The provider
+# and persistent remote state values are mocked, so this test contacts no
+# Azure service and creates no resource.
 mock_provider "azurerm" {
   override_during = plan
 
@@ -11,6 +10,13 @@ mock_provider "azurerm" {
       object_id       = "00000000-0000-0000-0000-000000000000"
       subscription_id = "00000000-0000-0000-0000-000000000000"
       tenant_id       = "00000000-0000-0000-0000-000000000000"
+    }
+  }
+
+  mock_data "azurerm_monitor_diagnostic_categories" {
+    defaults = {
+      log_category_types  = ["kube-apiserver", "kube-audit-admin"]
+      log_category_groups = []
     }
   }
 
@@ -36,7 +42,7 @@ mock_provider "azurerm" {
   }
 }
 
-run "creates_the_eso_federated_credential" {
+run "wires_aks_monitoring" {
   command = plan
 
   variables {
@@ -63,22 +69,43 @@ run "creates_the_eso_federated_credential" {
   }
 
   assert {
-    condition     = azurerm_federated_identity_credential.external_secrets.user_assigned_identity_id == data.terraform_remote_state.persistent.outputs.eso_identity_id
-    error_message = "The ESO federated credential must target the persistent identity resource ID."
+    condition     = azurerm_kubernetes_cluster.platform.oms_agent[0].log_analytics_workspace_id == data.terraform_remote_state.persistent.outputs.log_analytics_workspace_id
+    error_message = "Container Insights must send agent data to the persistent workspace."
   }
 
   assert {
-    condition     = azurerm_federated_identity_credential.external_secrets.issuer == azurerm_kubernetes_cluster.platform.oidc_issuer_url
-    error_message = "The ESO federated credential must use the current AKS OIDC issuer."
+    condition     = azurerm_kubernetes_cluster.platform.oms_agent[0].msi_auth_for_monitoring_enabled
+    error_message = "Container Insights must use managed identity authentication."
   }
 
   assert {
-    condition     = azurerm_federated_identity_credential.external_secrets.subject == "system:serviceaccount:external-secrets:external-secrets-key-vault"
-    error_message = "The ESO federated credential must use the exact service-account subject."
+    condition     = contains(azurerm_monitor_data_collection_rule.container_insights.data_flow[0].streams, "Microsoft-ContainerLogV2")
+    error_message = "The Container Insights DCR must select the ContainerLogV2 stream."
   }
 
   assert {
-    condition     = length(azurerm_federated_identity_credential.external_secrets.audience) == 1 && azurerm_federated_identity_credential.external_secrets.audience[0] == "api://AzureADTokenExchange"
-    error_message = "The ESO federated credential must have only the token-exchange audience."
+    condition     = contains(azurerm_monitor_data_collection_rule.container_insights.data_flow[0].destinations, "log-analytics")
+    error_message = "The Container Insights DCR must send data to its Log Analytics destination."
   }
+
+  assert {
+    condition     = azurerm_monitor_data_collection_rule.container_insights.destinations[0].log_analytics[0].workspace_resource_id == data.terraform_remote_state.persistent.outputs.log_analytics_workspace_id
+    error_message = "The Container Insights DCR must use the persistent workspace."
+  }
+
+  assert {
+    condition     = azurerm_monitor_data_collection_rule_association.container_insights.target_resource_id == azurerm_kubernetes_cluster.platform.id
+    error_message = "The Container Insights DCRA must target the AKS cluster."
+  }
+
+  assert {
+    condition     = azurerm_monitor_diagnostic_setting.aks_control_plane.log_analytics_workspace_id == data.terraform_remote_state.persistent.outputs.log_analytics_workspace_id
+    error_message = "AKS control-plane diagnostics must use the persistent workspace."
+  }
+
+  assert {
+    condition     = azurerm_monitor_diagnostic_setting.aks_control_plane.log_analytics_destination_type == "Dedicated"
+    error_message = "AKS control-plane diagnostics must use resource-specific tables."
+  }
+
 }

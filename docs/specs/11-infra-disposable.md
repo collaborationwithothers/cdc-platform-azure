@@ -232,35 +232,29 @@ head-loss detections and tail-drift per tenant per hour; attribution-check
 status; consumer lag by partition; `SentNotifications` conflict rate; spend
 against budget.
 
-[observability.md](../observability.md) adds three things to this area, all of
-them wiring rather than resources. The Application Insights component itself is
-persistent, in [10-infra-persistent.md](10-infra-persistent.md), because
-telemetry that dies at teardown cannot answer "was this session worse than the
-last one".
+[observability.md](../observability.md) requires workload and control-plane
+signals to survive disposable-layer teardown. The Application Insights
+component and Log Analytics workspace are therefore persistent, in
+[10-infra-persistent.md](10-infra-persistent.md).
 
-**1. Getting the connection string into the four .NET workloads.** Terraform
-reads `app_insights_connection_string` from the persistent layer's remote state
-and renders it into a Kubernetes secret in the workload namespace; each
-deployment takes `APPLICATIONINSIGHTS_CONNECTION_STRING` from that secret. The
-distro reads that variable by name, so nothing about the destination is compiled
-into any service. The string never appears in the repo, in a manifest, or in a
-Helm value; it exists in Terraform state and in the cluster.
+**1. Workload logs use Container Insights.** Terraform enables the Azure
+Monitor Agent on AKS. A data collection rule selects `ContainerLogV2`, and a
+data collection rule association attaches that rule to the cluster. This path
+collects container stdout and stderr from workloads after Argo CD deploys them.
 
-**2. Sampler settings on every workload, identically.** `OTEL_TRACES_SAMPLER`
-and `OTEL_TRACES_SAMPLER_ARG` are set from one Terraform local applied to all
-four deployments, rather than per deployment. observability.md section 3 requires
-producer and consumer sampling to match or traces break at the Kafka hop, and one
-variable that fans out to four is a structure where they cannot drift apart. The
-build-scale value samples nothing out.
+**2. Control-plane logs use Diagnostic Settings.** AKS Diagnostic Settings send
+the discovered control-plane resource-log categories to the same workspace in
+resource-specific mode. Diagnostic Settings do not collect workload stdout or
+stderr.
 
-**3. Connect and Strimzi logs into the same workspace.** The .NET services push
-their own telemetry; Kafka, Connect, and the operator do not. Container logs from
-the workload namespaces reach the persistent Log Analytics workspace through the
-AKS diagnostic settings, which is what makes the fleet alerts in observability.md
-section 2 possible at all, since every one of them reads connector task state or
-Connect startup failures. Those alerts read Connect's own upstream log names, not
-Lexfield ones, and observability.md section 5 says so deliberately: nobody should
-hunt for Lexfield names in Connect logs.
+**3. Application telemetry belongs to the service Applications.** ADR-010 ends
+Terraform's in-cluster delivery responsibility at Argo CD and one root
+Application. The wave-4 service Applications will own the Application Insights
+connection-string reference and the shared trace sampler settings after the
+services have deployable images. Follow-up issue
+[#245](https://github.com/collaborationwithothers/cdc-platform-azure/issues/245)
+owns that deferred wiring. This area does not create placeholder service
+Deployments or a second Terraform-owned delivery path.
 
 **What this area does not do.** No OpenTelemetry Collector runs in the cluster.
 The distro exports directly from each service, which is one fewer deployment,
@@ -304,8 +298,8 @@ mode 9 requires.
 | KQL queries | unit | Each query parsed and validated offline. Query correctness against real data is verified during the live measurement tickets, not here. |
 | Alert rules cover the catalogue | unit | Assert one rule exists per row of observability.md section 2, matched by name, and that each carries its severity and links its dashboard and runbook anchor. A catalogue row with no rule is a documented alert nobody gets. |
 | No alert references an event nobody emits | unit | Cross-check every event name in the rendered rules against the vocabulary in observability.md section 5. Catches the rename that silently disables an alert, which is the failure the .NET areas test from their side and this one tests from the other. |
-| Sampler settings are identical across the four deployments | unit | Assert the rendered manifests carry the same sampler name and argument in all four. Drift here breaks traces at the Kafka hop and breaks nothing else, so nothing else would catch it. |
-| The connection string is not in the repo | unit | Assert no rendered manifest or committed file contains an instrumentation key or connection string, and that the deployments take it from a secret reference. |
+| AKS workload log collection | unit | A mocked plan asserts the Azure Monitor Agent, `ContainerLogV2` data collection rule, and cluster association target the persistent Log Analytics workspace. |
+| AKS control-plane log collection | unit | A mocked plan asserts the Diagnostic Setting sends discovered control-plane categories to the persistent workspace in resource-specific mode. |
 | Whole layer | live | `terraform plan` in the gated environment, Hari dispatches. |
 
 Note what the container test buys: the riskiest, fiddliest part of this area,
@@ -336,7 +330,7 @@ not before `validate`.
 | D6 | Strimzi operator, Kafka KRaft single broker, topics, users and ACLs. | unit, CRD schema validation | 7 files, 380 lines |
 | D7 | KafkaConnect resource with 2 workers, workload identity annotations, explicit connect protocol and rebalance delay. | unit, CRD schema validation | 4 files, 200 lines |
 | D8 | KQL queries and alert rules as code for the nine signals blueprint section 10 names. | unit, offline parse | 10 files, 340 lines |
-| D9 | Telemetry wiring: the connection string secret, the sampler locals fanned out to four deployments, and AKS diagnostic settings shipping Connect and Strimzi logs to the persistent workspace. | unit | 5 files, 220 lines |
+| D9 | AKS monitoring wiring: Container Insights sends workload stdout and stderr to the persistent workspace, while Diagnostic Settings send AKS control-plane resource logs. Service connection-string and sampler injection belongs to the Argo CD wave-4 Applications. | unit | 4 files, 240 lines |
 | D10 | Alert rules as code for the sev1 rows of observability.md section 2, each carrying its severity, dashboard link, and runbook anchor. Sev2 and sev3 rows follow in a second ticket; the split is by severity because a sev1 without a runbook is the thing the binding rule forbids. | unit, offline parse | 8 files, 400 lines |
 | D11 | Alert rules for the sev2 and sev3 rows, and the four dashboards as code. | unit, offline parse | 9 files, 420 lines |
 

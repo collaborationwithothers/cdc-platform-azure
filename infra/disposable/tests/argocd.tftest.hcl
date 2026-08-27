@@ -57,11 +57,12 @@ run "installs_argocd_and_the_root_application" {
     target = data.terraform_remote_state.persistent
     values = {
       outputs = {
-        acr_id                 = "/subscriptions/mock/resourceGroups/rg-cdc-platform-persistent/providers/Microsoft.ContainerRegistry/registries/cdcplatformmock"
-        connect_identity_id    = "/subscriptions/mock/resourceGroups/rg-cdc-platform-persistent/providers/Microsoft.ManagedIdentity/userAssignedIdentities/id-connect"
-        eso_identity_client_id = "mock-eso-client-id"
-        eso_identity_id        = "/subscriptions/mock/resourceGroups/rg-cdc-platform-persistent/providers/Microsoft.ManagedIdentity/userAssignedIdentities/id-external-secrets"
-        key_vault_uri          = "https://cdc-platform-mock.vault.azure.net/"
+        acr_id                     = "/subscriptions/mock/resourceGroups/rg-cdc-platform-persistent/providers/Microsoft.ContainerRegistry/registries/cdcplatformmock"
+        connect_identity_id        = "/subscriptions/mock/resourceGroups/rg-cdc-platform-persistent/providers/Microsoft.ManagedIdentity/userAssignedIdentities/id-connect"
+        eso_identity_client_id     = "mock-eso-client-id"
+        eso_identity_id            = "/subscriptions/mock/resourceGroups/rg-cdc-platform-persistent/providers/Microsoft.ManagedIdentity/userAssignedIdentities/id-external-secrets"
+        key_vault_uri              = "https://cdc-platform-mock.vault.azure.net/"
+        log_analytics_workspace_id = "/subscriptions/mock/resourceGroups/rg-cdc-platform-persistent/providers/Microsoft.OperationalInsights/workspaces/cdcplatformmock"
       }
     }
   }
