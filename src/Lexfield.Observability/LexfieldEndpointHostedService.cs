@@ -4,7 +4,7 @@ using Microsoft.Extensions.Hosting;
 
 namespace Lexfield.Observability;
 
-internal sealed record LexfieldEndpointOptions(int Port);
+internal sealed record LexfieldEndpointOptions(int Port, string ServiceName);
 
 internal sealed class LexfieldEndpointHostedService : IHostedService, IDisposable
 {
@@ -18,9 +18,28 @@ internal sealed class LexfieldEndpointHostedService : IHostedService, IDisposabl
 
     public Task StartAsync(CancellationToken cancellationToken)
     {
-        _listener = new HttpListener();
-        _listener.Prefixes.Add($"http://*:{_options.Port}/");
-        _listener.Start();
+        var listener = new HttpListener();
+        listener.Prefixes.Add($"http://*:{_options.Port}/");
+        try
+        {
+            listener.Start();
+        }
+        catch (HttpListenerException exception)
+        {
+            listener.Close();
+            throw new InvalidOperationException(
+                $"{_options.ServiceName} observability health endpoint cannot start on TCP port {_options.Port}. " +
+                "The process cannot answer its /healthz liveness or /readyz readiness probes; " +
+                "both probes prove only that this process's HTTP listener answered, and /readyz " +
+                "does not check downstream dependencies. " +
+                $"Underlying listener error ({exception.ErrorCode}): {exception.Message}. " +
+                "Check the configured address, process permission, and whether another process " +
+                "already uses the port. If there is a port conflict, set " +
+                "Lexfield:Observability:Port to an unused port and restart the service.",
+                exception);
+        }
+
+        _listener = listener;
         _serveTask = ServeAsync(_stopping.Token);
         return Task.CompletedTask;
     }
@@ -83,6 +102,9 @@ internal sealed class LexfieldEndpointHostedService : IHostedService, IDisposabl
 
     private async Task WriteResponseAsync(HttpListenerContext context, CancellationToken cancellationToken)
     {
+        // A health endpoint is a liveness probe, and a readiness endpoint is a
+        // readiness probe. Both routes prove only that this process's HTTP
+        // listener answered; /readyz does not check downstream dependencies.
         var path = context.Request.Url?.AbsolutePath;
         var (statusCode, contentType, body) = path switch
         {

@@ -70,6 +70,9 @@ internal sealed class LexfieldLogEnricherLogger : ILogger
         AddValues(values, state);
         _scopeProvider.ForEachScope(static (scope, target) => AddValues(target, scope), values);
 
+        // Log enrichment adds the service and correlation context to the
+        // caller's message. JSON keeps each context value available as a
+        // named field for an operator investigating one task across services.
         var line = new Dictionary<string, object?>(StringComparer.OrdinalIgnoreCase)
         {
             ["timestamp"] = DateTimeOffset.UtcNow,
@@ -113,8 +116,9 @@ internal sealed class LexfieldLogEnricherLogger : ILogger
             return "none";
         }
 
-        // Activities without listeners can omit the W3C flags suffix. Restore it
-        // here so every emitted line carries a valid traceparent value.
+        // A trace links timed operations across services. An activity without a
+        // listener can omit the W3C flags suffix, so restore it for this log's
+        // traceparent field. Use "none" above when no operation is active.
         return activity.IdFormat == ActivityIdFormat.W3C && activity.Id.Count('-') == 2
             ? $"{activity.Id}-{(activity.Recorded ? "01" : "00")}"
             : activity.Id;

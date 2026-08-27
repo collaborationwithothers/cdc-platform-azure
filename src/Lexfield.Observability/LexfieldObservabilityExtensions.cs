@@ -25,12 +25,14 @@ public static class LexfieldObservabilityExtensions
         ArgumentException.ThrowIfNullOrWhiteSpace(serviceName);
         var sourceName = $"Lexfield.{serviceName}";
         builder.Logging.ClearProviders();
-        // All four services must use the same sampler or traces break at the Kafka hop.
+        // A trace links timed operations across services. The sampler decides
+        // which traces are kept, so all four services use the same setting or
+        // an operator can lose part of the trace at the Kafka handoff.
         builder.Configuration["OTEL_TRACES_SAMPLER"] = SamplerName;
         builder.Configuration["OTEL_TRACES_SAMPLER_ARG"] = SamplerArgument;
         AddTelemetry(builder.Services, serviceName, sourceName, builder.Configuration);
-        var endpointPort = ReadEndpointPort(builder.Configuration);
-        builder.Services.AddSingleton(new LexfieldEndpointOptions(endpointPort));
+        var endpointPort = ReadEndpointPort(builder.Configuration, serviceName);
+        builder.Services.AddSingleton(new LexfieldEndpointOptions(endpointPort, serviceName));
         builder.Services.AddHostedService<LexfieldEndpointHostedService>();
         return builder;
     }
@@ -40,6 +42,9 @@ public static class LexfieldObservabilityExtensions
         string sourceName,
         IConfiguration configuration)
     {
+        // ActivitySource creates the named source for traces, and Meter creates
+        // the named source for numeric measurements. The logger provider adds
+        // correlation fields to each service's JSON log line.
         services.AddSingleton(new ActivitySource(sourceName));
         services.AddSingleton(new Meter(sourceName));
 
@@ -61,7 +66,7 @@ public static class LexfieldObservabilityExtensions
 
         services.AddSingleton<ILoggerProvider>(_ => new LexfieldLogEnricherProvider(serviceName));
     }
-    private static int ReadEndpointPort(IConfiguration configuration)
+    private static int ReadEndpointPort(IConfiguration configuration, string serviceName)
     {
         var configuredPort = configuration["Lexfield:Observability:Port"];
         if (configuredPort is null)
@@ -71,7 +76,10 @@ public static class LexfieldObservabilityExtensions
         if (!int.TryParse(configuredPort, out var port) || port is < 1 or > 65535)
         {
             throw new InvalidOperationException(
-                $"Lexfield:Observability:Port must be between 1 and 65535; received '{configuredPort}'.");
+                $"{serviceName} observability endpoint cannot start because configuration " +
+                $"'Lexfield:Observability:Port' must be a whole TCP port from 1 through 65535; " +
+                $"received '{configuredPort}'. Set this value to an unused port so {serviceName} " +
+                "can answer the /healthz liveness and /readyz readiness probes.");
         }
         return port;
     }
