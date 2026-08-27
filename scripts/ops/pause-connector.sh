@@ -1,14 +1,24 @@
 #!/usr/bin/env bash
 #
-# Stops one tenant's change capture and confirms it stopped. The runbook step
-# that calls this needs the confirmation, not the request: Connect accepts a
-# pause and transitions afterwards, so this waits until the connector and its
-# tasks report PAUSED and prints what they report. README.md beside this file
-# covers the environment variables and what a timeout means.
+# Stops one tenant's Debezium change-capture connector and confirms that Kafka
+# Connect observed PAUSED for the connector and every task. Connect accepts the
+# pause request before the transition finishes, so the confirmation is the
+# observed state rather than the HTTP acknowledgement. README.md beside this
+# file covers the terms, environment variables, and timeout response.
 #
 # Usage: pause-connector.sh <tenantId>
 
 set -euo pipefail
 
-exec "$(dirname "${BASH_SOURCE[0]}")/connector-target-state.sh" \
-  pause "${1:?usage: pause-connector.sh <tenantId>}"
+readonly USAGE="usage: pause-connector.sh <tenantId>; controls one tenant's Debezium change-capture connector in Kafka Connect; PAUSED means Connect reports the connector and its tasks are paused"
+if [ "$#" -lt 1 ]; then
+  echo "FAIL: ${USAGE}" >&2
+  exit 1
+fi
+readonly TENANT_ID="$1"
+if [ -z "${TENANT_ID}" ]; then
+  echo "FAIL: tenantId must not be empty. Valid form: pause-connector.sh <tenantId>; provide the ID used in tenant-<tenantId>-outbox." >&2
+  exit 1
+fi
+
+exec "$(dirname "${BASH_SOURCE[0]}")/connector-target-state.sh" pause "${TENANT_ID}"

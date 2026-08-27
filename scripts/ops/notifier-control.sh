@@ -1,20 +1,24 @@
 #!/usr/bin/env bash
 #
-# Writes one control message to the notifier-control topic. The notifier pauses a
-# partition on a message it cannot send and waits for an operator answer; retry
-# and skip are the two answers, and this is the only tooling that carries them.
-# docs/specs/23-src-notifier.md explains which verb fixes which fault. README.md
-# beside this file covers the environment variables.
+# Writes one control message to the notifier-control topic for the notifier
+# consumer. The notifier pauses a Kafka partition when it cannot send a message
+# and waits for an operator answer: retry tries the same message again, while
+# skip accepts that message will not be sent. README.md beside this file covers
+# the terms and environment variables.
 #
 # Usage: notifier-control.sh <retry|skip> <partition> <offset> <reason>
 
 set -euo pipefail
 
-readonly USAGE="usage: notifier-control.sh <retry|skip> <partition> <offset> <reason>"
-readonly ACTION="${1:?${USAGE}}"
-readonly PARTITION="${2:?${USAGE}}"
-readonly OFFSET="${3:?${USAGE}}"
-readonly REASON="${4:?${USAGE}}"
+readonly USAGE="usage: notifier-control.sh <retry|skip> <partition> <offset> <reason>; controls the notifier consumer; partition is the ordered Kafka log number, offset is the message position within that partition"
+if [ "$#" -lt 4 ]; then
+  echo "FAIL: ${USAGE}" >&2
+  exit 1
+fi
+readonly ACTION="$1"
+readonly PARTITION="$2"
+readonly OFFSET="$3"
+readonly REASON="$4"
 
 readonly TOPIC="notifier-control"
 readonly BOOTSTRAP_SERVERS="${KAFKA_BOOTSTRAP_SERVERS:-localhost:9093}"
@@ -32,15 +36,15 @@ fail() { echo "FAIL: $*" >&2; exit 1; }
 
 case "${ACTION}" in
   retry | skip) ;;
-  *) fail "action must be retry or skip, not '${ACTION}'. ${USAGE}" ;;
+  *) fail "notifier action must be retry or skip, not '${ACTION}'. Valid form: notifier-control.sh <retry|skip> <partition> <offset> <reason>" ;;
 esac
 
-[[ "${PARTITION}" =~ ^[0-9]+$ ]] || fail "partition must be a non-negative integer, not '${PARTITION}'"
-[[ "${OFFSET}" =~ ^[0-9]+$ ]] || fail "offset must be a non-negative integer, not '${OFFSET}'"
+[[ "${PARTITION}" =~ ^[0-9]+$ ]] || fail "partition must be a non-negative integer, not '${PARTITION}'. Valid form: a number such as 7"
+[[ "${OFFSET}" =~ ^[0-9]+$ ]] || fail "offset must be a non-negative integer, not '${OFFSET}'. Valid form: a number such as 4102"
 
 # The reason is recorded so a skipped notification has a named owner rather than
 # vanishing, which is why an empty one is refused here.
-[ -n "${REASON//[[:space:]]/}" ] || fail "reason must not be empty; it is what gives a skipped notification an owner"
+[ -n "${REASON//[[:space:]]/}" ] || fail "reason must contain text, not only whitespace. Valid form: \"downstream sender restored\""
 
 # python3 builds the JSON so that a reason containing a quote or a backslash is
 # escaped rather than producing a malformed message on the topic.
@@ -62,7 +66,8 @@ if [ -n "${CLIENT_CONFIG}" ]; then
   producer_arguments+=(--producer.config "${CLIENT_CONFIG}")
 fi
 
+echo "request: notifier consumer action '${ACTION}' for Kafka partition ${PARTITION} at offset ${OFFSET}; writing to topic ${TOPIC} via Kafka endpoint ${BOOTSTRAP_SERVERS}"
 echo "${TOPIC} <- ${message}"
 printf '%s\n' "${message}" | "${PRODUCER}" "${producer_arguments[@]}" \
-  || fail "${PRODUCER} did not accept the message for ${TOPIC} at ${BOOTSTRAP_SERVERS}"
-echo "ok: ${ACTION} written for partition ${PARTITION} offset ${OFFSET}"
+  || fail "Kafka producer could not write the notifier control action '${ACTION}' to ${TOPIC} at the local Kafka endpoint ${BOOTSTRAP_SERVERS}. Check the Kafka endpoint, KAFKA_BIN_DIR, and KAFKA_CLIENT_CONFIG."
+echo "success: notifier control action '${ACTION}' written to topic ${TOPIC} for Kafka partition ${PARTITION} at offset ${OFFSET}."
