@@ -4,6 +4,7 @@ on:
   pull_request:
     paths:
       - "connect/connectors/**"
+      - "connect/smt/**"
       - "global.json"
       - "src/**"
       - "tests/**"
