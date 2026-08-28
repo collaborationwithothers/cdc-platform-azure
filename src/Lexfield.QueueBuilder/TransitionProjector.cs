@@ -46,21 +46,14 @@ internal sealed class TransitionProjector(
 
     private void Log(string eventName, string tenantId, TransitionEvent taskEvent, string message)
     {
-        try
+        using (logger.BeginScope(new Dictionary<string, object?>
         {
-            using (logger.BeginScope(new Dictionary<string, object?>
-            {
-                ["eventName"] = eventName,
-                ["tenantId"] = tenantId,
-                ["taskId"] = taskEvent.TaskId,
-                ["version"] = taskEvent.Version
-            })) logger.LogInformation(message);
-        }
-        catch
-        {
-        }
+            ["eventName"] = eventName,
+            ["tenantId"] = tenantId,
+            ["taskId"] = taskEvent.TaskId,
+            ["version"] = taskEvent.Version
+        })) logger.LogInformation(message);
     }
-
 }
 
 internal sealed record DecodedTransition(string TenantId, TransitionEvent Event, ActivityContext? Parent);

@@ -31,8 +31,19 @@ commits the Kafka offset after that guarded write. An offset is the consumer's
 position in one Kafka topic partition. For example, after QueueBuilder writes
 message 42 to SQL Server, it records position 43 as the next message to read. A
 crash after the write but before that offset commit can redeliver message 42,
-but the repeated version then makes no database change.
+but the repeated version then makes no database change. Confluent documents
+that [`Commit(ConsumeResult)` commits the consumed offset plus one](https://docs.confluent.io/platform/current/clients/confluent-kafka-dotnet/_site/api/Confluent.Kafka.IConsumer-2.html#Confluent_Kafka_IConsumer_2_Commit_Confluent_Kafka_ConsumeResult__0__1__).
 
-Gap detection and source repair are not part of this change. Nor is parking,
-which copies an invalid message to a separate topic for operator investigation.
-Those later behaviors build on the same host and guarded write path.
+Until [issue #49](https://github.com/collaborationwithothers/cdc-platform-azure/issues/49)
+adds parking, which copies an invalid message to a separate topic for operator
+investigation, a message with a missing or empty `tenantId` header or a value
+that is not valid JSON throws from the worker. The host stops, the offset does
+not advance, and a process restart reads the same message again.
+
+An apply failure or Kafka commit failure also stops the host. The process
+restart redelivers from the last committed offset. This is the current recovery
+strategy; QueueBuilder does not perform a bounded retry, a limited number of
+attempts, inside the failing consumer loop.
+
+Gap detection, source repair, and parking are not part of this change. Those
+later behaviors build on the same host and guarded write path.
