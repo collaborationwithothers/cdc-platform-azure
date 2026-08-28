@@ -29,8 +29,9 @@ public sealed class GapDetectionHostTests(SqlServerFixture sql, KafkaFixture kaf
         await context.WaitForVersionAsync(7, 4701);
         await context.WaitForSignalAsync("QueueBuilder.GapDetected", 4701);
 
-        Assert.Equal(1, context.Measurement("QueueBuilder.GapDetected", 4701));
-        Assert.Equal(0, context.Measurement("QueueBuilder.HeadLossDetected", 4701));
+        Assert.Equal(1, context.Measurement("QueueBuilder.GapDetected"));
+        Assert.Equal(0, context.Measurement("QueueBuilder.HeadLossDetected"));
+        Assert.Equal(["tenantId"], context.TagKeys("QueueBuilder.GapDetected"));
         Assert.Contains("\"eventName\":\"QueueBuilder.GapDetected\"", context.LogOutput);
     }
 
@@ -43,13 +44,14 @@ public sealed class GapDetectionHostTests(SqlServerFixture sql, KafkaFixture kaf
         await context.WaitForVersionAsync(4, 4702);
         await context.WaitForSignalAsync("QueueBuilder.HeadLossDetected", 4702);
 
-        Assert.Equal(0, context.Measurement("QueueBuilder.GapDetected", 4702));
-        Assert.Equal(1, context.Measurement("QueueBuilder.HeadLossDetected", 4702));
+        Assert.Equal(0, context.Measurement("QueueBuilder.GapDetected"));
+        Assert.Equal(1, context.Measurement("QueueBuilder.HeadLossDetected"));
+        Assert.Equal(["tenantId"], context.TagKeys("QueueBuilder.HeadLossDetected"));
         Assert.Contains("\"eventName\":\"QueueBuilder.HeadLossDetected\"", context.LogOutput);
     }
 
     [Fact]
-    public async Task In_order_versions_for_interleaved_tasks_do_not_count_a_gap()
+    public async Task Interleaved_tasks_use_their_own_versions_when_classifying_a_new_task()
     {
         await using var context = await StartHostAsync();
 
@@ -59,11 +61,18 @@ public sealed class GapDetectionHostTests(SqlServerFixture sql, KafkaFixture kaf
         await context.ProduceAsync(Event(2, 4704));
         await context.WaitForVersionAsync(2, 4703);
         await context.WaitForVersionAsync(2, 4704);
+        await context.ProduceAsync(Event(4, 4705));
+        await context.WaitForVersionAsync(4, 4705);
+        await context.WaitForSignalAsync("QueueBuilder.HeadLossDetected", 4705);
 
         Assert.Equal(0, context.Measurement("QueueBuilder.GapDetected"));
-        Assert.Equal(0, context.Measurement("QueueBuilder.HeadLossDetected"));
-        Assert.DoesNotContain("\"eventName\":\"QueueBuilder.GapDetected\"", context.LogOutput);
-        Assert.DoesNotContain("\"eventName\":\"QueueBuilder.HeadLossDetected\"", context.LogOutput);
+        Assert.Equal(1, context.Measurement("QueueBuilder.HeadLossDetected"));
+        Assert.False(context.HasSignalLog("QueueBuilder.GapDetected", 4703));
+        Assert.False(context.HasSignalLog("QueueBuilder.HeadLossDetected", 4703));
+        Assert.False(context.HasSignalLog("QueueBuilder.GapDetected", 4704));
+        Assert.False(context.HasSignalLog("QueueBuilder.HeadLossDetected", 4704));
+        Assert.False(context.HasSignalLog("QueueBuilder.GapDetected", 4705));
+        Assert.True(context.HasSignalLog("QueueBuilder.HeadLossDetected", 4705));
     }
 
     private async Task<HostContext> StartHostAsync()
@@ -113,10 +122,11 @@ public sealed class GapDetectionHostTests(SqlServerFixture sql, KafkaFixture kaf
         };
         listener.SetMeasurementEventCallback<long>((instrument, value, tags, _) =>
         {
-            var taskId = tags.ToArray()
-                .SingleOrDefault(tag => tag.Key == "taskId").Value;
+            var metricTags = tags.ToArray();
             measurements.Enqueue(new Measurement(
-                instrument.Name, value, taskId is int id ? id : null));
+                instrument.Name,
+                value,
+                metricTags.Select(tag => tag.Key).ToArray()));
         });
         listener.Start();
         return listener;
@@ -155,18 +165,28 @@ public sealed class GapDetectionHostTests(SqlServerFixture sql, KafkaFixture kaf
 
         public string LogOutput => output.ToString();
 
-        public long Measurement(string name, int? taskId = null) =>
+        public long Measurement(string name) =>
             measurements
-                .Where(item => item.Name == name && (taskId is null || item.TaskId == taskId))
+                .Where(item => item.Name == name)
                 .Sum(item => item.Value);
+
+        public string[] TagKeys(string name) =>
+            measurements.First(item => item.Name == name).TagKeys;
+
+        public bool HasSignalLog(string name, int taskId)
+        {
+            var eventName = $"\"eventName\":\"{name}\"";
+            var task = $"\"taskId\":{taskId}";
+            return LogOutput.Split(Environment.NewLine, StringSplitOptions.RemoveEmptyEntries)
+                .Any(line => line.Contains(eventName) && line.Contains(task));
+        }
 
         public async Task WaitForSignalAsync(string name, int taskId)
         {
             var deadline = DateTimeOffset.UtcNow.AddSeconds(15);
-            var eventName = $"\"eventName\":\"{name}\"";
             while (DateTimeOffset.UtcNow < deadline)
             {
-                if (Measurement(name, taskId) > 0 && LogOutput.Contains(eventName)) return;
+                if (Measurement(name) > 0 && HasSignalLog(name, taskId)) return;
                 await Task.Delay(50);
             }
             throw new TimeoutException(
@@ -214,5 +234,5 @@ public sealed class GapDetectionHostTests(SqlServerFixture sql, KafkaFixture kaf
         }
     }
 
-    private sealed record Measurement(string Name, long Value, int? TaskId);
+    private sealed record Measurement(string Name, long Value, string[] TagKeys);
 }

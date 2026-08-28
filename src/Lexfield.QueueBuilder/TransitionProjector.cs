@@ -37,6 +37,10 @@ internal sealed class TransitionProjector(
 
         Log("QueueBuilder.EventReceived", transition.TenantId, taskEvent,
             "QueueBuilder received a workflow transition from Kafka, a named stream of messages.");
+        // Kafka partition ownership and the worker's single consume loop serialize
+        // QueueBuilder writes for one task today. A future writer outside that
+        // ownership must revisit this read-classify-write boundary; the guarded
+        // upsert prevents version regression but does not make classification atomic.
         var stored = await store.GetAsync(
             transition.TenantId, taskEvent.TaskId, cancellationToken);
         var gap = gapDetector.Detect(stored?.Version, taskEvent.Version);
@@ -68,10 +72,7 @@ internal sealed class TransitionProjector(
 
         var tags = new TagList
         {
-            { "tenantId", tenantId },
-            { "taskId", taskEvent.TaskId },
-            { "version", taskEvent.Version },
-            { "storedVersion", storedVersion }
+            { "tenantId", tenantId }
         };
         var eventName = gap == GapKind.Jump
             ? "QueueBuilder.GapDetected"
