@@ -71,6 +71,26 @@ public sealed record TransitionEvent
     [JsonPropertyName("actor")]
     public required string Actor { get; init; }
 
+    /// <summary>
+    /// The immediate client application that called task-api, from the token's
+    /// v2 <c>azp</c> claim, or v1 <c>appid</c> when <c>azp</c> is absent. Null
+    /// when a valid token carried neither, and null on a legacy event written
+    /// before the provenance contract (ADR-004).
+    /// </summary>
+    [JsonPropertyName("clientApplicationId")]
+    public string? ClientApplicationId { get; init; }
+
+    /// <summary>
+    /// <c>"delegated"</c> for a delegated-user write or <c>"application"</c> for
+    /// an application-only write, token-derived. Null on a legacy event, which
+    /// predates the provenance contract; its absence is the signal that the
+    /// event's <see cref="Actor"/> is an unverified caller-supplied label rather
+    /// than authenticated provenance (ADR-004). Modeled as a string, not an enum,
+    /// so an unexpected value cannot turn a message into a poison event.
+    /// </summary>
+    [JsonPropertyName("permissionMode")]
+    public string? PermissionMode { get; init; }
+
     /// <summary>When the transition was committed, UTC.</summary>
     [JsonPropertyName("at")]
     public required DateTimeOffset At { get; init; }
@@ -93,4 +113,19 @@ public sealed record TransitionEvent
     /// <summary>The assignee after the transition, carried for the same reason.</summary>
     [JsonPropertyName("assigneeId")]
     public string? AssigneeId { get; init; }
+
+    /// <summary>The provenance label applied to a legacy event: its actor is a
+    /// caller-supplied business label, not an authenticated principal.</summary>
+    public const string LegacyProvenanceLabel = "legacy-unverified";
+
+    /// <summary>
+    /// True when the event carries authenticated provenance (a
+    /// <see cref="PermissionMode"/> is present). False for a legacy event, whose
+    /// actor a consumer must treat as <see cref="LegacyProvenanceLabel"/> and
+    /// never as a verified principal. A new-shape event always carries
+    /// <see cref="PermissionMode"/>; <see cref="ClientApplicationId"/> can be
+    /// null even on a new event, so it is not the signal.
+    /// </summary>
+    [JsonIgnore]
+    public bool HasVerifiedProvenance => PermissionMode is not null;
 }
