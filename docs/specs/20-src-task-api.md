@@ -204,10 +204,14 @@ endpoints disagreed on what an actor is; both now resolve it the same way.
   tenant-id claim and `oid` its object-id claim; `oid` is immutable and
   consistent across applications within an Entra tenant, so it is a stable actor
   key (verified 2026-08-28).
-- `clientApplicationId`, the immediate client that called task-api, normalized
-  from the v2 `azp` claim or the v1 `appid` claim.
-- `permissionMode`, `delegated` when the token carries an `scp` (scope) claim,
-  otherwise `application`.
+- `clientApplicationId`, the immediate client that called task-api. It is taken
+  from the v2 `azp` claim, or the v1 `appid` claim when `azp` is absent. If a
+  valid token carries neither, `clientApplicationId` is recorded as absent rather
+  than the request being rejected (see the managed-identity note below).
+- `permissionMode`, `application` for an application-only token and `delegated`
+  for a delegated (user) token. How task-api tells the two apart is defined under
+  "Telling application-only from delegated" below; it is not the mere absence of
+  an `scp` claim.
 
 | Flow | actor | clientApplicationId | permissionMode |
 | --- | --- | --- | --- |
@@ -226,20 +230,35 @@ required claims is rejected, not attributed to a placeholder.
 **Permission authorization is separate from tenant authorization.** A delegated
 token must carry the task-write delegated scope `Tasks.Write` in `scp`; an
 application-only token must carry the task-write application role
-`Tasks.Write.All` in `roles`. Presence of `scp` is the reliable delegated
-signal: an application-only token has no `scp`, whereas a `roles` claim can
-appear on either token kind, so the mode is decided by `scp` presence, not by
-`roles` presence (verified 2026-08-28). Microsoft's optional `idtyp` claim is
-the cleanest discriminator and is the recommended production signal. The scope
-and role names are committed here; the environment-specific application-id URI
-that exposes them is not.
+`Tasks.Write.All` in `roles`. The scope and role names are committed here; the
+environment-specific application-id URI that exposes them is not.
+
+**Telling application-only from delegated.** task-api decides `permissionMode`
+and the actor type from the token's identity type, not from the absence of an
+`scp` claim. Absence of `scp` is not proof of an application-only token, because
+a `roles` claim can appear on a delegated (user) token when an app role is
+assignable to users, so a user token can present a role without being app-only
+(Microsoft, verify scopes and app roles, verified 2026-08-28). The determination
+uses the `idtyp` claim when it is present (`idtyp` of `app` means
+application-only), and otherwise the documented subject test `sub == oid`: `sub`
+is pairwise per application, `oid` is the tenant-wide object id, and the two
+coincide only when the subject is the application itself, so `sub == oid` marks
+an application-only token and `sub != oid` a delegated one (Microsoft ships this
+exact `oid == sub` check, verified 2026-08-28). `idtyp` reaches user tokens only
+when the app registration sets the `include_user_token` additional property on
+the optional claim (verified 2026-08-28), so emitting it is part of the Entra
+configuration owned by the scope-and-role follow-up, not a free token property.
+As defense in depth, that follow-up declares `Tasks.Write.All` with
+`allowedMemberTypes` limited to Application, so a user cannot be assigned the
+app-only permission and a role-carrying user token cannot pass the application
+path.
 
 **Four independent checks, and their HTTP outcomes:**
 
 | Condition | Outcome |
 | --- | --- |
 | Missing or invalid access token | 401 |
-| Token missing `tid`, `oid`, or both `azp` and `appid` | 401 (provenance cannot be established) |
+| Token missing `tid` or `oid` | 401 (the actor cannot be established) |
 | Valid token lacking the required delegated scope or application role | 403 |
 | Valid, permitted token whose tenant claim fails the existing `TenantRoute` check | 403 |
 | Transition body still supplies a legacy `actor` field | 400 |
@@ -248,7 +267,26 @@ Token validation, permission authorization, tenant authorization, and
 attribution are four separate checks. The business `tenantId` route policy is
 unchanged and stays separate from the Entra `tid` claim: `tid` identifies the
 Entra tenant that issued the token, while `TenantRoute` authorizes the business
-tenant in the path.
+tenant in the path. A missing `clientApplicationId` is not a 401: `tid` and `oid`
+establish the actor, and the client id is best-effort, for the managed-identity
+reason below.
+
+The 400 on a legacy `actor` body field is not automatic. The transition request
+is deserialized with System.Text.Json, which ignores an unknown JSON property by
+default, so the endpoint must opt into rejection, for example
+`JsonSerializerOptions.UnmappedMemberHandling` set to `Disallow` or an explicit
+check for the field, so a supplied `actor` is refused rather than silently
+ignored. A silently ignored field is the "ignored input mistaken for trusted
+attribution" this contract exists to prevent.
+
+**Managed-identity token claims need a live check.** The flow table lists managed
+identity as an application-only flow, but Microsoft Learn does not document the
+JWT claim set of a managed-identity access token, so whether such a token carries
+`azp` or `appid` is unverified (UNVERIFIABLE, 2026-08-28). task-api therefore does
+not depend on that claim: `clientApplicationId` is best-effort as above.
+Confirming a real managed-identity token's `azp`/`appid`, `tid`, and `oid`
+against a captured token is a live verification; the task-api actor-resolution
+follow-up carries it and is marked needs-live-test for that step.
 
 **Boundaries stated, not built.** An app-only operation has no user actor: if a
 user started an asynchronous job earlier, the executing workload is the actor,

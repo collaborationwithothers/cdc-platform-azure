@@ -42,18 +42,41 @@ verified 2026-08-28).
 The event carries two companion fields resolved from the same token:
 
 - `clientApplicationId`: the immediate client application that called task-api,
-  from the v2 `azp` claim or the v1 `appid` claim.
-- `permissionMode`: `delegated` when the token carries an `scp` (scope) claim,
-  otherwise `application`. Presence of `scp` is the reliable delegated signal:
-  an application-only token has no `scp` claim, whereas a `roles` claim can
-  appear on either token kind, so `scp` presence, not `roles` presence, is the
-  discriminator (verified 2026-08-28). Microsoft's optional `idtyp` claim is the
-  cleanest discriminator and is the recommended production signal.
+  from the v2 `azp` claim, or the v1 `appid` claim when `azp` is absent. When a
+  valid token carries neither, `clientApplicationId` is recorded as absent, not
+  rejected.
+- `permissionMode`: `application` for an application-only token, `delegated`
+  otherwise. task-api decides which from the token's identity type, not from the
+  absence of `scp`: a `roles` claim can appear on a delegated (user) token, so a
+  missing `scp` does not prove an application-only token. The determination uses
+  the `idtyp` claim when present (`app` means application-only) and otherwise the
+  documented subject test `sub == oid`, which holds only for an application-only
+  token because `sub` is pairwise per application while `oid` is the tenant-wide
+  object id (Microsoft, verify scopes and app roles, verified 2026-08-28).
+  `idtyp` reaches user tokens only when the app registration sets the
+  `include_user_token` additional property, so it is part of the Entra
+  configuration, not a free token property.
 
-The named delegated scope and application role, and the HTTP outcomes for
-missing or invalid tokens, live in blueprint section 9 and
+The named delegated scope and application role, the full determination rule, and
+the HTTP outcomes live in blueprint section 9 and
 [20-src-task-api.md](../specs/20-src-task-api.md). The exact wire shape is in
 [01-wire-format.md](../specs/01-wire-format.md).
+
+### Rejected attribution alternatives
+
+- `sub` alone: rejected as above; it is pairwise to one application and hides
+  whether the subject is a user or a workload.
+- Caller-supplied body or custom-header attribution: rejected because both values
+  are caller-controlled unless a separately trusted intermediary strips and
+  overwrites them, and no such intermediary exists here. This is the exact trust
+  mismatch this decision closes.
+- One field holding an asserted represented user: rejected because it loses the
+  authenticated caller and enables impersonation unless representation is
+  separately authorized.
+- Treating OBO as application-only: rejected because Microsoft defines the
+  on-behalf-of flow as delegated access that carries the user's identity through
+  the chain, and application-only tokens cannot be exchanged through OBO
+  (verified 2026-08-28).
 
 ## Consequences
 

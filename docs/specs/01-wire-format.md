@@ -192,10 +192,13 @@ identifier is committed here.
   authenticated caller; the two share a `user:` prefix by coincidence, not by
   contract. SPEC-LEVEL.
 - `clientApplicationId` is the immediate client application that called task-api,
-  from the token's v2 `azp` claim or v1 `appid` claim. `permissionMode` is
-  `delegated` when the token carries an `scp` (scope) claim and `application`
-  otherwise. Both are token-derived and cannot be set from the body or a header.
-  SPEC-LEVEL.
+  from the token's v2 `azp` claim, or the v1 `appid` claim when `azp` is absent;
+  it is absent when a valid token carries neither. `permissionMode` is
+  `application` for an application-only token and `delegated` otherwise; task-api
+  decides which from the token's identity type, not from the absence of `scp`
+  (the rule is in [20-src-task-api.md](20-src-task-api.md)). Both are
+  token-derived and cannot be
+  set from the body or a header. SPEC-LEVEL.
 - Legacy events, written before this contract, carry an unverified `actor`
   string in an older ad-hoc form and no `clientApplicationId` or
   `permissionMode`. A consumer represents such an event as `legacy-unverified`
