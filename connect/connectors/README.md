@@ -47,6 +47,10 @@ Each tenant connector reads control commands from its own Kafka signal topic,
 a named stream used only to tell Debezium what action to run. The generated
 configuration also gives each connector its own consumer group. Kafka stores a
 separate committed next-record position for each group, topic, and partition.
+The [pinned Debezium 3.6.1 signal reader](https://github.com/debezium/debezium/blob/v3.6.1.Final/debezium-connector-common/src/main/java/io/debezium/pipeline/signal/channels/KafkaSignalChannel.java#L166)
+assigns only partition 0, so every signal topic must have exactly one
+partition. A command written to another partition is not read by that
+connector.
 
 An operations producer for tenant `lexfield-002` must write this record:
 

@@ -6,7 +6,7 @@ namespace Lexfield.Connect.Tests.Snapshots;
 public sealed class IncrementalSnapshotTests(IncrementalSnapshotFixture fixture)
 {
     private static readonly TimeSpan MessageArrivalTimeout = TimeSpan.FromSeconds(90);
-    private static readonly string[] ContractHeaders = ["tenantId", "eventType", "eventId", "traceparent"];
+    private const string ConnectorRunIdHeader = "__debezium.context.runId";
 
     [Fact]
     public async Task Kafka_signal_reemits_the_outbox_row_through_the_transform_chain()
@@ -69,7 +69,7 @@ public sealed class IncrementalSnapshotTests(IncrementalSnapshotFixture fixture)
         var tenantBOriginal = ConsumeByKey(consumer, tenantBKey, MessageArrivalTimeout);
         Assert.NotNull(tenantBOriginal);
 
-        await fixture.StopConnectorAsync(IncrementalSnapshotFixture.TenantA);
+        await fixture.DeleteConnectorAsync(IncrementalSnapshotFixture.TenantA);
         await fixture.SendIncrementalSnapshotSignalAsync(IncrementalSnapshotFixture.TenantA);
         await fixture.SendIncrementalSnapshotSignalAsync(IncrementalSnapshotFixture.TenantB);
 
@@ -81,14 +81,14 @@ public sealed class IncrementalSnapshotTests(IncrementalSnapshotFixture fixture)
             whileTenantAStopped, result => result.Message.Key == tenantAKey);
         AssertSnapshotMatches(tenantBOriginal!, tenantBSnapshot);
 
-        await fixture.StartConnectorAsync(IncrementalSnapshotFixture.TenantA);
+        await fixture.RegisterConnectorAsync(IncrementalSnapshotFixture.TenantA);
         var afterTenantARestarts = ConsumeUntilKey(consumer, tenantAKey, MessageArrivalTimeout);
         afterTenantARestarts.AddRange(ConsumeFor(consumer, TimeSpan.FromSeconds(5)));
         var tenantASnapshot = Assert.Single(
             afterTenantARestarts, result => result.Message.Key == tenantAKey);
         Assert.DoesNotContain(
             afterTenantARestarts, result => result.Message.Key == tenantBKey);
-        AssertSnapshotMatches(tenantAOriginal!, tenantASnapshot);
+        AssertSnapshotAfterReregistrationMatches(tenantAOriginal!, tenantASnapshot);
 
         await fixture.AssertConnectorRunningAsync(IncrementalSnapshotFixture.TenantA);
         await fixture.AssertConnectorRunningAsync(IncrementalSnapshotFixture.TenantB);
@@ -141,10 +141,18 @@ public sealed class IncrementalSnapshotTests(IncrementalSnapshotFixture fixture)
         return results;
     }
 
-    private static void AssertHeadersEqual(Headers expected, Headers actual)
+    private static void AssertHeadersEqual(
+        Headers expected,
+        Headers actual,
+        params string[] ignoredHeaders)
     {
-        var expectedHeaders = HeaderBytes(expected);
-        var actualHeaders = HeaderBytes(actual);
+        var ignored = ignoredHeaders.ToHashSet(StringComparer.Ordinal);
+        var expectedHeaders = HeaderBytes(expected)
+            .Where(header => !ignored.Contains(header.Key))
+            .ToDictionary();
+        var actualHeaders = HeaderBytes(actual)
+            .Where(header => !ignored.Contains(header.Key))
+            .ToDictionary();
         Assert.Equal(expectedHeaders.Keys.Order(), actualHeaders.Keys.Order());
         foreach (var (name, value) in expectedHeaders)
         {
@@ -163,12 +171,31 @@ public sealed class IncrementalSnapshotTests(IncrementalSnapshotFixture fixture)
         Assert.NotNull(snapshot);
         Assert.Equal(original.Message.Key, snapshot.Message.Key);
         Assert.Equal(original.Message.Value, snapshot.Message.Value);
+        AssertHeadersEqual(original.Message.Headers, snapshot.Message.Headers);
+    }
+
+    private static void AssertSnapshotAfterReregistrationMatches(
+        ConsumeResult<string, string> original,
+        ConsumeResult<string, string>? snapshot)
+    {
+        Assert.NotNull(snapshot);
+        Assert.Equal(original.Message.Key, snapshot.Message.Key);
+        Assert.Equal(original.Message.Value, snapshot.Message.Value);
+
         var originalHeaders = HeaderBytes(original.Message.Headers);
         var snapshotHeaders = HeaderBytes(snapshot.Message.Headers);
-        foreach (var name in ContractHeaders)
-        {
-            Assert.Equal(originalHeaders[name], snapshotHeaders[name]);
-        }
+        Assert.Contains(ConnectorRunIdHeader, originalHeaders);
+        Assert.Contains(ConnectorRunIdHeader, snapshotHeaders);
+        var originalRunId = originalHeaders[ConnectorRunIdHeader];
+        var snapshotRunId = snapshotHeaders[ConnectorRunIdHeader];
+        Assert.False(
+            originalRunId.SequenceEqual(snapshotRunId),
+            $"Header '{ConnectorRunIdHeader}' did not change after connector re-registration.");
+
+        AssertHeadersEqual(
+            original.Message.Headers,
+            snapshot.Message.Headers,
+            ConnectorRunIdHeader);
     }
 
     private static Dictionary<string, byte[]> HeaderBytes(Headers headers) =>

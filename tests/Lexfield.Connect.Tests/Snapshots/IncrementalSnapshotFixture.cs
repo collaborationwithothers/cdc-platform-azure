@@ -154,7 +154,7 @@ public sealed class IncrementalSnapshotFixture : IAsyncLifetime
         await WaitForRunningAsync(client, tenantId);
     }
 
-    public async Task StopConnectorAsync(string tenantId)
+    public async Task DeleteConnectorAsync(string tenantId)
     {
         using var client = new HttpClient { BaseAddress = ConnectUri() };
         using var response = await client.DeleteAsync($"/connectors/tenant-{tenantId}-outbox");
@@ -171,10 +171,8 @@ public sealed class IncrementalSnapshotFixture : IAsyncLifetime
             await Task.Delay(TimeSpan.FromSeconds(1));
         }
 
-        throw new TimeoutException($"tenant-{tenantId}-outbox did not stop");
+        throw new TimeoutException($"tenant-{tenantId}-outbox was not deleted");
     }
-
-    public Task StartConnectorAsync(string tenantId) => RegisterConnectorAsync(tenantId);
 
     private async Task BuildConnectImageAsync()
     {
@@ -216,7 +214,7 @@ public sealed class IncrementalSnapshotFixture : IAsyncLifetime
         await TenantOnboardingScript.ApplyAsync(connection, tenantId);
     }
 
-    private async Task RegisterConnectorAsync(string tenantId)
+    public async Task RegisterConnectorAsync(string tenantId)
     {
         var config = ConnectChainFixture.GenerateConfig(tenantId, DatabaseFor(tenantId));
         config.Remove("driver.authentication");

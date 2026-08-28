@@ -56,10 +56,11 @@ The test exercises one row, task `6801`, in this order:
    identifies the source tenant. The configured chain is
    `dropNonOutbox,outbox,tenantHeader`.
 6. The consumer receives the re-emitted event. The test requires key
-   `lexfield-001-6801`, the exact payload above, and exact `tenantId`,
-   `eventType`, `eventId`, and `traceparent` header names and byte values from
-   the original. It also requires the connector and every connector task, a
-   unit of connector work run by Kafka Connect, to report `RUNNING`.
+   `lexfield-001-6801`, the exact payload above, and every original header name
+   and byte value, including the Outbox row identity in `id`, which the
+   [pinned outbox router](https://github.com/debezium/debezium/blob/v3.6.1.Final/debezium-connect-plugins/src/main/java/io/debezium/transforms/outbox/EventRouterDelegate.java#L160)
+   adds. It also requires the connector and every connector task, a unit of
+   connector work run by Kafka Connect, to report `RUNNING`.
 
 The original event must be consumed before the command. Without that baseline,
 a message after the signal could be mistaken for the first delivery rather than
@@ -77,21 +78,32 @@ The isolation test uses task `6802` for Tenant A and task `6803` for Tenant B:
    `connect-signals-lexfield-002`.
 4. Tenant B re-emits only its own Outbox row while Tenant A remains stopped.
    The test retains every observed Tenant A and Tenant B record during this
-   phase, so an unexpected cross-tenant output fails the assertion.
+   phase, so an unexpected cross-tenant output fails the assertion. Tenant B's
+   key, payload, and every header name and byte value match its original event.
 5. The fixture registers Tenant A's connector again with the same generated
    configuration. Tenant A then re-emits its queued row, and Tenant B emits no
-   extra row because of Tenant A's command.
+   extra row because of Tenant A's command. The re-emitted Tenant A record must
+   match every original header except `__debezium.context.runId`. The test also
+   requires that internal run ID to change after re-registration.
 6. Both connectors and all connector tasks report `RUNNING`.
 
 ## Evidence boundary
 
 ### Current container evidence
 
-The proof uses real SQL Server, Kafka, and Kafka Connect processes in containers.
-It covers two synthetic tenants and three synthetic Outbox rows across the two tests.
-It proves the exercised single-tenant transform chain, the combined per-tenant topic and group outcome, queued-command processing after connector re-registration, and the expected output key, payload, and contract headers.
-The same-run test compares every header byte.
-The restart test compares the four public contract headers because Debezium correctly changes its internal run ID when a connector restarts.
+The proof uses real SQL Server, Kafka, and Kafka Connect processes in
+containers. It covers two synthetic tenants and three synthetic Outbox rows
+across the two tests. It proves the exercised single-tenant transform chain,
+the combined per-tenant topic and group outcome, queued-command processing
+after connector re-registration, and the expected output key, payload, and
+headers.
+The same-run paths compare every header name and byte value, including `id`.
+The re-registration path compares every header except
+`__debezium.context.runId` and requires that header to change. The pinned
+[Debezium header definition](https://github.com/debezium/debezium/blob/v3.6.1.Final/debezium-util/src/main/java/io/debezium/connector/common/DebeziumHeaders.java#L14)
+names the header, and the pinned
+[header producer](https://github.com/debezium/debezium/blob/v3.6.1.Final/debezium-connector-common/src/main/java/io/debezium/connector/common/DebeziumHeaderProducer.java#L55-L60)
+populates it from the connector task's run ID.
 
 ### Unknowns
 

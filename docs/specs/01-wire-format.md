@@ -312,7 +312,7 @@ recover its offsets and schema history after being replaced.
 | `workflow-transitions-{tenantId}` | 12 | Stream isolation tier; one fictional tenant, isolated from birth. |
 | `workflow-transitions-parked` | 1 | Parked poison events (failure mode 4). queue-builder writes here on skip; the notifier writes here only after an operator skip or a bounded wait expiring. |
 | `notifier-control` | 1 | Operator instructions to a paused notifier partition: retry, or skip this offset. SPEC-LEVEL. |
-| `connect-signals-{tenantId}` | 1 per build-scale tenant | Debezium control commands for one tenant connector. |
+| `connect-signals-{tenantId}` | 1 | Per-build-scale-tenant Debezium control commands for one connector. |
 | `schema-history-{tenantId}` | 1 | Per-connector schema history. Compacted. |
 | `connect-configs`, `connect-offsets`, `connect-status` | Connect defaults | Connect internal state. Compacted. |
 
@@ -323,6 +323,10 @@ event for an application consumer. Each build-scale tenant has a separate
 `connect-signals-{tenantId}` topic and a separate
 `kafka-signal-{tenantId}` consumer group. Kafka stores a committed next-record
 position for each consumer group, topic, and partition.
+The [pinned Debezium 3.6.1 signal reader](https://github.com/debezium/debezium/blob/v3.6.1.Final/debezium-connector-common/src/main/java/io/debezium/pipeline/signal/channels/KafkaSignalChannel.java#L166)
+assigns only partition 0, so every signal topic must have exactly one
+partition. A command written to another partition is not read by that
+connector.
 
 The separation prevents this skipped-command sequence:
 
@@ -338,7 +342,7 @@ Debezium 3.6 names `signal.kafka.groupId` as the signal consumer's group and
 defaults it to `kafka-signal`. Its Kafka signal reader automatically commits
 consumer offsets and discards a record whose key differs from the connector's
 logical name. Separate topics and groups remove both shared states. The
-[SQL Server signal properties](https://debezium.io/documentation/reference/3.6/connectors/sqlserver.html#sqlserver-property-signal-kafka-group-id)
+[SQL Server signal properties](https://debezium.io/documentation/reference/3.6/connectors/sqlserver.html#sqlserver-property-signal-kafka-groupId)
 and the pinned
 [Kafka signal reader](https://github.com/debezium/debezium/blob/v3.6.1.Final/debezium-connector-common/src/main/java/io/debezium/pipeline/signal/channels/KafkaSignalChannel.java)
 are the source for those behaviors.
