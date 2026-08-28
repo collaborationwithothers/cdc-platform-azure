@@ -6,8 +6,9 @@ connector that reads those CDC records, through Kafka Connect, the worker that
 runs connectors and message transforms. The first test proves that one
 synthetic tenant's Outbox row, an announcement row written with a business
 change, can be re-read without restarting the connector. The second test proves
-that a command queued while Tenant A's connector is stopped remains available
-after Tenant B runs its own command. An incremental snapshot is a Debezium
+that a command queued after Tenant A's connector registration is deleted
+remains available after Tenant B runs its own command and Tenant A is registered
+again. An incremental snapshot is a Debezium
 re-read of current table rows while normal CDC remains enabled. A Kafka topic
 is a named stream of messages. This matters because an operator must be able to
 target one tenant without another connector consuming or skipping that command.
@@ -66,7 +67,7 @@ The original event must be consumed before the command. Without that baseline,
 a message after the signal could be mistaken for the first delivery rather than
 a re-emission, and the test could not compare the two records.
 
-## Timeline: one stopped connector and two tenant commands
+## Timeline: one deleted connector and two tenant commands
 
 The isolation test uses task `6802` for Tenant A and task `6803` for Tenant B:
 
@@ -76,7 +77,7 @@ The isolation test uses task `6802` for Tenant A and task `6803` for Tenant B:
 3. The fixture writes Tenant A's snapshot command to
    `connect-signals-lexfield-001`, then writes Tenant B's command to
    `connect-signals-lexfield-002`.
-4. Tenant B re-emits only its own Outbox row while Tenant A remains stopped.
+4. Tenant B re-emits only its own Outbox row while Tenant A remains deleted.
    The test retains every observed Tenant A and Tenant B record during this
    phase, so an unexpected cross-tenant output fails the assertion. Tenant B's
    key, payload, and every header name and byte value match its original event.
@@ -100,10 +101,12 @@ headers.
 The same-run paths compare every header name and byte value, including `id`.
 The re-registration path compares every header except
 `__debezium.context.runId` and requires that header to change. The pinned
-[Debezium header definition](https://github.com/debezium/debezium/blob/v3.6.1.Final/debezium-util/src/main/java/io/debezium/connector/common/DebeziumHeaders.java#L14)
+[Debezium header definition](https://github.com/debezium/debezium/blob/v3.6.1.Final/debezium-util/src/main/java/io/debezium/connector/common/DebeziumHeaders.java#L15)
 names the header, and the pinned
-[header producer](https://github.com/debezium/debezium/blob/v3.6.1.Final/debezium-connector-common/src/main/java/io/debezium/connector/common/DebeziumHeaderProducer.java#L55-L60)
-populates it from the connector task's run ID.
+[header producer](https://github.com/debezium/debezium/blob/v3.6.1.Final/debezium-connector-common/src/main/java/io/debezium/connector/common/DebeziumHeaderProducer.java#L61-L67)
+populates it from the connector task's run ID. Each new pinned
+[task context](https://github.com/debezium/debezium/blob/v3.6.1.Final/debezium-connector-common/src/main/java/io/debezium/connector/common/CdcSourceTaskContext.java#L36-L49)
+generates a new run ID when it is constructed.
 
 ### Unknowns
 

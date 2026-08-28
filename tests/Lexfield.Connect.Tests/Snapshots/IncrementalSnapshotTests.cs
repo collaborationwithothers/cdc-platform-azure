@@ -51,7 +51,7 @@ public sealed class IncrementalSnapshotTests(IncrementalSnapshotFixture fixture)
     }
 
     [Fact]
-    public async Task Stopped_connector_processes_its_queued_signal_after_another_tenant_snapshots()
+    public async Task Deleted_connector_processes_its_queued_signal_after_another_tenant_snapshots()
     {
         const int TenantATaskId = 6802;
         const int TenantBTaskId = 6803;
@@ -73,21 +73,21 @@ public sealed class IncrementalSnapshotTests(IncrementalSnapshotFixture fixture)
         await fixture.SendIncrementalSnapshotSignalAsync(IncrementalSnapshotFixture.TenantA);
         await fixture.SendIncrementalSnapshotSignalAsync(IncrementalSnapshotFixture.TenantB);
 
-        var whileTenantAStopped = ConsumeUntilKey(consumer, tenantBKey, MessageArrivalTimeout);
-        whileTenantAStopped.AddRange(ConsumeFor(consumer, TimeSpan.FromSeconds(5)));
+        var whileTenantADeleted = ConsumeUntilKey(consumer, tenantBKey, MessageArrivalTimeout);
+        whileTenantADeleted.AddRange(ConsumeFor(consumer, TimeSpan.FromSeconds(5)));
         var tenantBSnapshot = Assert.Single(
-            whileTenantAStopped, result => result.Message.Key == tenantBKey);
+            whileTenantADeleted, result => result.Message.Key == tenantBKey);
         Assert.DoesNotContain(
-            whileTenantAStopped, result => result.Message.Key == tenantAKey);
+            whileTenantADeleted, result => result.Message.Key == tenantAKey);
         AssertSnapshotMatches(tenantBOriginal!, tenantBSnapshot);
 
         await fixture.RegisterConnectorAsync(IncrementalSnapshotFixture.TenantA);
-        var afterTenantARestarts = ConsumeUntilKey(consumer, tenantAKey, MessageArrivalTimeout);
-        afterTenantARestarts.AddRange(ConsumeFor(consumer, TimeSpan.FromSeconds(5)));
+        var afterTenantARegisters = ConsumeUntilKey(consumer, tenantAKey, MessageArrivalTimeout);
+        afterTenantARegisters.AddRange(ConsumeFor(consumer, TimeSpan.FromSeconds(5)));
         var tenantASnapshot = Assert.Single(
-            afterTenantARestarts, result => result.Message.Key == tenantAKey);
+            afterTenantARegisters, result => result.Message.Key == tenantAKey);
         Assert.DoesNotContain(
-            afterTenantARestarts, result => result.Message.Key == tenantBKey);
+            afterTenantARegisters, result => result.Message.Key == tenantBKey);
         AssertSnapshotAfterReregistrationMatches(tenantAOriginal!, tenantASnapshot);
 
         await fixture.AssertConnectorRunningAsync(IncrementalSnapshotFixture.TenantA);
@@ -168,22 +168,18 @@ public sealed class IncrementalSnapshotTests(IncrementalSnapshotFixture fixture)
         ConsumeResult<string, string> original,
         ConsumeResult<string, string>? snapshot)
     {
-        Assert.NotNull(snapshot);
-        Assert.Equal(original.Message.Key, snapshot.Message.Key);
-        Assert.Equal(original.Message.Value, snapshot.Message.Value);
-        AssertHeadersEqual(original.Message.Headers, snapshot.Message.Headers);
+        var matchedSnapshot = AssertKeyAndValueEqual(original, snapshot);
+        AssertHeadersEqual(original.Message.Headers, matchedSnapshot.Message.Headers);
     }
 
     private static void AssertSnapshotAfterReregistrationMatches(
         ConsumeResult<string, string> original,
         ConsumeResult<string, string>? snapshot)
     {
-        Assert.NotNull(snapshot);
-        Assert.Equal(original.Message.Key, snapshot.Message.Key);
-        Assert.Equal(original.Message.Value, snapshot.Message.Value);
+        var matchedSnapshot = AssertKeyAndValueEqual(original, snapshot);
 
         var originalHeaders = HeaderBytes(original.Message.Headers);
-        var snapshotHeaders = HeaderBytes(snapshot.Message.Headers);
+        var snapshotHeaders = HeaderBytes(matchedSnapshot.Message.Headers);
         Assert.Contains(ConnectorRunIdHeader, originalHeaders);
         Assert.Contains(ConnectorRunIdHeader, snapshotHeaders);
         var originalRunId = originalHeaders[ConnectorRunIdHeader];
@@ -194,8 +190,18 @@ public sealed class IncrementalSnapshotTests(IncrementalSnapshotFixture fixture)
 
         AssertHeadersEqual(
             original.Message.Headers,
-            snapshot.Message.Headers,
+            matchedSnapshot.Message.Headers,
             ConnectorRunIdHeader);
+    }
+
+    private static ConsumeResult<string, string> AssertKeyAndValueEqual(
+        ConsumeResult<string, string> original,
+        ConsumeResult<string, string>? snapshot)
+    {
+        Assert.NotNull(snapshot);
+        Assert.Equal(original.Message.Key, snapshot.Message.Key);
+        Assert.Equal(original.Message.Value, snapshot.Message.Value);
+        return snapshot;
     }
 
     private static Dictionary<string, byte[]> HeaderBytes(Headers headers) =>

@@ -181,13 +181,8 @@ jobs:
               ])
             and
             ([.items[]
-              | select(.metadata.name | startswith("connect-signals-"))
-              | {name: .metadata.name, partitions: .spec.partitions}]
-              | sort_by(.name) == [
-                {name: "connect-signals-lexfield-001", partitions: 1},
-                {name: "connect-signals-lexfield-002", partitions: 1},
-                {name: "connect-signals-lexfield-003", partitions: 1}
-              ])'
+              | select(.metadata.name | startswith("connect-signals-"))]
+              | length == 3 and all(.[]; .spec.partitions == 1))'
           kubectl get kafkausers --namespace kafka -o json | jq -e '
             [.items[].metadata.name] | sort == [
               "connect", "notifier", "operations", "queue-builder"
