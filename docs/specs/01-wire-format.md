@@ -527,12 +527,14 @@ The downstream position changes only after that consumer processes output. No
 checkpoint proves that another checkpoint advanced, and this path does not
 claim exactly-once delivery.
 
-It is signalled over Kafka rather than by writing to a signalling table in the
-tenant database, because a signalling table would need the connector to hold
-write access and blueprint section 9 keeps connector grants read-only. That is
-the whole reason the Kafka signal channel is load-bearing, and it is why V3
-exists: if the channel does not work on the pinned Debezium version, the
-security posture changes, not just a config line.
+The external snapshot trigger travels over Kafka rather than through a row
+written by an operator to the tenant database. Debezium still needs narrowly
+scoped `INSERT` and `SELECT` grants on `dbo.DebeziumSignal` so it can write and
+read the OPEN and CLOSE watermark rows. It does not receive a general-purpose
+database write grant. The Kafka signal channel is load-bearing because it
+keeps the operator trigger outside the tenant database. If the channel does
+not work on the pinned Debezium version, the security posture changes, not
+just a configuration line.
 
 Re-emitted events arrive at versions the projection already holds, and
 queue-builder's guarded upsert makes those no-ops, so the re-snapshot is safe to
