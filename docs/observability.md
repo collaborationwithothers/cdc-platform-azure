@@ -20,7 +20,7 @@ The operator follows this path from left to right: database commit, CDC record, 
 
 Telemetry is the health, log, metric, and trace data collected from that path.
 
-**Current implementation/test evidence:** TaskApi and QueueBuilder register the shared observability library. QueueBuilder consumes workflow transitions and applies them to QueueState, its copy of task data for fast work-queue reads. Tests capture structured event logs, trace continuation, QueueState writes that reject an equal or lower version, and the two health responses in process.
+**Current implementation/test evidence:** TaskApi and QueueBuilder register the shared observability library. QueueBuilder consumes workflow transitions and applies them to QueueState, its copy of task data for fast work-queue reads. Tests capture structured event logs, gap and head-loss counters, trace continuation, QueueState writes that reject an equal or lower version, and the two health responses in process.
 
 **Design contract only:** Reconciler is a planned repair service that compares QueueState with source truth.
 
@@ -56,11 +56,11 @@ During process shutdown, repeated stop and dispose calls are safe. Tests cover t
 
 **Current implementation/test evidence:** TaskApi implements these event names: `TransitionCommitted`, `OutboxWritten`, `RepairRead`, and `ChangesFeedRead`.
 
-It also implements `ChangesFeedUnavailable` and `FaultInjected`. `ChangesFeedUnavailable` is diagnostic context, not an alert by itself. QueueBuilder implements `EventReceived`, `EventApplied`, and `DuplicateSkipped`.
+It also implements `ChangesFeedUnavailable` and `FaultInjected`. `ChangesFeedUnavailable` is diagnostic context, not an alert by itself. QueueBuilder implements `EventReceived`, `EventApplied`, `DuplicateSkipped`, `GapDetected`, and `HeadLossDetected`. The last two names are warning logs and counters emitted when the stored version shows that one task's workflow-transition sequence is missing messages.
 
-**Design contract only:** The other QueueBuilder names and all Reconciler and Notifier names in the table below describe the intended signal vocabulary. Connect, Debezium, Argo CD, Istio, cert-manager, and external-dns retain their upstream names.
+**Design contract only:** The remaining QueueBuilder names and all Reconciler and Notifier names below describe the intended signal vocabulary. Connect, Debezium, Argo CD, Istio, cert-manager, and external-dns retain their upstream names.
 
-- QueueBuilder: `EventReceived`, `EventApplied`, `DuplicateSkipped`, `GapDetected`, `HeadLossDetected`, `RepairRequested`, `RepairApplied`, `EventParked`, and `PartitionBlocked`.
+- QueueBuilder: `RepairRequested`, `RepairApplied`, `EventParked`, and `PartitionBlocked`.
 - Reconciler: `SweepStarted`, `SweepCompleted`, `DriftFlagged`, `DriftRepaired`, `AttributionVerified`, and `AttributionMismatch`.
 - Notifier: `EventReceived`, `DuplicateSkipped`, `NotificationSent`, `SendRecorded`, and `EventParked`.
 
@@ -144,7 +144,7 @@ An unparseable parked event guarantees only its Kafka partition and offset. Tena
 
 A silent tenant timeline can mean another tenant's poison event blocked the shared partition. The operator then pivots to partition lag and `PartitionBlocked`, not another tenant-only query.
 
-QueueBuilder trace continuation and its three current consumer event logs are implemented. Other consumer traces and events remain design only. Kusto Query Language (KQL) queries are also not committed.
+QueueBuilder trace continuation, its five current consumer event logs, and its two gap counters are implemented. The remaining QueueBuilder events and all Reconciler and Notifier traces and events remain design only. Kusto Query Language (KQL) queries are also not committed.
 
 **Live unknown:** Kafka-hop rendering in Application Insights and sampling continuity across components are unverified. No continuous waterfall or complete sampled trace is promised.
 

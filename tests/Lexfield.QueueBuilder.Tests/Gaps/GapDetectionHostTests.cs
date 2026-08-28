@@ -27,6 +27,7 @@ public sealed class GapDetectionHostTests(SqlServerFixture sql, KafkaFixture kaf
         await context.ProduceAsync(Event(2, 4701));
         await context.ProduceAsync(Event(7, 4701));
         await context.WaitForVersionAsync(7, 4701);
+        await context.WaitForSignalAsync("QueueBuilder.GapDetected", 4701);
 
         Assert.Equal(1, context.Measurement("QueueBuilder.GapDetected", 4701));
         Assert.Equal(0, context.Measurement("QueueBuilder.HeadLossDetected", 4701));
@@ -40,6 +41,7 @@ public sealed class GapDetectionHostTests(SqlServerFixture sql, KafkaFixture kaf
 
         await context.ProduceAsync(Event(4, 4702));
         await context.WaitForVersionAsync(4, 4702);
+        await context.WaitForSignalAsync("QueueBuilder.HeadLossDetected", 4702);
 
         Assert.Equal(0, context.Measurement("QueueBuilder.GapDetected", 4702));
         Assert.Equal(1, context.Measurement("QueueBuilder.HeadLossDetected", 4702));
@@ -157,6 +159,19 @@ public sealed class GapDetectionHostTests(SqlServerFixture sql, KafkaFixture kaf
             measurements
                 .Where(item => item.Name == name && (taskId is null || item.TaskId == taskId))
                 .Sum(item => item.Value);
+
+        public async Task WaitForSignalAsync(string name, int taskId)
+        {
+            var deadline = DateTimeOffset.UtcNow.AddSeconds(15);
+            var eventName = $"\"eventName\":\"{name}\"";
+            while (DateTimeOffset.UtcNow < deadline)
+            {
+                if (Measurement(name, taskId) > 0 && LogOutput.Contains(eventName)) return;
+                await Task.Delay(50);
+            }
+            throw new TimeoutException(
+                $"QueueBuilder did not emit {name} for task {taskId}.");
+        }
 
         public async Task ProduceAsync(TransitionEvent taskEvent)
         {
