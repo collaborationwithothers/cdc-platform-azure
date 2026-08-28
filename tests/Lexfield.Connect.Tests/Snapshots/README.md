@@ -86,4 +86,3 @@ The [signal-channel diagram](../../../docs/diagrams/incremental-snapshot-channel
 [snapshot-window diagram](../../../docs/diagrams/incremental-snapshot-window.drawio),
 and [crash-recovery diagram](../../../docs/diagrams/incremental-snapshot-recovery.drawio)
 provide the wider flow and its limits.
-
