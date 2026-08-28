@@ -60,6 +60,24 @@ public sealed class ConnectorGeneratorTests
     }
 
     [Fact]
+    public void SignalTopicsAndGroupsAreTenantIsolated()
+    {
+        using var run = Generate(ThreeTenants);
+        var configs = new[] { "lexfield-001", "lexfield-002", "lexfield-003" }
+            .Select(tenantId => (TenantId: tenantId, Config: ReadConfig(run.Output, tenantId)))
+            .ToArray();
+
+        Assert.All(configs, tenant =>
+        {
+            Assert.Equal($"connect-signals-{tenant.TenantId}", tenant.Config["signal.kafka.topic"]);
+            Assert.Equal($"kafka-signal-{tenant.TenantId}", tenant.Config["signal.kafka.groupId"]);
+            Assert.Equal($"tenant-{tenant.TenantId}", tenant.Config["topic.prefix"]);
+        });
+        Assert.Equal(configs.Length, configs.Select(tenant => tenant.Config["signal.kafka.topic"]).Distinct().Count());
+        Assert.Equal(configs.Length, configs.Select(tenant => tenant.Config["signal.kafka.groupId"]).Distinct().Count());
+    }
+
+    [Fact]
     public void ExistingConnectorFilesAreNotSilentlyPreserved()
     {
         using var run = Generate(ThreeTenants);

@@ -6,6 +6,7 @@ namespace Lexfield.Connect.Tests.Snapshots;
 public sealed class IncrementalSnapshotTests(IncrementalSnapshotFixture fixture)
 {
     private static readonly TimeSpan MessageArrivalTimeout = TimeSpan.FromSeconds(90);
+    private static readonly string[] ContractHeaders = ["tenantId", "eventType", "eventId", "traceparent"];
 
     [Fact]
     public async Task Kafka_signal_reemits_the_outbox_row_through_the_transform_chain()
@@ -49,6 +50,42 @@ public sealed class IncrementalSnapshotTests(IncrementalSnapshotFixture fixture)
         await fixture.AssertConnectorRunningAsync();
     }
 
+    [Fact]
+    public async Task Stopped_tenant_processes_its_queued_signal_after_another_tenant_snapshots()
+    {
+        const int TenantATaskId = 6802;
+        const int TenantBTaskId = 6803;
+        const string TenantATraceParent = "00-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-bbbbbbbbbbbbbbbb-01";
+        const string TenantBTraceParent = "00-cccccccccccccccccccccccccccccccc-dddddddddddddddd-01";
+        var tenantAKey = $"{IncrementalSnapshotFixture.TenantA}-{TenantATaskId}";
+        var tenantBKey = $"{IncrementalSnapshotFixture.TenantB}-{TenantBTaskId}";
+        using var consumer = fixture.CreateConsumer();
+
+        await fixture.InsertOutboxAsync(IncrementalSnapshotFixture.TenantA, TenantATaskId, TenantATraceParent);
+        var tenantAOriginal = ConsumeByKey(consumer, tenantAKey, MessageArrivalTimeout);
+        Assert.NotNull(tenantAOriginal);
+
+        await fixture.InsertOutboxAsync(IncrementalSnapshotFixture.TenantB, TenantBTaskId, TenantBTraceParent);
+        var tenantBOriginal = ConsumeByKey(consumer, tenantBKey, MessageArrivalTimeout);
+        Assert.NotNull(tenantBOriginal);
+
+        await fixture.StopConnectorAsync(IncrementalSnapshotFixture.TenantA);
+        await fixture.SendIncrementalSnapshotSignalAsync(IncrementalSnapshotFixture.TenantA);
+        await fixture.SendIncrementalSnapshotSignalAsync(IncrementalSnapshotFixture.TenantB);
+
+        var tenantBSnapshot = ConsumeByKey(consumer, tenantBKey, MessageArrivalTimeout);
+        AssertSnapshotMatches(tenantBOriginal!, tenantBSnapshot);
+        Assert.Null(ConsumeByKey(consumer, tenantAKey, TimeSpan.FromSeconds(5)));
+
+        await fixture.StartConnectorAsync(IncrementalSnapshotFixture.TenantA);
+        var tenantASnapshot = ConsumeByKey(consumer, tenantAKey, MessageArrivalTimeout);
+        AssertSnapshotMatches(tenantAOriginal!, tenantASnapshot);
+        Assert.Null(ConsumeByKey(consumer, tenantBKey, TimeSpan.FromSeconds(5)));
+
+        await fixture.AssertConnectorRunningAsync(IncrementalSnapshotFixture.TenantA);
+        await fixture.AssertConnectorRunningAsync(IncrementalSnapshotFixture.TenantB);
+    }
+
     private static ConsumeResult<string, string>? ConsumeByKey(
         IConsumer<string, string> consumer,
         string key,
@@ -81,7 +118,26 @@ public sealed class IncrementalSnapshotTests(IncrementalSnapshotFixture fixture)
         Assert.Equal(expectedHeaders.Keys.Order(), actualHeaders.Keys.Order());
         foreach (var (name, value) in expectedHeaders)
         {
-            Assert.Equal(value, actualHeaders[name]);
+            var actualValue = actualHeaders[name];
+            Assert.True(
+                value.SequenceEqual(actualValue),
+                $"Header '{name}' changed from '{System.Text.Encoding.UTF8.GetString(value)}' " +
+                $"to '{System.Text.Encoding.UTF8.GetString(actualValue)}'.");
+        }
+    }
+
+    private static void AssertSnapshotMatches(
+        ConsumeResult<string, string> original,
+        ConsumeResult<string, string>? snapshot)
+    {
+        Assert.NotNull(snapshot);
+        Assert.Equal(original.Message.Key, snapshot.Message.Key);
+        Assert.Equal(original.Message.Value, snapshot.Message.Value);
+        var originalHeaders = HeaderBytes(original.Message.Headers);
+        var snapshotHeaders = HeaderBytes(snapshot.Message.Headers);
+        foreach (var name in ContractHeaders)
+        {
+            Assert.Equal(originalHeaders[name], snapshotHeaders[name]);
         }
     }
 

@@ -167,7 +167,9 @@ jobs:
             [.items[].metadata.name] | sort == [
               "connect-configs",
               "connect-offsets",
-              "connect-signals",
+              "connect-signals-lexfield-001",
+              "connect-signals-lexfield-002",
+              "connect-signals-lexfield-003",
               "connect-status",
               "notifier-control",
               "schema-history-lexfield-001",
@@ -183,6 +185,18 @@ jobs:
             ]'
           kubectl get kafkausers --namespace kafka -o json | jq -e '
             all(.items[]; ((.spec.authorization.acls // []) | length) > 0)'
+          kubectl get kafkausers --namespace kafka -o json | jq -e '
+            (.items[] | select(.metadata.name == "connect")) as $connect |
+            (.items[] | select(.metadata.name == "operations")) as $operations |
+            any($connect.spec.authorization.acls[];
+              .resource == {type: "topic", name: "connect-signals-", patternType: "prefix"}
+              and (.operations | sort) == ["Describe", "Read"])
+            and any($connect.spec.authorization.acls[];
+              .resource == {type: "group", name: "kafka-signal-", patternType: "prefix"}
+              and .operations == ["Read"])
+            and any($operations.spec.authorization.acls[];
+              .resource == {type: "topic", name: "connect-signals-", patternType: "prefix"}
+              and (.operations | sort) == ["Describe", "Write"])'
 
       - name: dump argo state on failure
         if: failure()
