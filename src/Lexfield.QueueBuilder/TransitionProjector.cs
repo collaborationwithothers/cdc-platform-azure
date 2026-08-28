@@ -1,8 +1,10 @@
 using System.Diagnostics;
+using System.Diagnostics.Metrics;
 using System.Text;
 using System.Text.Json;
 using Confluent.Kafka;
 using Lexfield.Contracts;
+using Lexfield.QueueBuilder.Gaps;
 using Lexfield.QueueStore;
 using Microsoft.Extensions.Logging;
 using ContractHeaders = Lexfield.Contracts.Headers;
@@ -12,9 +14,16 @@ namespace Lexfield.QueueBuilder;
 
 internal sealed class TransitionProjector(
     QueueStateStore store,
+    IGapDetector gapDetector,
+    Meter meter,
     ActivitySource activitySource,
     ILogger<TransitionProjector> logger)
 {
+    private readonly Counter<long> _gapCounter =
+        meter.CreateCounter<long>("QueueBuilder.GapDetected");
+    private readonly Counter<long> _headLossCounter =
+        meter.CreateCounter<long>("QueueBuilder.HeadLossDetected");
+
     public async Task ApplyAsync(Message<string, string> message, CancellationToken cancellationToken)
     {
         var transition = TransitionMessageDecoder.Decode(message);
@@ -28,6 +37,9 @@ internal sealed class TransitionProjector(
 
         Log("QueueBuilder.EventReceived", transition.TenantId, taskEvent,
             "QueueBuilder received a workflow transition from Kafka, a named stream of messages.");
+        var stored = await store.GetAsync(
+            transition.TenantId, taskEvent.TaskId, cancellationToken);
+        var gap = gapDetector.Detect(stored?.Version, taskEvent.Version);
         var applied = await store.ApplyAsync(new QueueStateUpdate(
             transition.TenantId,
             taskEvent.TaskId,
@@ -35,6 +47,8 @@ internal sealed class TransitionProjector(
             taskEvent.Version,
             taskEvent.TeamId,
             taskEvent.AssigneeId), cancellationToken);
+        if (applied)
+            RecordGap(gap, transition.TenantId, taskEvent, stored?.Version);
         Log(
             applied ? "QueueBuilder.EventApplied" : "QueueBuilder.DuplicateSkipped",
             transition.TenantId,
@@ -42,6 +56,42 @@ internal sealed class TransitionProjector(
             applied
                 ? "QueueBuilder applied the workflow transition to QueueState, its work-queue projection."
                 : "QueueBuilder skipped a workflow transition whose version was already stored.");
+    }
+
+    private void RecordGap(
+        GapKind gap,
+        string tenantId,
+        TransitionEvent taskEvent,
+        int? storedVersion)
+    {
+        if (gap == GapKind.None) return;
+
+        var tags = new TagList
+        {
+            { "tenantId", tenantId },
+            { "taskId", taskEvent.TaskId },
+            { "version", taskEvent.Version },
+            { "storedVersion", storedVersion }
+        };
+        var eventName = gap == GapKind.Jump
+            ? "QueueBuilder.GapDetected"
+            : "QueueBuilder.HeadLossDetected";
+        if (gap == GapKind.Jump) _gapCounter.Add(1, tags);
+        else _headLossCounter.Add(1, tags);
+
+        using (logger.BeginScope(new Dictionary<string, object?>
+        {
+            ["eventName"] = eventName,
+            ["tenantId"] = tenantId,
+            ["taskId"] = taskEvent.TaskId,
+            ["version"] = taskEvent.Version,
+            ["storedVersion"] = storedVersion
+        }))
+        {
+            logger.LogWarning(gap == GapKind.Jump
+                ? "QueueBuilder detected missing versions between the stored and incoming workflow transitions for this task."
+                : "QueueBuilder first observed this task above version 1, so its initial workflow transitions are missing.");
+        }
     }
 
     private void Log(string eventName, string tenantId, TransitionEvent taskEvent, string message)
