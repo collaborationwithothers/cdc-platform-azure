@@ -51,7 +51,7 @@ public sealed class IncrementalSnapshotTests(IncrementalSnapshotFixture fixture)
     }
 
     [Fact]
-    public async Task Stopped_tenant_processes_its_queued_signal_after_another_tenant_snapshots()
+    public async Task Stopped_connector_processes_its_queued_signal_after_another_tenant_snapshots()
     {
         const int TenantATaskId = 6802;
         const int TenantBTaskId = 6803;
@@ -73,14 +73,22 @@ public sealed class IncrementalSnapshotTests(IncrementalSnapshotFixture fixture)
         await fixture.SendIncrementalSnapshotSignalAsync(IncrementalSnapshotFixture.TenantA);
         await fixture.SendIncrementalSnapshotSignalAsync(IncrementalSnapshotFixture.TenantB);
 
-        var tenantBSnapshot = ConsumeByKey(consumer, tenantBKey, MessageArrivalTimeout);
+        var whileTenantAStopped = ConsumeUntilKey(consumer, tenantBKey, MessageArrivalTimeout);
+        whileTenantAStopped.AddRange(ConsumeFor(consumer, TimeSpan.FromSeconds(5)));
+        var tenantBSnapshot = Assert.Single(
+            whileTenantAStopped, result => result.Message.Key == tenantBKey);
+        Assert.DoesNotContain(
+            whileTenantAStopped, result => result.Message.Key == tenantAKey);
         AssertSnapshotMatches(tenantBOriginal!, tenantBSnapshot);
-        Assert.Null(ConsumeByKey(consumer, tenantAKey, TimeSpan.FromSeconds(5)));
 
         await fixture.StartConnectorAsync(IncrementalSnapshotFixture.TenantA);
-        var tenantASnapshot = ConsumeByKey(consumer, tenantAKey, MessageArrivalTimeout);
+        var afterTenantARestarts = ConsumeUntilKey(consumer, tenantAKey, MessageArrivalTimeout);
+        afterTenantARestarts.AddRange(ConsumeFor(consumer, TimeSpan.FromSeconds(5)));
+        var tenantASnapshot = Assert.Single(
+            afterTenantARestarts, result => result.Message.Key == tenantAKey);
+        Assert.DoesNotContain(
+            afterTenantARestarts, result => result.Message.Key == tenantBKey);
         AssertSnapshotMatches(tenantAOriginal!, tenantASnapshot);
-        Assert.Null(ConsumeByKey(consumer, tenantBKey, TimeSpan.FromSeconds(5)));
 
         await fixture.AssertConnectorRunningAsync(IncrementalSnapshotFixture.TenantA);
         await fixture.AssertConnectorRunningAsync(IncrementalSnapshotFixture.TenantB);
@@ -89,17 +97,39 @@ public sealed class IncrementalSnapshotTests(IncrementalSnapshotFixture fixture)
     private static ConsumeResult<string, string>? ConsumeByKey(
         IConsumer<string, string> consumer,
         string key,
-        TimeSpan timeout)
+        TimeSpan timeout) =>
+        ConsumeUntilKey(consumer, key, timeout).LastOrDefault(result => result.Message.Key == key);
+
+    private static List<ConsumeResult<string, string>> ConsumeUntilKey(
+        IConsumer<string, string> consumer,
+        string key,
+        TimeSpan timeout) =>
+        ConsumeUntil(consumer, timeout, result => result.Message.Key == key);
+
+    private static List<ConsumeResult<string, string>> ConsumeFor(
+        IConsumer<string, string> consumer,
+        TimeSpan timeout) =>
+        ConsumeUntil(consumer, timeout, _ => false);
+
+    private static List<ConsumeResult<string, string>> ConsumeUntil(
+        IConsumer<string, string> consumer,
+        TimeSpan timeout,
+        Func<ConsumeResult<string, string>, bool> stop)
     {
+        var results = new List<ConsumeResult<string, string>>();
         var deadline = DateTime.UtcNow.Add(timeout);
         while (DateTime.UtcNow < deadline)
         {
             try
             {
                 var result = consumer.Consume(TimeSpan.FromSeconds(1));
-                if (result?.Message.Key == key)
+                if (result is not null)
                 {
-                    return result;
+                    results.Add(result);
+                    if (stop(result))
+                    {
+                        return results;
+                    }
                 }
             }
             catch (ConsumeException error) when (error.Error.Code == ErrorCode.UnknownTopicOrPart)
@@ -108,7 +138,7 @@ public sealed class IncrementalSnapshotTests(IncrementalSnapshotFixture fixture)
             }
         }
 
-        return null;
+        return results;
     }
 
     private static void AssertHeadersEqual(Headers expected, Headers actual)

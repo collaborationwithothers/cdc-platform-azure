@@ -41,15 +41,14 @@ already wrote the compound `<tenantId>-<taskId>` identity there in the business
 transaction, so this configuration neither constructs nor rewrites a key. The
 two stock transforms are the outbox router and the static tenant header.
 
-## Send a snapshot command
+## Snapshot signal record
 
 Each tenant connector reads control commands from its own Kafka signal topic,
 a named stream used only to tell Debezium what action to run. The generated
-configuration also gives each connector its own consumer group, the Kafka
-bookmark that records which command the connector reads next.
+configuration also gives each connector its own consumer group. Kafka stores a
+separate committed next-record position for each group, topic, and partition.
 
-For tenant `lexfield-002`, produce this record with the operations Kafka
-identity:
+An operations producer for tenant `lexfield-002` must write this record:
 
 ```text
 topic: connect-signals-lexfield-002
@@ -69,12 +68,17 @@ generated configuration for this example contains:
 }
 ```
 
-Kafka stores the signal consumer's command bookmark under
+Kafka stores the signal consumer's committed next-record position under
 `kafka-signal-lexfield-002` in its internal `__consumer_offsets` topic. Kafka
 Connect separately stores the Debezium source log sequence number (LSN) and
 snapshot progress in `connect-offsets`. A downstream application consumer has
-another group and another bookmark. Sending a signal does not reset or replay
-that downstream group.
+another group and another committed position. Sending a signal does not reset
+or replay that downstream group.
+
+This section defines the record contract. It is not an executable procedure.
+The operations producer and its credential procedure are not committed yet;
+issue #69 owns that tool. Do not substitute an ad hoc Kafka identity for the
+operations identity.
 
 The repository records the trace header syntax in
 [V14](../../docs/specs/02-verification-register.md#v14-promoting-an-outbox-column-to-a-kafka-header),
