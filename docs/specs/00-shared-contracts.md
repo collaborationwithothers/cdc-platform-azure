@@ -126,10 +126,11 @@ token, never from a request body field or a custom header.
 
 The width is `nvarchar(128)` because the longest canonical value,
 `workload:` plus two 36-character GUIDs and a separator, is 82 characters, which
-does not fit the earlier `nvarchar(64)`. This spec states the target width; the
-idempotent migration that widens the column in each tenant database, and the
-proof it upgrades an existing row safely, is owned by the tenant-schema
-onboarding follow-up, not authored here.
+does not fit the earlier `nvarchar(64)`. The onboarding automation in
+`tools/onboarding/tenant-onboarding.sql` carries the widening: a new tenant
+database is created at `nvarchar(128)`, and a database onboarded at the earlier
+width is widened in place. A container test proves the widening keeps an
+existing 82-character value unchanged and that rerunning the script is a no-op.
 
 ### Aggregate identity
 

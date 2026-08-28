@@ -79,6 +79,217 @@ public sealed class TenantOnboardingTests(SqlServerFixture sql)
         }
     }
 
+    [Fact]
+    public async Task Onboarding_sizes_UpdatedBy_for_the_canonical_actor_and_a_second_run_keeps_it()
+    {
+        const string databaseName = "onboarding_updatedby_width";
+        var connectionString = await sql.CreateEmptyTenantDatabaseAsync(databaseName);
+        var runner = new TenantOnboardingRunner(entry => sql.ConnectionStringFor(entry.Database));
+        TenantManifestEntry[] manifest = [new("lexfield-001", databaseName, false)];
+
+        await runner.RunAsync(manifest);
+        var afterFirstRun = await ReadUpdatedByWidthAsync(connectionString);
+        await runner.RunAsync(manifest);
+        var afterSecondRun = await ReadUpdatedByWidthAsync(connectionString);
+
+        Assert.True(
+            afterFirstRun == CanonicalActorColumnWidth,
+            $"Onboarding must create UpdatedBy as nvarchar({CanonicalActorColumnWidth}); it was nvarchar({afterFirstRun}).");
+        Assert.True(
+            afterSecondRun == CanonicalActorColumnWidth,
+            $"Rerunning onboarding must leave UpdatedBy at nvarchar({CanonicalActorColumnWidth}); it was nvarchar({afterSecondRun}).");
+    }
+
+    [Fact]
+    public async Task Onboarding_widens_a_legacy_UpdatedBy_column_and_preserves_the_stored_actor()
+    {
+        const string databaseName = "onboarding_updatedby_upgrade";
+        const string legacyActor = "user:legacy-write";
+        var connectionString = await sql.CreateEmptyTenantDatabaseAsync(databaseName);
+        var runner = new TenantOnboardingRunner(entry => sql.ConnectionStringFor(entry.Database));
+        TenantManifestEntry[] manifest = [new("lexfield-002", databaseName, false)];
+
+        // The database as it existed before this change: UpdatedBy is nvarchar(64)
+        // and already holds rows, so the widening has to upgrade it in place.
+        await ExecuteAsync(connectionString, LegacyWorkflowTaskTableSql);
+        await InsertTaskAsync(connectionString, legacyActor);
+        var beforeOnboarding = await ReadUpdatedByWidthAsync(connectionString);
+
+        await runner.RunAsync(manifest);
+        var afterWidening = await ReadUpdatedByWidthAsync(connectionString);
+        var legacyActorAfterWidening = await ReadStoredActorAsync(connectionString, taskVersion: 1);
+
+        // An 82-character identifier does not fit nvarchar(64), so it can only be
+        // written once the widening has run. Rerunning onboarding must not touch it.
+        var longestActor = LongestCanonicalActor();
+        await InsertTaskAsync(connectionString, longestActor, taskVersion: 2);
+        await runner.RunAsync(manifest);
+        var afterSecondRun = await ReadUpdatedByWidthAsync(connectionString);
+        var longestActorAfterSecondRun = await ReadStoredActorAsync(connectionString, taskVersion: 2);
+
+        Assert.True(
+            longestActor.Length == CanonicalActorMaxLength,
+            $"The longest canonical actor identifier must be {CanonicalActorMaxLength} characters; " +
+            $"'{longestActor}' is {longestActor.Length}. If the identifier format changed, the column width must be rechecked.");
+        Assert.True(
+            beforeOnboarding == LegacyColumnWidth,
+            $"The upgrade path must start from nvarchar({LegacyColumnWidth}); it started from nvarchar({beforeOnboarding}).");
+        Assert.True(
+            afterWidening == CanonicalActorColumnWidth,
+            $"Onboarding must widen a legacy UpdatedBy column to nvarchar({CanonicalActorColumnWidth}); it was nvarchar({afterWidening}).");
+        Assert.True(
+            legacyActorAfterWidening == legacyActor,
+            $"Widening UpdatedBy must preserve an existing value; '{legacyActor}' became '{legacyActorAfterWidening}'.");
+        Assert.True(
+            afterSecondRun == CanonicalActorColumnWidth,
+            $"Rerunning onboarding must leave UpdatedBy at nvarchar({CanonicalActorColumnWidth}); it was nvarchar({afterSecondRun}).");
+        Assert.True(
+            longestActorAfterSecondRun == longestActor,
+            $"Rerunning onboarding must preserve the longest canonical actor identifier unchanged; " +
+            $"'{longestActor}' became '{longestActorAfterSecondRun}'.");
+    }
+
+    [Fact]
+    public async Task Onboarding_widens_UpdatedBy_while_change_tracking_watches_the_table()
+    {
+        const string databaseName = "onboarding_updatedby_change_tracking";
+        const string actor = "user:tracked-write";
+        var connectionString = await sql.CreateTenantDatabaseAsync(databaseName, "lexfield-003");
+        var runner = new TenantOnboardingRunner(entry => sql.ConnectionStringFor(entry.Database));
+        TenantManifestEntry[] manifest = [new("lexfield-003", databaseName, false)];
+
+        // Onboarding has already switched Change Tracking on for WorkflowTask.
+        // Narrowing the column here proves ALTER COLUMN is permitted in that state;
+        // rerunning onboarding then proves the widening works with the table watched,
+        // so the widening does not have to sit before the CHANGE_TRACKING block.
+        var trackedBefore = await ReadChangeTrackingEnabledAsync(connectionString);
+        await ExecuteAsync(
+            connectionString,
+            "ALTER TABLE dbo.WorkflowTask ALTER COLUMN UpdatedBy nvarchar(64) NOT NULL;");
+        var narrowedWidth = await ReadUpdatedByWidthAsync(connectionString);
+        await InsertTaskAsync(connectionString, actor);
+
+        await runner.RunAsync(manifest);
+        var rewidenedWidth = await ReadUpdatedByWidthAsync(connectionString);
+        var actorAfterWidening = await ReadStoredActorAsync(connectionString, taskVersion: 1);
+        var trackedAfter = await ReadChangeTrackingEnabledAsync(connectionString);
+
+        Assert.True(
+            trackedBefore && trackedAfter,
+            "WorkflowTask must stay watched by the database change tracker across the widening.");
+        Assert.True(
+            narrowedWidth == LegacyColumnWidth,
+            $"Change Tracking must not block ALTER COLUMN on UpdatedBy; the column was nvarchar({narrowedWidth}).");
+        Assert.True(
+            rewidenedWidth == CanonicalActorColumnWidth,
+            $"Onboarding must widen UpdatedBy to nvarchar({CanonicalActorColumnWidth}) on a change-tracked table; " +
+            $"it was nvarchar({rewidenedWidth}).");
+        Assert.True(
+            actorAfterWidening == actor,
+            $"Widening a change-tracked UpdatedBy must preserve an existing value; '{actor}' became '{actorAfterWidening}'.");
+    }
+
+    private const int CanonicalActorColumnWidth = 128;
+    private const int LegacyColumnWidth = 64;
+
+    // The longest canonical actor identifier is 'workload:' (9 characters), a
+    // 36-character GUID, a ':' separator, and a second 36-character GUID.
+    private const int CanonicalActorMaxLength = 82;
+
+    private const string LegacyWorkflowTaskTableSql = """
+        CREATE TABLE dbo.WorkflowTask (
+            Id          int IDENTITY(1,1) NOT NULL PRIMARY KEY,
+            State       nvarchar(16)  NOT NULL,
+            Version     int           NOT NULL,
+            TeamId      nvarchar(64)  NULL,
+            AssigneeId  nvarchar(64)  NULL,
+            CreatedAt   datetime2(3)  NOT NULL,
+            UpdatedAt   datetime2(3)  NOT NULL,
+            UpdatedBy   nvarchar(64)  NOT NULL
+        );
+        """;
+
+    /// <summary>
+    /// The longest value task-api can write into <c>UpdatedBy</c>: an
+    /// application-only caller, whose identifier carries the tenant and object-id
+    /// GUIDs from its access token.
+    /// </summary>
+    private static string LongestCanonicalActor() =>
+        $"workload:{Guid.NewGuid():D}:{Guid.NewGuid():D}";
+
+    private static async Task InsertTaskAsync(
+        string connectionString,
+        string updatedBy,
+        int taskVersion = 1)
+    {
+        await using var connection = new SqlConnection(connectionString);
+        await connection.OpenAsync();
+        await using var command = connection.CreateCommand();
+        command.CommandText = """
+            INSERT dbo.WorkflowTask (State, Version, CreatedAt, UpdatedAt, UpdatedBy)
+            VALUES (N'Created', @version, SYSUTCDATETIME(), SYSUTCDATETIME(), @updatedBy);
+            """;
+        command.Parameters.Add("@version", System.Data.SqlDbType.Int).Value = taskVersion;
+        command.Parameters.Add("@updatedBy", System.Data.SqlDbType.NVarChar, 128).Value = updatedBy;
+        await command.ExecuteNonQueryAsync();
+    }
+
+    private static async Task ExecuteAsync(string connectionString, string sql)
+    {
+        await using var connection = new SqlConnection(connectionString);
+        await connection.OpenAsync();
+        await using var command = connection.CreateCommand();
+        command.CommandText = sql;
+        await command.ExecuteNonQueryAsync();
+    }
+
+    /// <summary>
+    /// The declared width of <c>UpdatedBy</c> in characters.
+    /// <c>CHARACTER_MAXIMUM_LENGTH</c> counts characters, so an
+    /// <c>nvarchar(128)</c> column reads 128. <c>sys.columns.max_length</c> counts
+    /// bytes and would read 256 for the same column.
+    /// </summary>
+    private static async Task<int> ReadUpdatedByWidthAsync(string connectionString)
+    {
+        await using var connection = new SqlConnection(connectionString);
+        await connection.OpenAsync();
+        return await ReadScalarAsync<int>(
+            connection,
+            """
+            SELECT CHARACTER_MAXIMUM_LENGTH
+            FROM INFORMATION_SCHEMA.COLUMNS
+            WHERE TABLE_SCHEMA = N'dbo'
+              AND TABLE_NAME = N'WorkflowTask'
+              AND COLUMN_NAME = N'UpdatedBy';
+            """);
+    }
+
+    private static async Task<string> ReadStoredActorAsync(string connectionString, int taskVersion)
+    {
+        await using var connection = new SqlConnection(connectionString);
+        await connection.OpenAsync();
+        await using var command = connection.CreateCommand();
+        command.CommandText = "SELECT UpdatedBy FROM dbo.WorkflowTask WHERE Version = @version;";
+        command.Parameters.Add("@version", System.Data.SqlDbType.Int).Value = taskVersion;
+        return (string)(await command.ExecuteScalarAsync()
+            ?? throw new InvalidOperationException(
+                $"No WorkflowTask row with Version {taskVersion} survived onboarding."));
+    }
+
+    private static async Task<bool> ReadChangeTrackingEnabledAsync(string connectionString)
+    {
+        await using var connection = new SqlConnection(connectionString);
+        await connection.OpenAsync();
+        return await ReadScalarAsync<int>(
+            connection,
+            """
+            SELECT CASE WHEN EXISTS (
+                SELECT 1 FROM sys.change_tracking_tables
+                WHERE object_id = OBJECT_ID(N'dbo.WorkflowTask')
+            ) THEN 1 ELSE 0 END;
+            """) == 1;
+    }
+
     private static async Task<ContractSnapshot> ReadContractAsync(string connectionString)
     {
         await using var connection = new SqlConnection(connectionString);
