@@ -67,9 +67,36 @@ public sealed record TransitionEvent
     [JsonPropertyName("to")]
     public required TaskState To { get; init; }
 
-    /// <summary>Who performed the transition, for example <c>user:1234</c>.</summary>
+    /// <summary>
+    /// Who caused the transition. For a verified event this is token-derived
+    /// provenance in canonical form <c>user:{tid}:{oid}</c> (delegated) or
+    /// <c>workload:{tid}:{oid}</c> (application-only) (ADR-004); a legacy event,
+    /// which predates the provenance contract, carries an older ad-hoc string.
+    /// This is a different identifier space from <see cref="AssigneeId"/>, which
+    /// only happens to share a <c>user:</c> prefix.
+    /// </summary>
     [JsonPropertyName("actor")]
     public required string Actor { get; init; }
+
+    /// <summary>
+    /// The immediate client application that called task-api, from the token's
+    /// v2 <c>azp</c> claim, or v1 <c>appid</c> when <c>azp</c> is absent. Null
+    /// when a valid token carried neither, and null on a legacy event written
+    /// before the provenance contract (ADR-004).
+    /// </summary>
+    [JsonPropertyName("clientApplicationId")]
+    public string? ClientApplicationId { get; init; }
+
+    /// <summary>
+    /// <c>"delegated"</c> for a delegated-user write or <c>"application"</c> for
+    /// an application-only write, token-derived. Null on a legacy event, which
+    /// predates the provenance contract; its absence is the signal that the
+    /// event's <see cref="Actor"/> is an unverified caller-supplied label rather
+    /// than authenticated provenance (ADR-004). Modeled as a string, not an enum,
+    /// so an unexpected value cannot turn a message into a poison event.
+    /// </summary>
+    [JsonPropertyName("permissionMode")]
+    public string? PermissionMode { get; init; }
 
     /// <summary>When the transition was committed, UTC.</summary>
     [JsonPropertyName("at")]
@@ -93,4 +120,34 @@ public sealed record TransitionEvent
     /// <summary>The assignee after the transition, carried for the same reason.</summary>
     [JsonPropertyName("assigneeId")]
     public string? AssigneeId { get; init; }
+
+    /// <summary>
+    /// The label a consumer applies to a legacy event's provenance: its actor is
+    /// a caller-supplied business label, not an authenticated principal. Surfaced
+    /// through <see cref="ProvenanceLabel"/>. No consumer displays or audits the
+    /// actor yet (queue-builder stores no provenance), so this and
+    /// <see cref="ProvenanceLabel"/> await the first consumer that does.
+    /// </summary>
+    public const string LegacyProvenanceLabel = "legacy-unverified";
+
+    /// <summary>
+    /// True when the event carries authenticated provenance (a
+    /// <see cref="PermissionMode"/> is present). False for a legacy event, whose
+    /// actor a consumer must treat as <see cref="LegacyProvenanceLabel"/> and
+    /// never as a verified principal. A new-shape event always carries
+    /// <see cref="PermissionMode"/>; <see cref="ClientApplicationId"/> can be
+    /// null even on a new event, so it is not the signal.
+    /// </summary>
+    [JsonIgnore]
+    public bool HasVerifiedProvenance => PermissionMode is not null;
+
+    /// <summary>
+    /// Classifies the actor for display or audit: the <see cref="PermissionMode"/>
+    /// (<c>"delegated"</c> or <c>"application"</c>) for a verified event, or
+    /// <see cref="LegacyProvenanceLabel"/> for a legacy event whose actor is not
+    /// authenticated. No production consumer surfaces this yet; see
+    /// <see cref="LegacyProvenanceLabel"/>.
+    /// </summary>
+    [JsonIgnore]
+    public string ProvenanceLabel => PermissionMode ?? LegacyProvenanceLabel;
 }
