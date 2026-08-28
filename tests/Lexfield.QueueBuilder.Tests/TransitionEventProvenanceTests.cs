@@ -43,6 +43,7 @@ public sealed class TransitionEventProvenanceTests
         Assert.Equal("delegated", taskEvent.PermissionMode);
         Assert.Equal(CanonicalActor, taskEvent.Actor);
         Assert.True(taskEvent.HasVerifiedProvenance);
+        Assert.Equal("delegated", taskEvent.ProvenanceLabel);
 
         // Projection-relevant fields still bind: no regression for queue-builder.
         Assert.Equal(4711, taskEvent.TaskId);
@@ -64,7 +65,11 @@ public sealed class TransitionEventProvenanceTests
         Assert.Null(taskEvent.ClientApplicationId);
         Assert.Null(taskEvent.PermissionMode);
         Assert.False(taskEvent.HasVerifiedProvenance);
-        Assert.Equal("legacy-unverified", TransitionEvent.LegacyProvenanceLabel);
+        // A deserialized legacy event classifies to the legacy label. This
+        // exercises the classification logic (ProvenanceLabel falling back to the
+        // constant when permissionMode is absent), not a constant-equals-literal
+        // tautology.
+        Assert.Equal(TransitionEvent.LegacyProvenanceLabel, taskEvent.ProvenanceLabel);
 
         // Projection-relevant fields bind identically to the new-shape event,
         // proving the legacy shape causes no projection regression.

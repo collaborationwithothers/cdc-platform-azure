@@ -67,7 +67,14 @@ public sealed record TransitionEvent
     [JsonPropertyName("to")]
     public required TaskState To { get; init; }
 
-    /// <summary>Who performed the transition, for example <c>user:1234</c>.</summary>
+    /// <summary>
+    /// Who caused the transition. For a verified event this is token-derived
+    /// provenance in canonical form <c>user:{tid}:{oid}</c> (delegated) or
+    /// <c>workload:{tid}:{oid}</c> (application-only) (ADR-004); a legacy event,
+    /// which predates the provenance contract, carries an older ad-hoc string.
+    /// This is a different identifier space from <see cref="AssigneeId"/>, which
+    /// only happens to share a <c>user:</c> prefix.
+    /// </summary>
     [JsonPropertyName("actor")]
     public required string Actor { get; init; }
 
@@ -114,8 +121,13 @@ public sealed record TransitionEvent
     [JsonPropertyName("assigneeId")]
     public string? AssigneeId { get; init; }
 
-    /// <summary>The provenance label applied to a legacy event: its actor is a
-    /// caller-supplied business label, not an authenticated principal.</summary>
+    /// <summary>
+    /// The label a consumer applies to a legacy event's provenance: its actor is
+    /// a caller-supplied business label, not an authenticated principal. Surfaced
+    /// through <see cref="ProvenanceLabel"/>. No consumer displays or audits the
+    /// actor yet (queue-builder stores no provenance), so this and
+    /// <see cref="ProvenanceLabel"/> await the first consumer that does.
+    /// </summary>
     public const string LegacyProvenanceLabel = "legacy-unverified";
 
     /// <summary>
@@ -128,4 +140,14 @@ public sealed record TransitionEvent
     /// </summary>
     [JsonIgnore]
     public bool HasVerifiedProvenance => PermissionMode is not null;
+
+    /// <summary>
+    /// Classifies the actor for display or audit: the <see cref="PermissionMode"/>
+    /// (<c>"delegated"</c> or <c>"application"</c>) for a verified event, or
+    /// <see cref="LegacyProvenanceLabel"/> for a legacy event whose actor is not
+    /// authenticated. No production consumer surfaces this yet; see
+    /// <see cref="LegacyProvenanceLabel"/>.
+    /// </summary>
+    [JsonIgnore]
+    public string ProvenanceLabel => PermissionMode ?? LegacyProvenanceLabel;
 }
