@@ -88,13 +88,10 @@ The isolation test uses task `6802` for Tenant A and task `6803` for Tenant B:
 ### Current container evidence
 
 The proof uses real SQL Server, Kafka, and Kafka Connect processes in containers.
-It covers two synthetic tenants and three synthetic Outbox rows across the two
-tests. It proves the exercised single-tenant transform chain, the combined
-per-tenant topic and group outcome, queued-command processing after connector
-re-registration, and the expected output key, payload, and contract headers.
-The same-run test compares every header byte. The restart test compares the
-four public contract headers because Debezium correctly changes its internal
-run ID when a connector restarts.
+It covers two synthetic tenants and three synthetic Outbox rows across the two tests.
+It proves the exercised single-tenant transform chain, the combined per-tenant topic and group outcome, queued-command processing after connector re-registration, and the expected output key, payload, and contract headers.
+The same-run test compares every header byte.
+The restart test compares the four public contract headers because Debezium correctly changes its internal run ID when a connector restarts.
 
 ### Unknowns
 
