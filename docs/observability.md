@@ -20,11 +20,11 @@ The operator follows this path from left to right: database commit, CDC record, 
 
 Telemetry is the health, log, metric, and trace data collected from that path.
 
-**Current implementation/test evidence:** TaskApi registers the shared observability library. Tests capture its structured JSON log shape and the two health responses in process.
+**Current implementation/test evidence:** TaskApi and QueueBuilder register the shared observability library. QueueBuilder consumes workflow transitions and applies them to QueueState, its copy of task data for fast work-queue reads. Tests capture structured event logs, trace continuation, QueueState writes that reject an equal or lower version, and the two health responses in process.
 
-**Design contract only:** QueueBuilder is a planned consumer that applies task events to QueueState, its query database. Reconciler is a planned repair service that compares QueueState with source truth.
+**Design contract only:** Reconciler is a planned repair service that compares QueueState with source truth.
 
-Notifier is a planned consumer that records and sends a notification attempt. These three services, their cross-service queries, and their operator recovery flows are not implemented.
+Notifier is a planned consumer that records and sends a notification attempt. QueueBuilder's gap repair, copying an invalid message to a separate topic before advancing its offset, queue API, cross-service queries, and operator recovery flows are not implemented.
 
 **Live unknown:** no disposable deployment injects faults or proves telemetry ingestion into Azure. No latency, availability, recovery, or cost result is claimed here.
 
@@ -56,9 +56,9 @@ During process shutdown, repeated stop and dispose calls are safe. Tests cover t
 
 **Current implementation/test evidence:** TaskApi implements these event names: `TransitionCommitted`, `OutboxWritten`, `RepairRead`, and `ChangesFeedRead`.
 
-It also implements `ChangesFeedUnavailable` and `FaultInjected`. `ChangesFeedUnavailable` is diagnostic context, not an alert by itself.
+It also implements `ChangesFeedUnavailable` and `FaultInjected`. `ChangesFeedUnavailable` is diagnostic context, not an alert by itself. QueueBuilder implements `EventReceived`, `EventApplied`, and `DuplicateSkipped`.
 
-**Design contract only:** QueueBuilder, Reconciler, and Notifier event names in the table below describe the intended signal vocabulary. Connect, Debezium, Argo CD, Istio, cert-manager, and external-dns retain their upstream names.
+**Design contract only:** The other QueueBuilder names and all Reconciler and Notifier names in the table below describe the intended signal vocabulary. Connect, Debezium, Argo CD, Istio, cert-manager, and external-dns retain their upstream names.
 
 - QueueBuilder: `EventReceived`, `EventApplied`, `DuplicateSkipped`, `GapDetected`, `HeadLossDetected`, `RepairRequested`, `RepairApplied`, `EventParked`, and `PartitionBlocked`.
 - Reconciler: `SweepStarted`, `SweepCompleted`, `DriftFlagged`, `DriftRepaired`, `AttributionVerified`, and `AttributionMismatch`.
@@ -136,13 +136,15 @@ The stock outbox router maps that column to the Kafka `traceparent` header. The 
 
 A missing traceparent is an untraced event, not a tenant-routing error.
 
-**Design contract only:** consumers should continue a trace from that header and use tenantId, taskId, and version as the correlation key.
+**Current implementation/test evidence:** QueueBuilder continues a valid trace from that header and uses tenantId, taskId, and version as the correlation key. Container tests assert the continued trace and its structured consumer event logs in process.
+
+**Design contract only:** Reconciler and Notifier should continue traces and use the same correlation key where their inputs provide it.
 
 An unparseable parked event guarantees only its Kafka partition and offset. Tenant, task, version, and trace fields are best effort because the consumer may not be able to read the message key.
 
 A silent tenant timeline can mean another tenant's poison event blocked the shared partition. The operator then pivots to partition lag and `PartitionBlocked`, not another tenant-only query.
 
-Cross-service trace continuation and consumer event logs are not implemented. Kusto Query Language (KQL) queries are also not committed.
+QueueBuilder trace continuation and its three current consumer event logs are implemented. Other consumer traces and events remain design only. Kusto Query Language (KQL) queries are also not committed.
 
 **Live unknown:** Kafka-hop rendering in Application Insights and sampling continuity across components are unverified. No continuous waterfall or complete sampled trace is promised.
 
@@ -170,7 +172,7 @@ Freshness and delivery targets remain `PENDING-MEASUREMENT`. No guessed latency,
 
 **Current implementation/test evidence:** treat a 200 health response as process liveness only. Check the owning signal before deciding that a dependency or downstream state is healthy.
 
-**Design contract only:** the diagnosis choices below describe intended operator decisions. The consumer services and incident runbooks they depend on are not implemented.
+**Design contract only:** the diagnosis choices below describe intended operator decisions. QueueBuilder exists, but its incident runbooks, dependency readiness, parking, and repair do not. Reconciler and Notifier are not implemented.
 
 - A fleet stream outage points first to Connect task state and broker reachability.
 - A single stopped connector points to that tenant's connector and retry history.

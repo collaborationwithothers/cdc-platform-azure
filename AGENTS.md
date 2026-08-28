@@ -144,8 +144,7 @@ its checklist did not declare, stop and say so on the issue.
   explanations. ADRs live in docs/decisions/ and follow the numbering already
   seeded from the blueprint.
 - Diagrams: .drawio sources in docs/diagrams/ using official Azure icons where
-  Azure services appear; CI exports renders and fails on staleness; review
-  judges the render, not the XML.
+  Azure services appear; review judges the committed render, not the XML.
 
 ### Implementation and governance review are separate
 
