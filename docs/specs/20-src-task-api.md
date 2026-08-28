@@ -203,7 +203,11 @@ endpoints disagreed on what an actor is; both now resolve it the same way.
   access, `workload:{tid}:{oid}` for application access. `tid` is the token's
   tenant-id claim and `oid` its object-id claim; `oid` is immutable and
   consistent across applications within an Entra tenant, so it is a stable actor
-  key (verified 2026-08-28).
+  key (verified 2026-08-28). Microsoft delivers `oid`, and `tid`, for a user only
+  when the request includes the `profile` scope, so a delegated caller must
+  request `profile` alongside `Tasks.Write`; an application-only token carries
+  `oid` without `profile` (both verified 2026-08-28). See "Delegated callers must
+  request the profile scope" below.
 - `clientApplicationId`, the immediate client that called task-api. It is taken
   from the v2 `azp` claim, or the v1 `appid` claim when `azp` is absent. If a
   valid token carries neither, `clientApplicationId` is recorded as absent rather
@@ -218,7 +222,7 @@ endpoints disagreed on what an actor is; both now resolve it the same way.
 | Direct delegated user | `user:{tid}:{oid}` | `azp`/`appid` of the direct client | delegated |
 | OBO through a middle tier | `user:{tid}:{oid}` | `azp`/`appid` of the middle tier | delegated |
 | Client credentials | `workload:{tid}:{oid}` | `azp`/`appid` of the calling app | application |
-| Managed identity | `workload:{tid}:{oid}` | `azp`/`appid` of the workload | application |
+| Managed identity | `workload:{tid}:{oid}` | `azp`/`appid` of the workload, if present (unverified, see the managed-identity note) | application |
 
 **One shared actor-context.** Create and transition resolve these three values
 through a single actor-context interface that reads the validated claims
@@ -241,10 +245,14 @@ assignable to users, so a user token can present a role without being app-only
 (Microsoft, verify scopes and app roles, verified 2026-08-28). The determination
 uses the `idtyp` claim when it is present (`idtyp` of `app` means
 application-only), and otherwise the documented subject test `sub == oid`: `sub`
-is pairwise per application, `oid` is the tenant-wide object id, and the two
-coincide only when the subject is the application itself, so `sub == oid` marks
-an application-only token and `sub != oid` a delegated one (Microsoft ships this
-exact `oid == sub` check, verified 2026-08-28). `idtyp` reaches user tokens only
+is pairwise per application, `oid` is the tenant-wide object id, so for an
+application-only token, whose subject is the application itself, the two are
+equal. Microsoft ships this exact `oid == sub` check for app-only detection and
+documents `idtyp` as the more accurate signal, which is why `idtyp` is primary
+here (verified 2026-08-28). The subject test runs only after the 401 check below
+has established that `tid` and `oid` are present, and it null-guards `sub` before
+comparing (`oid != null && sub != null && oid == sub`), as Microsoft's shipped
+code does. `idtyp` reaches user tokens only
 when the app registration sets the `include_user_token` additional property on
 the optional claim (verified 2026-08-28), so emitting it is part of the Entra
 configuration owned by the scope-and-role follow-up, not a free token property.
@@ -252,6 +260,23 @@ As defense in depth, that follow-up declares `Tasks.Write.All` with
 `allowedMemberTypes` limited to Application, so a user cannot be assigned the
 app-only permission and a role-carrying user token cannot pass the application
 path.
+
+**Delegated callers must request the `profile` scope.** The canonical actor is
+`user:{tid}:{oid}`, so task-api needs both `oid` and `tid`. Microsoft documents
+that a user receives `oid`, and `tid`, in an access token only when the request
+includes the `profile` scope, and warns that an application should not assume any
+claim is present otherwise (verified 2026-08-28). task-api therefore requires
+`oid` and `tid` and returns 401 when either is absent (the check below), and the
+client guidance published with the `Tasks.Write` scope states that a delegated
+caller must request `profile`. Microsoft's own client library MSAL adds
+`openid profile email` to every request by default, so a typical caller satisfies
+this without extra work; the requirement is stated because a raw-endpoint caller
+can omit it. Application-only tokens are exempt: they carry `oid` without
+`profile` (verified), and client-credentials requests have no `profile` scope.
+One residual gap: whether an application-only token always carries `tid` has
+conflicting Microsoft documentation, so it is confirmed by the same
+captured-token live check as the managed-identity claims below, not asserted
+here.
 
 **Four independent checks, and their HTTP outcomes:**
 
@@ -261,7 +286,7 @@ path.
 | Token missing `tid` or `oid` | 401 (the actor cannot be established) |
 | Valid token lacking the required delegated scope or application role | 403 |
 | Valid, permitted token whose tenant claim fails the existing `TenantRoute` check | 403 |
-| Transition body still supplies a legacy `actor` field | 400 |
+| A create or transition body supplies an `actor` field | 400 |
 
 Token validation, permission authorization, tenant authorization, and
 attribution are four separate checks. The business `tenantId` route policy is
@@ -271,13 +296,17 @@ tenant in the path. A missing `clientApplicationId` is not a 401: `tid` and `oid
 establish the actor, and the client id is best-effort, for the managed-identity
 reason below.
 
-The 400 on a legacy `actor` body field is not automatic. The transition request
-is deserialized with System.Text.Json, which ignores an unknown JSON property by
-default, so the endpoint must opt into rejection, for example
+The 400 on an `actor` body field applies to both write routes, create and
+transition, for the same reason: a body value must not be mistaken for trusted
+attribution. It is not automatic. Both requests are deserialized with
+System.Text.Json, which ignores an unknown JSON property by default, so each
+write endpoint must opt into rejection, for example
 `JsonSerializerOptions.UnmappedMemberHandling` set to `Disallow` or an explicit
 check for the field, so a supplied `actor` is refused rather than silently
 ignored. A silently ignored field is the "ignored input mistaken for trusted
-attribution" this contract exists to prevent.
+attribution" this contract exists to prevent. Existing create tests that post an
+`actor` and expect success are updated by the actor-resolution follow-up to
+expect 400.
 
 **Managed-identity token claims need a live check.** The flow table lists managed
 identity as an application-only flow, but Microsoft Learn does not document the

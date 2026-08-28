@@ -352,7 +352,7 @@ never trusted from the path alone.
 
 | Route | Purpose |
 | --- | --- |
-| `POST /tenants/{tenantId}/tasks` | Create a task. Writes state Created at version 1 and its outbox row in one transaction. |
+| `POST /tenants/{tenantId}/tasks` | Create a task. Writes state Created at version 1 and its outbox row in one transaction. The body carries no `actor`: provenance is token-derived, and a request that supplies an `actor` field is rejected with 400, the same rule as the transition route. |
 | `POST /tenants/{tenantId}/tasks/{taskId}/transitions` | Perform a transition. Body: `{ "to", "expectedVersion", "teamId", "assigneeId" }`. Optimistic concurrency on `expectedVersion`; 409 on mismatch. The body carries no `actor`: provenance is derived from the validated token (ADR-004). A request that still supplies an `actor` field is rejected with 400. |
 | `GET /tenants/{tenantId}/tasks/{taskId}` | Authoritative read for repair. Returns state, version, teamId, assigneeId. |
 | `GET /tenants/{tenantId}/tasks/changes?since={syncVersion}` | Change Tracking feed. Returns changed task ids with versions and the next sync version (ADR-009). |

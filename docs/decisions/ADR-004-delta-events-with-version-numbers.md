@@ -37,7 +37,11 @@ id) and `oid` (object id) claims and writes the canonical typed form:
 across applications within one Entra tenant, so it is a stable actor key;
 `sub` is rejected because it is pairwise to one application and hides whether the
 subject is a user or a workload (Microsoft Entra access token claims reference,
-verified 2026-08-28).
+verified 2026-08-28). Because the actor needs `oid` and `tid`, and Microsoft
+delivers both for a user only when the request includes the `profile` scope, a
+delegated caller must request `profile`; an application-only token carries `oid`
+without it (verified 2026-08-28, full rule in
+[20-src-task-api.md](../specs/20-src-task-api.md)).
 
 The event carries two companion fields resolved from the same token:
 
@@ -50,9 +54,10 @@ The event carries two companion fields resolved from the same token:
   absence of `scp`: a `roles` claim can appear on a delegated (user) token, so a
   missing `scp` does not prove an application-only token. The determination uses
   the `idtyp` claim when present (`app` means application-only) and otherwise the
-  documented subject test `sub == oid`, which holds only for an application-only
-  token because `sub` is pairwise per application while `oid` is the tenant-wide
-  object id (Microsoft, verify scopes and app roles, verified 2026-08-28).
+  documented subject test `sub == oid` (`sub` is pairwise per application while
+  `oid` is the tenant-wide object id, so they are equal for an application-only
+  token; Microsoft ships this exact `oid == sub` check and documents `idtyp` as
+  the more accurate signal, verified 2026-08-28).
   `idtyp` reaches user tokens only when the app registration sets the
   `include_user_token` additional property, so it is part of the Entra
   configuration, not a free token property.
@@ -85,9 +90,9 @@ the HTTP outcomes live in blueprint section 9 and
   than silent corruption.
 - A repair path is required.
 - The detection limits are stated in ADR-007.
-- `actor` is authenticated provenance, not caller input. The transition request
-  no longer accepts an `actor` body field; a request that still supplies one is
-  rejected with 400 so a client cannot mistake ignored input for trusted
+- `actor` is authenticated provenance, not caller input. Neither the create nor
+  the transition request accepts an `actor` body field; a request that supplies
+  one is rejected with 400 so a client cannot mistake ignored input for trusted
   attribution.
 - Events written before this contract carry unverified actor text and no
   `clientApplicationId` or `permissionMode`. Consumers represent them as
