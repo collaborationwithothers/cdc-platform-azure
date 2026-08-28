@@ -164,25 +164,43 @@ jobs:
       - name: verify topics, users, and ACL declarations
         run: |
           kubectl get kafkatopics --namespace kafka -o json | jq -e '
-            [.items[].metadata.name] | sort == [
-              "connect-configs",
-              "connect-offsets",
-              "connect-signals",
-              "connect-status",
-              "notifier-control",
-              "schema-history-lexfield-001",
-              "schema-history-lexfield-002",
-              "schema-history-lexfield-003",
-              "workflow-transitions",
-              "workflow-transitions-lexfield-003",
-              "workflow-transitions-parked"
-            ]'
+            ([.items[].metadata.name] | sort == [
+                "connect-configs",
+                "connect-offsets",
+                "connect-signals-lexfield-001",
+                "connect-signals-lexfield-002",
+                "connect-signals-lexfield-003",
+                "connect-status",
+                "notifier-control",
+                "schema-history-lexfield-001",
+                "schema-history-lexfield-002",
+                "schema-history-lexfield-003",
+                "workflow-transitions",
+                "workflow-transitions-lexfield-003",
+                "workflow-transitions-parked"
+              ])
+            and
+            ([.items[]
+              | select(.metadata.name | startswith("connect-signals-"))]
+              | length == 3 and all(.[]; .spec.partitions == 1))'
           kubectl get kafkausers --namespace kafka -o json | jq -e '
             [.items[].metadata.name] | sort == [
               "connect", "notifier", "operations", "queue-builder"
             ]'
           kubectl get kafkausers --namespace kafka -o json | jq -e '
             all(.items[]; ((.spec.authorization.acls // []) | length) > 0)'
+          kubectl get kafkausers --namespace kafka -o json | jq -e '
+            (.items[] | select(.metadata.name == "connect")) as $connect |
+            (.items[] | select(.metadata.name == "operations")) as $operations |
+            any($connect.spec.authorization.acls[];
+              .resource == {type: "topic", name: "connect-signals-", patternType: "prefix"}
+              and (.operations | sort) == ["Describe", "Read"])
+            and any($connect.spec.authorization.acls[];
+              .resource == {type: "group", name: "kafka-signal-", patternType: "prefix"}
+              and .operations == ["Read"])
+            and any($operations.spec.authorization.acls[];
+              .resource == {type: "topic", name: "connect-signals-", patternType: "prefix"}
+              and (.operations | sort) == ["Describe", "Write"])'
 
       - name: dump argo state on failure
         if: failure()

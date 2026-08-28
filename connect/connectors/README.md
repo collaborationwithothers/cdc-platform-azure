@@ -41,6 +41,49 @@ already wrote the compound `<tenantId>-<taskId>` identity there in the business
 transaction, so this configuration neither constructs nor rewrites a key. The
 two stock transforms are the outbox router and the static tenant header.
 
+## Snapshot signal record
+
+Each tenant connector reads control commands from its own Kafka signal topic,
+a named stream used only to tell Debezium what action to run. The generated
+configuration also gives each connector its own consumer group. Kafka stores a
+separate committed next-record position for each group, topic, and partition.
+The [pinned Debezium 3.6.1 signal reader](https://github.com/debezium/debezium/blob/v3.6.1.Final/debezium-connector-common/src/main/java/io/debezium/pipeline/signal/channels/KafkaSignalChannel.java#L166)
+assigns only partition 0, so every signal topic must have exactly one
+partition. A command written to another partition is not read by that
+connector.
+
+An operations producer for tenant `lexfield-002` must write this record:
+
+```text
+topic: connect-signals-lexfield-002
+key: tenant-lexfield-002
+value: {"type":"execute-snapshot","data":{"data-collections":["tenant-002.dbo.Outbox"],"type":"INCREMENTAL"}}
+```
+
+The key is the connector's `topic.prefix`, not the tenant ID by itself.
+Debezium ignores a Kafka signal whose key does not match that prefix. The
+generated configuration for this example contains:
+
+```json
+{
+  "topic.prefix": "tenant-lexfield-002",
+  "signal.kafka.topic": "connect-signals-lexfield-002",
+  "signal.kafka.groupId": "kafka-signal-lexfield-002"
+}
+```
+
+Kafka stores the signal consumer's committed next-record position under
+`kafka-signal-lexfield-002` in its internal `__consumer_offsets` topic. Kafka
+Connect separately stores the Debezium source log sequence number (LSN) and
+snapshot progress in `connect-offsets`. A downstream application consumer has
+another group and another committed position. Sending a signal does not reset
+or replay that downstream group.
+
+This section defines the record contract. It is not an executable procedure.
+The operations producer and its credential procedure are not committed yet;
+issue #69 owns that tool. Do not substitute an ad hoc Kafka identity for the
+operations identity.
+
 The repository records the trace header syntax in
 [V14](../../docs/specs/02-verification-register.md#v14-promoting-an-outbox-column-to-a-kafka-header),
 settled on 2026-08-23. The full property set was independently rechecked on

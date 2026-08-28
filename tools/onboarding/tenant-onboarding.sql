@@ -7,8 +7,34 @@ IF OBJECT_ID(N'dbo.WorkflowTask', N'U') IS NULL
         AssigneeId  nvarchar(64)  NULL,
         CreatedAt   datetime2(3)  NOT NULL,
         UpdatedAt   datetime2(3)  NOT NULL,
-        UpdatedBy   nvarchar(64)  NOT NULL
+        UpdatedBy   nvarchar(128) NOT NULL
     );
+
+-- UpdatedBy records who last changed a task. It holds the canonical actor
+-- identifier task-api derives from the caller's access token: 'user:{tid}:{oid}'
+-- for a person, or 'workload:{tid}:{oid}' for a service, where tid and oid are
+-- 36-character GUIDs. The longest form is 82 characters, so the column is
+-- nvarchar(128). Databases onboarded before that width still hold nvarchar(64),
+-- which would truncate a real identifier, so widen them here.
+--
+-- CHARACTER_MAXIMUM_LENGTH counts CHARACTERS, so nvarchar(128) reads 128 below.
+-- sys.columns.max_length counts BYTES and would read 256 for the same column.
+-- The upper bound excludes nvarchar(max), which reports -1 and must not be
+-- narrowed to 128.
+--
+-- Ordering against the CHANGE_TRACKING block below is not load-bearing: Change
+-- Tracking does not block ALTER COLUMN on a non-primary-key column, and the
+-- container test widens this column with Change Tracking already enabled.
+IF EXISTS (
+    SELECT 1
+    FROM INFORMATION_SCHEMA.COLUMNS
+    WHERE TABLE_SCHEMA = N'dbo'
+      AND TABLE_NAME = N'WorkflowTask'
+      AND COLUMN_NAME = N'UpdatedBy'
+      AND CHARACTER_MAXIMUM_LENGTH BETWEEN 1 AND 127
+)
+    ALTER TABLE dbo.WorkflowTask
+    ALTER COLUMN UpdatedBy nvarchar(128) NOT NULL;
 
 IF OBJECT_ID(N'dbo.Outbox', N'U') IS NULL
     CREATE TABLE dbo.Outbox (

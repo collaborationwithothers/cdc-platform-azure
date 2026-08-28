@@ -6,6 +6,7 @@ namespace Lexfield.Connect.Tests.Snapshots;
 public sealed class IncrementalSnapshotTests(IncrementalSnapshotFixture fixture)
 {
     private static readonly TimeSpan MessageArrivalTimeout = TimeSpan.FromSeconds(90);
+    private const string ConnectorRunIdHeader = "__debezium.context.runId";
 
     [Fact]
     public async Task Kafka_signal_reemits_the_outbox_row_through_the_transform_chain()
@@ -49,20 +50,86 @@ public sealed class IncrementalSnapshotTests(IncrementalSnapshotFixture fixture)
         await fixture.AssertConnectorRunningAsync();
     }
 
+    [Fact]
+    public async Task Deleted_connector_processes_its_queued_signal_after_another_tenant_snapshots()
+    {
+        const int TenantATaskId = 6802;
+        const int TenantBTaskId = 6803;
+        const string TenantATraceParent = "00-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-bbbbbbbbbbbbbbbb-01";
+        const string TenantBTraceParent = "00-cccccccccccccccccccccccccccccccc-dddddddddddddddd-01";
+        var tenantAKey = $"{IncrementalSnapshotFixture.TenantA}-{TenantATaskId}";
+        var tenantBKey = $"{IncrementalSnapshotFixture.TenantB}-{TenantBTaskId}";
+        using var consumer = fixture.CreateConsumer();
+
+        await fixture.InsertOutboxAsync(IncrementalSnapshotFixture.TenantA, TenantATaskId, TenantATraceParent);
+        var tenantAOriginal = ConsumeByKey(consumer, tenantAKey, MessageArrivalTimeout);
+        Assert.NotNull(tenantAOriginal);
+
+        await fixture.InsertOutboxAsync(IncrementalSnapshotFixture.TenantB, TenantBTaskId, TenantBTraceParent);
+        var tenantBOriginal = ConsumeByKey(consumer, tenantBKey, MessageArrivalTimeout);
+        Assert.NotNull(tenantBOriginal);
+
+        await fixture.DeleteConnectorAsync(IncrementalSnapshotFixture.TenantA);
+        await fixture.SendIncrementalSnapshotSignalAsync(IncrementalSnapshotFixture.TenantA);
+        await fixture.SendIncrementalSnapshotSignalAsync(IncrementalSnapshotFixture.TenantB);
+
+        var whileTenantADeleted = ConsumeUntilKey(consumer, tenantBKey, MessageArrivalTimeout);
+        whileTenantADeleted.AddRange(ConsumeFor(consumer, TimeSpan.FromSeconds(5)));
+        var tenantBSnapshot = Assert.Single(
+            whileTenantADeleted, result => result.Message.Key == tenantBKey);
+        Assert.DoesNotContain(
+            whileTenantADeleted, result => result.Message.Key == tenantAKey);
+        AssertSnapshotMatches(tenantBOriginal!, tenantBSnapshot);
+
+        await fixture.RegisterConnectorAsync(IncrementalSnapshotFixture.TenantA);
+        var afterTenantARegisters = ConsumeUntilKey(consumer, tenantAKey, MessageArrivalTimeout);
+        afterTenantARegisters.AddRange(ConsumeFor(consumer, TimeSpan.FromSeconds(5)));
+        var tenantASnapshot = Assert.Single(
+            afterTenantARegisters, result => result.Message.Key == tenantAKey);
+        Assert.DoesNotContain(
+            afterTenantARegisters, result => result.Message.Key == tenantBKey);
+        AssertSnapshotAfterReregistrationMatches(tenantAOriginal!, tenantASnapshot);
+
+        await fixture.AssertConnectorRunningAsync(IncrementalSnapshotFixture.TenantA);
+        await fixture.AssertConnectorRunningAsync(IncrementalSnapshotFixture.TenantB);
+    }
+
     private static ConsumeResult<string, string>? ConsumeByKey(
         IConsumer<string, string> consumer,
         string key,
-        TimeSpan timeout)
+        TimeSpan timeout) =>
+        ConsumeUntilKey(consumer, key, timeout).LastOrDefault(result => result.Message.Key == key);
+
+    private static List<ConsumeResult<string, string>> ConsumeUntilKey(
+        IConsumer<string, string> consumer,
+        string key,
+        TimeSpan timeout) =>
+        ConsumeUntil(consumer, timeout, result => result.Message.Key == key);
+
+    private static List<ConsumeResult<string, string>> ConsumeFor(
+        IConsumer<string, string> consumer,
+        TimeSpan timeout) =>
+        ConsumeUntil(consumer, timeout, _ => false);
+
+    private static List<ConsumeResult<string, string>> ConsumeUntil(
+        IConsumer<string, string> consumer,
+        TimeSpan timeout,
+        Func<ConsumeResult<string, string>, bool> stop)
     {
+        var results = new List<ConsumeResult<string, string>>();
         var deadline = DateTime.UtcNow.Add(timeout);
         while (DateTime.UtcNow < deadline)
         {
             try
             {
                 var result = consumer.Consume(TimeSpan.FromSeconds(1));
-                if (result?.Message.Key == key)
+                if (result is not null)
                 {
-                    return result;
+                    results.Add(result);
+                    if (stop(result))
+                    {
+                        return results;
+                    }
                 }
             }
             catch (ConsumeException error) when (error.Error.Code == ErrorCode.UnknownTopicOrPart)
@@ -71,18 +138,70 @@ public sealed class IncrementalSnapshotTests(IncrementalSnapshotFixture fixture)
             }
         }
 
-        return null;
+        return results;
     }
 
-    private static void AssertHeadersEqual(Headers expected, Headers actual)
+    private static void AssertHeadersEqual(
+        Headers expected,
+        Headers actual,
+        params string[] ignoredHeaders)
     {
-        var expectedHeaders = HeaderBytes(expected);
-        var actualHeaders = HeaderBytes(actual);
+        var ignored = ignoredHeaders.ToHashSet(StringComparer.Ordinal);
+        var expectedHeaders = HeaderBytes(expected)
+            .Where(header => !ignored.Contains(header.Key))
+            .ToDictionary();
+        var actualHeaders = HeaderBytes(actual)
+            .Where(header => !ignored.Contains(header.Key))
+            .ToDictionary();
         Assert.Equal(expectedHeaders.Keys.Order(), actualHeaders.Keys.Order());
         foreach (var (name, value) in expectedHeaders)
         {
-            Assert.Equal(value, actualHeaders[name]);
+            var actualValue = actualHeaders[name];
+            Assert.True(
+                value.SequenceEqual(actualValue),
+                $"Header '{name}' changed from '{System.Text.Encoding.UTF8.GetString(value)}' " +
+                $"to '{System.Text.Encoding.UTF8.GetString(actualValue)}'.");
         }
+    }
+
+    private static void AssertSnapshotMatches(
+        ConsumeResult<string, string> original,
+        ConsumeResult<string, string>? snapshot)
+    {
+        var matchedSnapshot = AssertKeyAndValueEqual(original, snapshot);
+        AssertHeadersEqual(original.Message.Headers, matchedSnapshot.Message.Headers);
+    }
+
+    private static void AssertSnapshotAfterReregistrationMatches(
+        ConsumeResult<string, string> original,
+        ConsumeResult<string, string>? snapshot)
+    {
+        var matchedSnapshot = AssertKeyAndValueEqual(original, snapshot);
+
+        var originalHeaders = HeaderBytes(original.Message.Headers);
+        var snapshotHeaders = HeaderBytes(matchedSnapshot.Message.Headers);
+        Assert.Contains(ConnectorRunIdHeader, originalHeaders);
+        Assert.Contains(ConnectorRunIdHeader, snapshotHeaders);
+        var originalRunId = originalHeaders[ConnectorRunIdHeader];
+        var snapshotRunId = snapshotHeaders[ConnectorRunIdHeader];
+        Assert.False(
+            originalRunId.SequenceEqual(snapshotRunId),
+            $"Header '{ConnectorRunIdHeader}' did not change after connector re-registration.");
+
+        AssertHeadersEqual(
+            original.Message.Headers,
+            matchedSnapshot.Message.Headers,
+            ConnectorRunIdHeader);
+    }
+
+    private static ConsumeResult<string, string> AssertKeyAndValueEqual(
+        ConsumeResult<string, string> original,
+        ConsumeResult<string, string>? snapshot)
+    {
+        Assert.NotNull(snapshot);
+        Assert.Equal(original.Message.Key, snapshot.Message.Key);
+        Assert.Equal(original.Message.Value, snapshot.Message.Value);
+        return snapshot;
     }
 
     private static Dictionary<string, byte[]> HeaderBytes(Headers headers) =>
