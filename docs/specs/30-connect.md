@@ -102,9 +102,10 @@ Shape, SPEC-LEVEL and provisional pending V7:
 ```
 
 The generator derives both signal names from the manifest tenant ID. The topic
-holds that tenant's commands. The group is Kafka's bookmark for the next
-command that connector should read. Keeping both tenant-specific prevents one
-running connector from advancing past a command queued for another connector.
+holds that tenant's commands. Kafka stores a separate committed next-record
+position for each group, topic, and partition. Keeping the topic and group
+tenant-specific prevents one running connector from advancing past a command
+queued for another connector.
 
 For tenant `lexfield-002`, the operations producer writes this Kafka record:
 
@@ -249,7 +250,7 @@ The end-to-end container test, `tests/Lexfield.Connect.Tests/`:
 | A DELETE on the outbox row produces no message | The outbox event router drops DELETEs itself, so outbox pruning must not become a downstream event (ADR-001). The most likely thing to silently break. |
 | Two tenants with the same taskId produce two distinct keys | The collision ADR-005 exists to prevent, tested rather than argued. |
 | An incremental snapshot signal on `connect-signals-{tenantId}` with key `topic.prefix` triggers that tenant's re-read | V3's behavior, exercised rather than assumed. |
-| A stopped tenant processes its queued signal after another tenant snapshots | Proves the per-tenant signal topics and groups isolate both the command stream and its Kafka bookmark. |
+| A stopped connector processes its queued signal after another tenant snapshots | Proves the final combined topic and group configuration preserves the queued command in this two-tenant scenario. |
 | `traceparent` header present and byte-identical to the outbox `TraceParent` column | The trace survives the hop, which is the one place it can be lost silently. A broken trace looks exactly like a working one until an operator needs it at 03:00. |
 | A row with `TraceParent` NULL still produces a message, with an empty `traceparent` header | An untraced write path must not become a dead connector. The stock router always emits the promoted header; a null column yields it with an empty value, which consumers treat as untraced (see 01-wire-format.md). |
 
@@ -264,6 +265,11 @@ The end-to-end container test, `tests/Lexfield.Connect.Tests/`:
 The container test is slow and it is worth it: it is the only place the SMT
 chain and the router's keying from `AggregateId`, the compound-key contract
 ADR-005 defines, are proven rather than reasoned about.
+
+The two-tenant test exercises the final topic and group configuration together.
+Because separate topics already prevent Tenant B from reading Tenant A's
+command, this scenario does not measure the topic's protection separately from
+the group ID's protection. Its evidence is the combined end-to-end outcome.
 
 ## Dependencies
 

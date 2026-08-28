@@ -316,21 +316,21 @@ recover its offsets and schema history after being replaced.
 | `schema-history-{tenantId}` | 1 | Per-connector schema history. Compacted. |
 | `connect-configs`, `connect-offsets`, `connect-status` | Connect defaults | Connect internal state. Compacted. |
 
-### Signal commands have a separate topic, key, and bookmark
+### Signal commands have a separate topic, key, and committed position
 
 A Debezium signal is a control command for one connector. It is not a workflow
 event for an application consumer. Each build-scale tenant has a separate
 `connect-signals-{tenantId}` topic and a separate
-`kafka-signal-{tenantId}` consumer group. A consumer group is Kafka's bookmark
-for the next record that one kind of reader should process.
+`kafka-signal-{tenantId}` consumer group. Kafka stores a committed next-record
+position for each consumer group, topic, and partition.
 
 The separation prevents this skipped-command sequence:
 
 ```text
 1. Tenant A's connector is stopped.
 2. The operator writes Tenant A's snapshot command.
-3. Tenant B reads past that command and advances a shared bookmark.
-4. Tenant A restarts after the shared bookmark.
+3. Tenant B reads past that command and advances a shared committed position.
+4. Tenant A restarts after that position.
 5. Tenant A never receives its snapshot command.
 ```
 
@@ -502,6 +502,30 @@ Three offsets have different jobs:
 Advancing or resetting one does not advance or reset the others. A signal can
 start a connector snapshot. It cannot reset a downstream consumer group or
 make that group replay retained workflow events.
+
+This illustrative timeline shows one allowed order. The clock times explain
+the sequence; they are not measured latency:
+
+```text
+10:00:00  operations publishes a signal at offset 20 for Tenant A
+10:00:01  Debezium reads it; the signal group may commit next position 21
+10:00:02  Debezium commits an OPEN row in dbo.DebeziumSignal
+10:00:03  Debezium reads and buffers the requested Outbox row
+10:00:04  Debezium commits the matching CLOSE row
+10:00:05  Debezium emits the snapshot output to workflow-transitions
+10:00:06  Kafka Connect flushes source and snapshot progress to connect-offsets
+10:00:07  the downstream group commits its own next output position
+```
+
+The signal position controls command re-read. If the connector stops before
+that position commits, Kafka can offer the command again. The OPEN and CLOSE
+rows bound snapshot overlap in the SQL CDC stream; they are not restart
+positions. The `connect-offsets` entry controls source LSN and snapshot resume.
+If output reaches Kafka before that entry flushes, a restart can emit the output
+again. queue-builder handles that duplicate with its per-task version guard.
+The downstream position changes only after that consumer processes output. No
+checkpoint proves that another checkpoint advanced, and this path does not
+claim exactly-once delivery.
 
 It is signalled over Kafka rather than by writing to a signalling table in the
 tenant database, because a signalling table would need the connector to hold
