@@ -33,7 +33,9 @@ history.
 | `workflow-transitions-lexfield-003` | 12 | no |
 | `workflow-transitions-parked` | 1 | no |
 | `notifier-control` | 1 | no |
-| `connect-signals` | 1 | no |
+| `connect-signals-lexfield-001` | 1 | no |
+| `connect-signals-lexfield-002` | 1 | no |
+| `connect-signals-lexfield-003` | 1 | no |
 | `schema-history-lexfield-001` | 1 | yes |
 | `schema-history-lexfield-002` | 1 | yes |
 | `schema-history-lexfield-003` | 1 | yes |
@@ -47,10 +49,12 @@ one configuration partition, 25 offset partitions, and 5 status partitions.
 ## Identities
 
 - `connect` writes the transition and schema-history topics, reads and writes
-  the three internal topics, and reads `connect-signals`.
+  the three internal topics, reads the `connect-signals-` topic prefix, and
+  reads the `kafka-signal-` consumer-group prefix.
 - `queue-builder` reads transition topics and writes parked events.
 - `notifier` reads transition and control topics and writes parked events.
-- `operations` writes control messages and snapshot signals.
+- `operations` writes control messages and writes the `connect-signals-` topic
+  prefix.
 
 All four identities use mutual TLS, so both sides authenticate with
 certificates. Kafka access control lists (ACLs) enforce the per-identity
@@ -60,5 +64,7 @@ committed.
 ## Container verification
 
 The `gitops-kind` workflow lets Argo CD install both sources on a kind cluster.
-It waits for the operator, broker, all 11 topics, and all four users. It also
-checks that every committed user still has access control list entries.
+It waits for the operator, broker, all 13 topics, and all four users. It also
+checks that every committed user still has access control list entries and that
+the Connect and operations identities keep their signal topic and group prefix
+rules.

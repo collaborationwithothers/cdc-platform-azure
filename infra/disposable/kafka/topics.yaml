@@ -29,7 +29,21 @@ spec: { partitions: 1, replicas: 1 }
 apiVersion: kafka.strimzi.io/v1
 kind: KafkaTopic
 metadata:
-  name: connect-signals
+  name: connect-signals-lexfield-001
+  labels: { strimzi.io/cluster: cdc-platform }
+spec: { partitions: 1, replicas: 1 }
+---
+apiVersion: kafka.strimzi.io/v1
+kind: KafkaTopic
+metadata:
+  name: connect-signals-lexfield-002
+  labels: { strimzi.io/cluster: cdc-platform }
+spec: { partitions: 1, replicas: 1 }
+---
+apiVersion: kafka.strimzi.io/v1
+kind: KafkaTopic
+metadata:
+  name: connect-signals-lexfield-003
   labels: { strimzi.io/cluster: cdc-platform }
 spec: { partitions: 1, replicas: 1 }
 ---
