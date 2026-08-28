@@ -1,5 +1,6 @@
 using Confluent.Kafka;
 using Lexfield.Observability;
+using Lexfield.QueueBuilder.Gaps;
 using Lexfield.QueueStore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -16,6 +17,7 @@ public static class QueueBuilderHostExtensions
         var settings = QueueBuilderSettings.From(builder.Configuration);
         builder.Services.AddSingleton(settings);
         builder.Services.AddSingleton(new QueueStateStore(settings.QueueStoreConnectionString));
+        builder.Services.AddSingleton<IGapDetector, GapDetector>();
         builder.Services.AddSingleton<IConsumer<string, string>>(_ =>
             new ConsumerBuilder<string, string>(new ConsumerConfig
             {
