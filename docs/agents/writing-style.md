@@ -180,3 +180,10 @@ above them. Seeded from the sibling repo's repo-neutral rules.
   can be read again, and output emitted before its Connect offset flush can be
   sent again. State how the consumer handles duplicates. One checkpoint is not
   proof that another advanced, and none proves exactly-once delivery.
+- 2026-08-28: State Kafka topic and partition ownership separately in diagrams
+  and specifications. "One topic per tenant, one partition" cannot be shortened
+  to "one partition per tenant", because the shorter phrase describes a shared
+  topic divided by tenant.
+- 2026-08-28: When documentation describes a test, use the exact lifecycle
+  operation the test performs, such as delete and register or stop. Matching
+  observable states do not prove that those operations are equivalent.

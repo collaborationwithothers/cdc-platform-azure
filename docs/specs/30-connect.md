@@ -237,10 +237,11 @@ The end-to-end container test, `tests/Lexfield.Connect.Tests/`:
 4. Insert an outbox row directly, with `AggregateId` set to the compound key
    `{tenantId}-{taskId}`, as task-api would author it.
 5. Consume from `workflow-transitions` and assert the message.
-6. Stop Tenant A's connector and write a snapshot command to Tenant A's signal
-   topic. Let Tenant B process a command from Tenant B's topic, then restart
-   Tenant A. Assert that Tenant A processes its queued command and Tenant B does
-   not process Tenant A's command.
+6. Delete Tenant A's connector registration and write a snapshot command to
+   Tenant A's signal topic. Let Tenant B process a command from Tenant B's
+   topic, then register Tenant A's connector again. Assert that Tenant A
+   processes its queued command and Tenant B does not process Tenant A's
+   command.
 
 | Assertion | Why it matters |
 | --- | --- |
@@ -250,7 +251,7 @@ The end-to-end container test, `tests/Lexfield.Connect.Tests/`:
 | A DELETE on the outbox row produces no message | The outbox event router drops DELETEs itself, so outbox pruning must not become a downstream event (ADR-001). The most likely thing to silently break. |
 | Two tenants with the same taskId produce two distinct keys | The collision ADR-005 exists to prevent, tested rather than argued. |
 | An incremental snapshot signal on `connect-signals-{tenantId}` with key `topic.prefix` triggers that tenant's re-read | V3's behavior, exercised rather than assumed. |
-| A stopped connector processes its queued signal after another tenant snapshots | Proves the final combined topic and group configuration preserves the queued command in this two-tenant scenario. |
+| A deleted-and-re-registered connector processes its queued signal after another tenant snapshots | Proves the final combined topic and group configuration preserves the queued command in this two-tenant scenario. |
 | `traceparent` header present and byte-identical to the outbox `TraceParent` column | The trace survives the hop, which is the one place it can be lost silently. A broken trace looks exactly like a working one until an operator needs it at 03:00. |
 | A row with `TraceParent` NULL still produces a message, with an empty `traceparent` header | An untraced write path must not become a dead connector. The stock router always emits the promoted header; a null column yields it with an empty value, which consumers treat as untraced (see 01-wire-format.md). |
 
