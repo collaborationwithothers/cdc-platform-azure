@@ -169,7 +169,9 @@ The `Payload` column, and therefore the message value on the topic.
   "taskId": 4711,
   "from": "Assigned",
   "to": "InProgress",
-  "actor": "user:1234",
+  "actor": "user:00000000-0000-0000-0000-000000000001:00000000-0000-0000-0000-000000000002",
+  "clientApplicationId": "00000000-0000-0000-0000-00000000000c",
+  "permissionMode": "delegated",
   "at": "2026-08-22T10:15:03.221Z",
   "version": 7,
   "teamId": "team-conveyancing",
@@ -177,6 +179,32 @@ The `Payload` column, and therefore the message value on the topic.
 }
 ```
 
+The GUIDs above are synthetic placeholders; no real tenant, object, or client
+identifier is committed here.
+
+- `actor` is authenticated provenance: who caused the transition, derived only
+  from the validated Microsoft Entra access token, never from a request body
+  field or a header. Its canonical form is `user:{tid}:{oid}` for a
+  delegated-user write or `workload:{tid}:{oid}` for an application-only write,
+  where `tid` and `oid` are the token's tenant and object-id GUIDs (ADR-004,
+  blueprint section 9). This is a different identifier space from `assigneeId`,
+  which is a business reference to whoever the task is assigned to, not the
+  authenticated caller; the two share a `user:` prefix by coincidence, not by
+  contract. SPEC-LEVEL.
+- `clientApplicationId` is the immediate client application that called task-api,
+  from the token's v2 `azp` claim, or the v1 `appid` claim when `azp` is absent;
+  it is absent when a valid token carries neither. `permissionMode` is
+  `application` for an application-only token and `delegated` otherwise; task-api
+  decides which from the token's identity type, not from the absence of `scp`
+  (the rule is in [20-src-task-api.md](20-src-task-api.md)). Both are
+  token-derived and cannot be
+  set from the body or a header. SPEC-LEVEL.
+- Legacy events, written before this contract, carry an unverified `actor`
+  string in an older ad-hoc form and no `clientApplicationId` or
+  `permissionMode`. A consumer represents such an event as `legacy-unverified`
+  and never treats its actor text as authenticated provenance. Historical events
+  are not rewritten, because the authenticated principal cannot be reconstructed
+  after the request (ADR-004).
 - `from` is null on the Created event, which is always version 1 (ADR-004).
   A null payload field is not guaranteed to appear on the wire. With
   `table.expand.json.payload` on, the router's `table.json.payload.null.behavior`
