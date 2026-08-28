@@ -106,6 +106,12 @@ COMMIT;
 Both writes or neither. This is the mechanism the whole platform rests on
 (ADR-001), so it is one transaction with no retry loop hiding inside it.
 
+`@actor` is the canonical token-derived provenance identifier, resolved by the
+shared actor-context described under "Authorisation and provenance" below before
+this transaction runs. It is never a request body field, and the same value is
+written to `WorkflowTask.UpdatedBy` and to the event's `actor`. The event also
+carries `clientApplicationId` and `permissionMode` from the same token.
+
 `@aggregateId` is the compound key `{tenantId}-{taskId}`, built in application
 code from the route's tenant id and the task id, and written into `AggregateId`
 inside this same transaction. This is where ADR-005's aggregate identity is
@@ -167,9 +173,106 @@ string, populated from the same tenant manifest the onboarding runner and the
 connector generator read. Unknown tenantId is 404, never a fallback to a default
 connection.
 
-Authorisation: Entra JWT bearer; the tenant claim on the token must match the
-tenant in the route. Blueprint section 9 requires the route scope to be enforced
-in authorisation, not merely present in the path.
+### Authorisation and provenance
+
+task-api records who caused each task write and on whose behalf, so a transition
+is attributable without confusing the calling application with the human or
+delegated principal. Provenance means the recorded identity and invocation path
+that explain a write. Every value below is derived from the validated Microsoft
+Entra access token, never from a request body field or a custom header, because
+a caller-supplied value is not proof of identity.
+
+**The mismatch this closes.** Task creation already derives the actor from the
+token. Task transition, before this contract, took `actor` from the request body
+and recorded a caller-controlled string as if it were authenticated. The two
+endpoints disagreed on what an actor is; both now resolve it the same way.
+
+**Two authorization modes**, distinguished by how the caller holds authority:
+
+- Delegated access: a direct user call, or an OAuth on-behalf-of (OBO) call
+  through a middle tier. OBO carries the original user's identity through the
+  request chain, so the actor is the user, not the middle tier. OBO never
+  accepts a represented user from request data; the validated downstream token
+  already carries the user subject.
+- Application access: a client-credentials call or a managed-identity call. There
+  is no user; the workload is the actor.
+
+**Three provenance values**, from the validated token:
+
+- `actor`, the canonical typed identifier: `user:{tid}:{oid}` for delegated
+  access, `workload:{tid}:{oid}` for application access. `tid` is the token's
+  tenant-id claim and `oid` its object-id claim; `oid` is immutable and
+  consistent across applications within an Entra tenant, so it is a stable actor
+  key (verified 2026-08-28).
+- `clientApplicationId`, the immediate client that called task-api, normalized
+  from the v2 `azp` claim or the v1 `appid` claim.
+- `permissionMode`, `delegated` when the token carries an `scp` (scope) claim,
+  otherwise `application`.
+
+| Flow | actor | clientApplicationId | permissionMode |
+| --- | --- | --- | --- |
+| Direct delegated user | `user:{tid}:{oid}` | `azp`/`appid` of the direct client | delegated |
+| OBO through a middle tier | `user:{tid}:{oid}` | `azp`/`appid` of the middle tier | delegated |
+| Client credentials | `workload:{tid}:{oid}` | `azp`/`appid` of the calling app | application |
+| Managed identity | `workload:{tid}:{oid}` | `azp`/`appid` of the workload | application |
+
+**One shared actor-context.** Create and transition resolve these three values
+through a single actor-context interface that reads the validated claims
+principal and hides the token-version and flow differences from every endpoint.
+Endpoint code never parses the raw `Authorization` header. Task creation no
+longer falls back to the string `"unknown"`: a request that cannot yield the
+required claims is rejected, not attributed to a placeholder.
+
+**Permission authorization is separate from tenant authorization.** A delegated
+token must carry the task-write delegated scope `Tasks.Write` in `scp`; an
+application-only token must carry the task-write application role
+`Tasks.Write.All` in `roles`. Presence of `scp` is the reliable delegated
+signal: an application-only token has no `scp`, whereas a `roles` claim can
+appear on either token kind, so the mode is decided by `scp` presence, not by
+`roles` presence (verified 2026-08-28). Microsoft's optional `idtyp` claim is
+the cleanest discriminator and is the recommended production signal. The scope
+and role names are committed here; the environment-specific application-id URI
+that exposes them is not.
+
+**Four independent checks, and their HTTP outcomes:**
+
+| Condition | Outcome |
+| --- | --- |
+| Missing or invalid access token | 401 |
+| Token missing `tid`, `oid`, or both `azp` and `appid` | 401 (provenance cannot be established) |
+| Valid token lacking the required delegated scope or application role | 403 |
+| Valid, permitted token whose tenant claim fails the existing `TenantRoute` check | 403 |
+| Transition body still supplies a legacy `actor` field | 400 |
+
+Token validation, permission authorization, tenant authorization, and
+attribution are four separate checks. The business `tenantId` route policy is
+unchanged and stays separate from the Entra `tid` claim: `tid` identifies the
+Entra tenant that issued the token, while `TenantRoute` authorizes the business
+tenant in the path.
+
+**Boundaries stated, not built.** An app-only operation has no user actor: if a
+user started an asynchronous job earlier, the executing workload is the actor,
+because preserving the earlier user needs separately trusted causation data
+created when the job was accepted, and that is not a body or header override of
+actor. Support impersonation and other explicit representation flows are not
+supported in v1; a future representation contract must record the authenticated
+operator, the represented subject, the client, the authorization evidence, and
+the reason as separate fields.
+
+**Legacy records.** Existing transition rows and events may hold caller-supplied
+actor text. Those are historical business labels, not proof of the authenticated
+principal, and they are not rewritten because the principal cannot be
+reconstructed after the request. Consumers represent replayed legacy events as
+`legacy-unverified` (ADR-004, [01-wire-format.md](01-wire-format.md)).
+
+The blueprint section 9 requirement that the route scope is enforced in
+authorisation, not merely present in the path, still holds and is the tenant
+check above.
+
+This section defines the contract. The shared actor-context module, the
+permission checks, the endpoint integration, and the HTTP behavior tests are
+implemented by the task-api actor-resolution follow-up, not by this
+documentation ticket.
 
 Fault injection for the demo, SPEC-LEVEL, approved 2026-08-22 (see
 [README.md](README.md)): when `Demo:AllowOutboxSuppression` is true, the transition endpoint accepts

@@ -89,7 +89,7 @@ CREATE TABLE dbo.WorkflowTask (
     AssigneeId  nvarchar(64)  NULL,
     CreatedAt   datetime2(3)  NOT NULL,
     UpdatedAt   datetime2(3)  NOT NULL,
-    UpdatedBy   nvarchar(64)  NOT NULL
+    UpdatedBy   nvarchar(128) NOT NULL   -- canonical actor identifier, see below
 );
 
 CREATE TABLE dbo.Outbox (
@@ -114,6 +114,22 @@ CREATE TABLE dbo.TenantInfo (
 
 `State` is one of Created, Assigned, InProgress, Submitted, QA, Completed,
 Delivered, from blueprint section 2.
+
+### UpdatedBy holds the canonical actor
+
+`UpdatedBy` stores the same canonical actor identifier task-api writes into the
+event's `actor` field: `user:{tid}:{oid}` for a delegated-user write, or
+`workload:{tid}:{oid}` for an application-only write, where `tid` and `oid` are
+the tenant and object-id GUIDs from the validated access token (ADR-004, and
+blueprint section 9 for the full contract). The identifier is derived from the
+token, never from a request body field or a custom header.
+
+The width is `nvarchar(128)` because the longest canonical value,
+`workload:` plus two 36-character GUIDs and a separator, is 82 characters, which
+does not fit the earlier `nvarchar(64)`. This spec states the target width; the
+idempotent migration that widens the column in each tenant database, and the
+proof it upgrades an existing row safely, is owned by the tenant-schema
+onboarding follow-up, not authored here.
 
 ### Aggregate identity
 
@@ -337,11 +353,18 @@ never trusted from the path alone.
 | Route | Purpose |
 | --- | --- |
 | `POST /tenants/{tenantId}/tasks` | Create a task. Writes state Created at version 1 and its outbox row in one transaction. |
-| `POST /tenants/{tenantId}/tasks/{taskId}/transitions` | Perform a transition. Body: `{ "to", "actor", "expectedVersion", "teamId", "assigneeId" }`. Optimistic concurrency on `expectedVersion`; 409 on mismatch. |
+| `POST /tenants/{tenantId}/tasks/{taskId}/transitions` | Perform a transition. Body: `{ "to", "expectedVersion", "teamId", "assigneeId" }`. Optimistic concurrency on `expectedVersion`; 409 on mismatch. The body carries no `actor`: provenance is derived from the validated token (ADR-004). A request that still supplies an `actor` field is rejected with 400. |
 | `GET /tenants/{tenantId}/tasks/{taskId}` | Authoritative read for repair. Returns state, version, teamId, assigneeId. |
 | `GET /tenants/{tenantId}/tasks/changes?since={syncVersion}` | Change Tracking feed. Returns changed task ids with versions and the next sync version (ADR-009). |
 | `GET /tenants/{tenantId}/info` | Returns the `TenantInfo` claim. The reconciler's attribution check reads this. SPEC-LEVEL. |
 | `GET /healthz`, `GET /readyz` | Liveness and readiness. SPEC-LEVEL. |
+
+Every write route derives the actor and the calling client from the validated
+access token, never from the body or a header, and records `actor`,
+`clientApplicationId`, and `permissionMode` (ADR-004). Token validation,
+permission authorization, tenant authorization, and attribution are four
+separate checks; the HTTP outcomes for each, and the named delegated scope and
+application role, are in [20-src-task-api.md](20-src-task-api.md).
 
 The changes response shape, SPEC-LEVEL:
 

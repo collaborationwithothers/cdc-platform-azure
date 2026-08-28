@@ -50,3 +50,9 @@ meaning:
   drops DELETE operations explicitly.
 - The topic, not the outbox table, is the history. At build scale that history
   holds only within a session (blueprint section 10).
+- The actor this decision keeps recoverable is authenticated provenance, not a
+  caller-asserted label. task-api derives it from the validated access token and
+  writes it into the outbox event in the same transaction; it is never taken
+  from a request body field or a custom header. The canonical form and the
+  companion `clientApplicationId` and `permissionMode` fields are defined in
+  ADR-004 and blueprint section 9.
