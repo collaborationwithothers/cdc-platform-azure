@@ -169,3 +169,14 @@ above them. Seeded from the sibling repo's repo-neutral rules.
   or use a Hari-approved exception instead.
 - 2026-08-27: A test proves only the path it exercises. Name that boundary in the
   write-up before stating any broader production-scale or design-scale risk.
+- 2026-08-27: Make checkpoint prose start with one concrete failure timeline.
+  Show when the Kafka signal is published, when `__consumer_offsets` commits
+  the next command position, when OPEN and CLOSE rows commit in
+  `dbo.DebeziumSignal`, when `connect-offsets` flushes source and snapshot
+  progress, and when output is emitted. Explain the jobs separately: the
+  command offset controls command re-read; the Connect source and snapshot
+  offset controls resume; SQL watermarks bound overlap in the CDC stream and
+  are not a restart position. Mark each crash window: an uncommitted command
+  can be read again, and output emitted before its Connect offset flush can be
+  sent again. State how the consumer handles duplicates. One checkpoint is not
+  proof that another advanced, and none proves exactly-once delivery.
