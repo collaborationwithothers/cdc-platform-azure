@@ -85,7 +85,8 @@ Shape, SPEC-LEVEL and provisional pending V7:
     "schema.history.internal.kafka.bootstrap.servers": "{bootstrap}",
     "schema.history.internal.kafka.topic": "schema-history-{tenantId}",
     "signal.enabled.channels": "source,kafka",
-    "signal.kafka.topic": "connect-signals",
+    "signal.kafka.topic": "connect-signals-{tenantId}",
+    "signal.kafka.groupId": "kafka-signal-{tenantId}",
     "signal.kafka.bootstrap.servers": "{bootstrap}",
     "signal.data.collection": "{databaseName}.dbo.DebeziumSignal",
     "errors.max.retries": "10",
@@ -99,6 +100,22 @@ Shape, SPEC-LEVEL and provisional pending V7:
   }
 }
 ```
+
+The generator derives both signal names from the manifest tenant ID. The topic
+holds that tenant's commands. The group is Kafka's bookmark for the next
+command that connector should read. Keeping both tenant-specific prevents one
+running connector from advancing past a command queued for another connector.
+
+For tenant `lexfield-002`, the operations producer writes this Kafka record:
+
+```text
+topic: connect-signals-lexfield-002
+key: tenant-lexfield-002
+value: {"type":"execute-snapshot","data":{"data-collections":["tenant-002.dbo.Outbox"],"type":"INCREMENTAL"}}
+```
+
+The key remains exactly equal to `topic.prefix`. Debezium ignores a signal with
+a different key even when it arrives on the correct tenant topic.
 
 Encryption is a driver pass-through, not a connector property. Debezium forwards
 every `driver.*`-prefixed property to the mssql-jdbc driver unchanged, and the
@@ -186,7 +203,9 @@ rather than merely persistent; see [01-wire-format.md](01-wire-format.md).
 ## External interfaces
 
 Produces to `workflow-transitions`, `workflow-transitions-{tenantId}`, and the
-per-connector `schema-history-{tenantId}` topics. Consumes `connect-signals`.
+per-connector `schema-history-{tenantId}` topics. Each tenant connector consumes
+its own `connect-signals-{tenantId}` topic under the
+`kafka-signal-{tenantId}` group.
 
 Its output contract is the key, header, and envelope specification in
 [00-shared-contracts.md](00-shared-contracts.md). That contract is what the
@@ -217,6 +236,10 @@ The end-to-end container test, `tests/Lexfield.Connect.Tests/`:
 4. Insert an outbox row directly, with `AggregateId` set to the compound key
    `{tenantId}-{taskId}`, as task-api would author it.
 5. Consume from `workflow-transitions` and assert the message.
+6. Stop Tenant A's connector and write a snapshot command to Tenant A's signal
+   topic. Let Tenant B process a command from Tenant B's topic, then restart
+   Tenant A. Assert that Tenant A processes its queued command and Tenant B does
+   not process Tenant A's command.
 
 | Assertion | Why it matters |
 | --- | --- |
@@ -225,7 +248,8 @@ The end-to-end container test, `tests/Lexfield.Connect.Tests/`:
 | Value is the plain envelope, not a CDC change record | Proves the outbox router unwrapped it. |
 | A DELETE on the outbox row produces no message | The outbox event router drops DELETEs itself, so outbox pruning must not become a downstream event (ADR-001). The most likely thing to silently break. |
 | Two tenants with the same taskId produce two distinct keys | The collision ADR-005 exists to prevent, tested rather than argued. |
-| An incremental snapshot signal on `connect-signals` triggers a re-read | V3's behaviour, exercised rather than assumed. |
+| An incremental snapshot signal on `connect-signals-{tenantId}` with key `topic.prefix` triggers that tenant's re-read | V3's behavior, exercised rather than assumed. |
+| A stopped tenant processes its queued signal after another tenant snapshots | Proves the per-tenant signal topics and groups isolate both the command stream and its Kafka bookmark. |
 | `traceparent` header present and byte-identical to the outbox `TraceParent` column | The trace survives the hop, which is the one place it can be lost silently. A broken trace looks exactly like a working one until an operator needs it at 03:00. |
 | A row with `TraceParent` NULL still produces a message, with an empty `traceparent` header | An untraced write path must not become a dead connector. The stock router always emits the promoted header; a null column yields it with an empty value, which consumers treat as untraced (see 01-wire-format.md). |
 

@@ -312,9 +312,40 @@ recover its offsets and schema history after being replaced.
 | `workflow-transitions-{tenantId}` | 12 | Stream isolation tier; one fictional tenant, isolated from birth. |
 | `workflow-transitions-parked` | 1 | Parked poison events (failure mode 4). queue-builder writes here on skip; the notifier writes here only after an operator skip or a bounded wait expiring. |
 | `notifier-control` | 1 | Operator instructions to a paused notifier partition: retry, or skip this offset. SPEC-LEVEL. |
-| `connect-signals` | 1 | Debezium signal channel, incremental snapshot triggers. |
+| `connect-signals-{tenantId}` | 1 per build-scale tenant | Debezium control commands for one tenant connector. |
 | `schema-history-{tenantId}` | 1 | Per-connector schema history. Compacted. |
 | `connect-configs`, `connect-offsets`, `connect-status` | Connect defaults | Connect internal state. Compacted. |
+
+### Signal commands have a separate topic, key, and bookmark
+
+A Debezium signal is a control command for one connector. It is not a workflow
+event for an application consumer. Each build-scale tenant has a separate
+`connect-signals-{tenantId}` topic and a separate
+`kafka-signal-{tenantId}` consumer group. A consumer group is Kafka's bookmark
+for the next record that one kind of reader should process.
+
+The separation prevents this skipped-command sequence:
+
+```text
+1. Tenant A's connector is stopped.
+2. The operator writes Tenant A's snapshot command.
+3. Tenant B reads past that command and advances a shared bookmark.
+4. Tenant A restarts after the shared bookmark.
+5. Tenant A never receives its snapshot command.
+```
+
+Debezium 3.6 names `signal.kafka.groupId` as the signal consumer's group and
+defaults it to `kafka-signal`. Its Kafka signal reader automatically commits
+consumer offsets and discards a record whose key differs from the connector's
+logical name. Separate topics and groups remove both shared states. The
+[SQL Server signal properties](https://debezium.io/documentation/reference/3.6/connectors/sqlserver.html#sqlserver-property-signal-kafka-group-id)
+and the pinned
+[Kafka signal reader](https://github.com/debezium/debezium/blob/v3.6.1.Final/debezium-connector-common/src/main/java/io/debezium/pipeline/signal/channels/KafkaSignalChannel.java)
+are the source for those behaviors.
+
+The signal key is the connector's `topic.prefix`, for example
+`tenant-lexfield-002`. It is not the workflow-event key described below. The
+signal value is the JSON command Debezium runs.
 
 Message key: the string `{tenantId}-{taskId}`, for example `lexfield-001-4711`,
 authored by task-api into the outbox `AggregateId` and copied to the key by the
@@ -452,11 +483,25 @@ Connect infrastructure. One deletion takes out every connector at once.
 
 ### Recovery, and what it does not do
 
-Recovery is an incremental snapshot per connector, signalled over
-`connect-signals`. A **snapshot** is the connector reading a table's current
-contents directly instead of reading the change log. An **incremental** snapshot
-cuts the table into chunks and reads them one at a time while live streaming
-continues, so the connector is not blocked for the duration.
+Recovery is an incremental snapshot per connector, signalled over that tenant's
+`connect-signals-{tenantId}` topic. A **snapshot** is the connector reading a
+table's current contents directly instead of reading the change log. An
+**incremental** snapshot cuts the table into chunks and reads them one at a time
+while live streaming continues, so the connector is not blocked for the
+duration.
+
+Three offsets have different jobs:
+
+- Kafka stores the signal consumer's next command under
+  `kafka-signal-{tenantId}` in `__consumer_offsets`.
+- Kafka Connect stores the connector's source LSN and snapshot progress in
+  `connect-offsets`. The LSN is SQL Server's transaction-log position.
+- Each downstream application consumer stores its own output-topic offset under
+  its own group in `__consumer_offsets`.
+
+Advancing or resetting one does not advance or reset the others. A signal can
+start a connector snapshot. It cannot reset a downstream consumer group or
+make that group replay retained workflow events.
 
 It is signalled over Kafka rather than by writing to a signalling table in the
 tenant database, because a signalling table would need the connector to hold
