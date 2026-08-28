@@ -32,26 +32,34 @@ resource "azuread_application" "taskapi" {
   owners           = [data.azuread_client_config.current.object_id]
   sign_in_audience = "AzureADMyOrg"
 
-  # No identifier_uris, and this file cannot close that gap on its own. A client
-  # asks for a delegated scope by the resource's Application ID URI joined to
-  # the scope name, so task-api needs a URI before any client can request
-  # Tasks.Write. Entra accepts two shapes of URI. One is keyed on an identifier,
-  # such as `api://<appId>` or `api://<tenantId>/<string>`, and writing either
-  # here would put a client ID or a tenant ID into a public repo, which this
-  # repo forbids. The other is keyed on a domain verified in this tenant, such
-  # as `https://<verifiedCustomDomain>/<string>`, and that shape carries no
-  # identifier at all. Nothing in this repo establishes which domain, if any, is
-  # verified in the tenant, so naming one here would be a guess that fails at
-  # apply when it is wrong. Issue #266 sets the URI once the verified domain is
-  # known.
+  # No identifier_uris. That omission is a scope and sequencing choice, not a
+  # repository secrecy requirement. This ticket defines the two permissions,
+  # but its acceptance checklist does not select the Application ID URI that a
+  # client will use or create task-api's tenant-local service principal.
+  #
+  # The standalone azuread_application_identifier_uri resource can use a
+  # computed value such as `api://${azuread_application.taskapi.client_id}`
+  # after this application exists. The expression cannot sit in this
+  # azuread_application resource because that would make the resource depend on
+  # its own computed client ID. In the standalone resource, it resolves during
+  # planning or apply without committing the client ID as a literal.
+  # argocd-identity.tf already uses the same literal-versus-computed distinction
+  # for a tenant ID in its issuer URL. The domain-keyed alternative, such as
+  # `https://<verifiedCustomDomain>/<string>`, instead requires a domain that is
+  # verified in this tenant, and this repository does not establish one.
+  #
+  # Choosing between those URI shapes belongs with the verified-domain,
+  # service-principal, and client-request decisions needed before #266 can use
+  # this registration. This ticket leaves that choice visible rather than
+  # settling a client contract that its acceptance checklist does not require.
   #
   # One unknown to watch on the first apply. Whether Entra accepts a
   # registration that defines scopes while its identifierUris collection is
   # empty is not documented on Microsoft Learn either way. The Graph schema
   # treats the two properties as independent, and the portal walkthrough sets a
   # URI first, but that is UI sequencing rather than a stated API rule. If Graph
-  # rejects this registration, it fails loudly at apply and the fix is the
-  # verified-domain URI above.
+  # rejects this registration, it fails loudly at apply and the follow-up must
+  # select and set one of the URI shapes above.
   #
   # https://learn.microsoft.com/entra/identity-platform/identifier-uri-restrictions
   # https://learn.microsoft.com/graph/api/resources/apiapplication?view=graph-rest-1.0
