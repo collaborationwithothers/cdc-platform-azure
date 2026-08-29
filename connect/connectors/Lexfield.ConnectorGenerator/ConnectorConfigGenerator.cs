@@ -84,7 +84,7 @@ public static class ConnectorConfigGenerator
         var values = optionPairs.ToDictionary(group => group.Key, group => group.Single()[1], StringComparer.Ordinal);
         string Required(string name) => values.TryGetValue(name, out var value) && !string.IsNullOrWhiteSpace(value)
             ? value
-            : throw Usage();
+            : throw Fail($"Required option '{name}' has a blank value. Connector generation cannot continue without this input. Supply a non-blank value for {name}, then rerun the generator.");
         return new GeneratorOptions(
             Required("--manifest"), Required("--sql-server-fqdn"),
             Required("--bootstrap-servers"), Required("--output-dir"));
@@ -126,7 +126,7 @@ public static class ConnectorConfigGenerator
         {
             manifest = File.ReadAllText(manifestPath);
         }
-        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        catch (Exception exception) when (IsFileAccessFailure(exception))
         {
             throw Fail($"Cannot read tenant manifest '{manifestPath}'. Connector generation cannot create tenant connector configurations. Check that the manifest path exists and that the current user can read it.");
         }
@@ -166,7 +166,7 @@ public static class ConnectorConfigGenerator
         {
             Directory.CreateDirectory(outputDirectory);
         }
-        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        catch (Exception exception) when (IsFileAccessFailure(exception))
         {
             throw Fail($"Cannot prepare output directory '{outputDirectory}'. Connector generation cannot write one configuration file per tenant. Use a writable directory path that is not a file, then rerun the generator.");
         }
@@ -178,7 +178,7 @@ public static class ConnectorConfigGenerator
         {
             return Directory.GetFiles(outputDirectory, "tenant-*-outbox.json");
         }
-        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        catch (Exception exception) when (IsFileAccessFailure(exception))
         {
             throw Fail($"Cannot inspect output directory '{outputDirectory}'. Connector generation cannot tell whether older connector files would be overwritten. Restore read access to the directory, then rerun the generator.");
         }
@@ -190,7 +190,7 @@ public static class ConnectorConfigGenerator
         {
             return templateReader();
         }
-        catch (Exception exception) when (exception is IOException or InvalidOperationException)
+        catch (Exception exception) when (IsFileAccessFailure(exception) || exception is InvalidOperationException)
         {
             throw Fail("The embedded connector template cannot be read. Connector generation cannot render a Kafka Connect registration body. Kafka Connect is the service that runs and registers Debezium connectors. Restore the repository connector template before rerunning the generator.");
         }
@@ -217,7 +217,7 @@ public static class ConnectorConfigGenerator
                 Path.Combine(outputDirectory, $"tenant-{tenantId}-outbox.json"),
                 connector.ToJsonString(OutputOptions) + "\n");
         }
-        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        catch (Exception exception) when (IsFileAccessFailure(exception))
         {
             throw Fail($"Cannot write the connector configuration for tenant '{tenantId}' to output directory '{outputDirectory}'. Connector generation may have created files for earlier tenant entries. Fix the output directory, remove partial files from this run, and rerun the generator.");
         }
@@ -259,6 +259,9 @@ public static class ConnectorConfigGenerator
 
     private static GeneratorFailureException Usage() => Fail(
         "Usage: Lexfield.ConnectorGenerator --manifest <tenant-manifest.json> --sql-server-fqdn <sql-server-host> --bootstrap-servers <kafka-bootstrap-host:port> --output-dir <output-directory>. The tenant manifest maps each tenant to its database and stream settings. Change data capture (CDC) is SQL Server's record of committed changes. Debezium is the connector that reads CDC records. Kafka is the message stream that Debezium publishes to. The SQL Server host lets Debezium read CDC records. The Kafka bootstrap server lets Debezium reach Kafka. The output directory receives one connector configuration per tenant. Provide all four options as name and value pairs.");
+
+    private static bool IsFileAccessFailure(Exception exception) =>
+        exception is IOException or UnauthorizedAccessException or ArgumentException or NotSupportedException;
 
     private static GeneratorFailureException Fail(string message) => new(message);
 

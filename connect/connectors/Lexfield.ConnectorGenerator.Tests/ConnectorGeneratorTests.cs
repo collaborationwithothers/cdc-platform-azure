@@ -131,6 +131,29 @@ public sealed class ConnectorGeneratorTests
             "Usage: Lexfield.ConnectorGenerator --manifest <tenant-manifest.json> --sql-server-fqdn <sql-server-host> --bootstrap-servers <kafka-bootstrap-host:port> --output-dir <output-directory>. The tenant manifest maps each tenant to its database and stream settings. Change data capture (CDC) is SQL Server's record of committed changes. Debezium is the connector that reads CDC records. Kafka is the message stream that Debezium publishes to. The SQL Server host lets Debezium read CDC records. The Kafka bootstrap server lets Debezium reach Kafka. The output directory receives one connector configuration per tenant. Provide all four options as name and value pairs.\n");
     }
 
+    [Theory]
+    [InlineData("--manifest")]
+    [InlineData("--sql-server-fqdn")]
+    [InlineData("--bootstrap-servers")]
+    [InlineData("--output-dir")]
+    public void BlankOptionNamesTheInputConsequenceAndCorrection(string optionName)
+    {
+        var arguments = new[]
+        {
+            "--manifest", "manifest.json",
+            "--sql-server-fqdn", "sql.lexfield.test",
+            "--bootstrap-servers", "kafka:9092",
+            "--output-dir", "output",
+        };
+        arguments[Array.IndexOf(arguments, optionName) + 1] = " ";
+
+        var result = RunArguments(arguments);
+
+        AssertFailure(
+            result,
+            $"Required option '{optionName}' has a blank value. Connector generation cannot continue without this input. Supply a non-blank value for {optionName}, then rerun the generator.\n");
+    }
+
     [Fact]
     public void UnreadableManifestNamesTheInputAndSafeCorrection()
     {
@@ -175,7 +198,17 @@ public sealed class ConnectorGeneratorTests
     }
 
     [Fact]
-    public void TemplateFailureDoesNotExposeAnException()
+    public void ManifestFieldTypeMismatchNamesTheInputConsequenceAndCorrection()
+    {
+        using var run = Generate("[{\"tenantId\":5,\"database\":\"tenant-001\"}]");
+
+        AssertFailure(
+            run,
+            $"Tenant manifest '{run.Manifest}' contains an entry with values that do not match the required tenantId, database, and streamIsolated fields. Connector generation cannot identify that tenant's connector settings. Use string tenantId and database values and a true or false streamIsolated value.\n");
+    }
+
+    [Fact]
+    public void MalformedTemplateDoesNotExposeAnException()
     {
         using var run = Generate(ThreeTenants, () => "{");
 
@@ -198,6 +231,61 @@ public sealed class ConnectorGeneratorTests
         AssertFailure(
             result,
             $"Cannot prepare output directory '{outputFile}'. Connector generation cannot write one configuration file per tenant. Use a writable directory path that is not a file, then rerun the generator.\n");
+    }
+
+    [Fact]
+    public void MidRunWriteFailureNamesTheTenantAndPartialOutputCorrection()
+    {
+        using var root = new TemporaryDirectory();
+        var manifest = root.Path("manifest.json");
+        var output = root.Path("output");
+        File.WriteAllText(manifest, ThreeTenants);
+        Directory.CreateDirectory(output);
+        Directory.CreateDirectory(Path.Combine(output, "tenant-lexfield-002-outbox.json"));
+
+        var result = Run(manifest, output);
+
+        Assert.True(File.Exists(Path.Combine(output, "tenant-lexfield-001-outbox.json")));
+        AssertFailure(
+            result,
+            $"Cannot write the connector configuration for tenant 'lexfield-002' to output directory '{output}'. Connector generation may have created files for earlier tenant entries. Fix the output directory, remove partial files from this run, and rerun the generator.\n");
+    }
+
+    [Theory]
+    [InlineData("--manifest")]
+    [InlineData("--output-dir")]
+    public void UnsupportedOptionPathDoesNotExposeAnException(string optionName)
+    {
+        using var root = new TemporaryDirectory();
+        var manifest = root.Path("manifest.json");
+        var output = root.Path("output");
+        var unsupportedPath = root.Path("unsupported\0path");
+        File.WriteAllText(manifest, ThreeTenants);
+        var arguments = new[]
+        {
+            "--manifest", manifest,
+            "--sql-server-fqdn", "sql.lexfield.test",
+            "--bootstrap-servers", "kafka:9092",
+            "--output-dir", output,
+        };
+        arguments[Array.IndexOf(arguments, optionName) + 1] = unsupportedPath;
+
+        var result = RunArguments(arguments);
+
+        var expectedError = optionName == "--manifest"
+            ? $"Cannot read tenant manifest '{unsupportedPath}'. Connector generation cannot create tenant connector configurations. Check that the manifest path exists and that the current user can read it.\n"
+            : $"Cannot prepare output directory '{unsupportedPath}'. Connector generation cannot write one configuration file per tenant. Use a writable directory path that is not a file, then rerun the generator.\n";
+        AssertFailure(result, expectedError);
+    }
+
+    [Fact]
+    public void UnsupportedTenantIdDoesNotExposeAnException()
+    {
+        using var run = Generate("[{\"tenantId\":\"a\\u0000b\",\"database\":\"tenant-001\"}]");
+
+        AssertFailure(
+            run,
+            $"Cannot write the connector configuration for tenant 'a\0b' to output directory '{run.Output}'. Connector generation may have created files for earlier tenant entries. Fix the output directory, remove partial files from this run, and rerun the generator.\n");
     }
 
     private static GenerationRun Generate(string manifest, Func<string>? templateReader = null)
