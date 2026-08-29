@@ -20,7 +20,7 @@ public sealed class ConnectorGeneratorTests
         Assert.Equal(string.Empty, run.Error);
         Assert.Equal(
             "Wrote connector configurations for tenants: lexfield-001, lexfield-002, lexfield-003.\n" +
-            "The files are ready for Kafka Connect registration. Generation does not register connectors or verify Kafka, Debezium, or Azure SQL.\n",
+            "The files are ready for Kafka Connect registration. Kafka Connect is the service that runs and registers Debezium connectors. Generation does not register connectors or verify Kafka, Debezium, or Azure SQL.\n",
             run.OutputMessage);
         Assert.Equal(File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "connector-configs.golden")), Snapshot(run.Output));
     }
@@ -152,6 +152,16 @@ public sealed class ConnectorGeneratorTests
             $"Tenant manifest '{run.Manifest}' is not valid JSON. Connector generation cannot identify tenant entries. Correct the JSON and rerun the generator.\n");
     }
 
+    [Fact]
+    public void ValidJsonThatIsNotAnArrayNamesTheRequiredManifestShape()
+    {
+        using var run = Generate("{}");
+
+        AssertFailure(
+            run,
+            $"Tenant manifest '{run.Manifest}' must contain a JSON array. Connector generation cannot identify tenant entries. Replace the manifest with a JSON array and rerun the generator.\n");
+    }
+
     [Theory]
     [InlineData("[{\"tenantId\":\"\",\"database\":\"tenant-001\"}]", "Tenant manifest entry 1 has a blank tenantId. Connector generation cannot name the tenant connector file or stream settings. Supply a non-blank tenantId.\n")]
     [InlineData("[{\"tenantId\":\"lexfield-001\",\"database\":\"\"}]", "Tenant manifest entry 1 has a blank database. Connector generation cannot configure the SQL Server database to capture. Supply a non-blank database name.\n")]
@@ -171,7 +181,7 @@ public sealed class ConnectorGeneratorTests
 
         AssertFailure(
             run,
-            "The embedded connector template is not valid JSON. Connector generation cannot render a Kafka Connect registration body. Restore the repository connector template before rerunning the generator.\n");
+            "The embedded connector template is not valid JSON. Connector generation cannot render a Kafka Connect registration body. Kafka Connect is the service that runs and registers Debezium connectors. Restore the repository connector template before rerunning the generator.\n");
     }
 
     [Fact]
@@ -192,10 +202,9 @@ public sealed class ConnectorGeneratorTests
 
     private static GenerationRun Generate(string manifest, Func<string>? templateReader = null)
     {
-        var root = Path.Combine(Path.GetTempPath(), $"lexfield-connectors-{Guid.NewGuid():N}");
-        Directory.CreateDirectory(root);
-        var manifestPath = Path.Combine(root, "manifest.json");
-        var output = Path.Combine(root, "output");
+        var root = new TemporaryDirectory();
+        var manifestPath = root.Path("manifest.json");
+        var output = root.Path("output");
         File.WriteAllText(manifestPath, manifest);
         var result = Run(manifestPath, output, templateReader);
         return new GenerationRun(root, manifestPath, output, result.ExitCode, result.Error, result.OutputMessage);
@@ -238,9 +247,9 @@ public sealed class ConnectorGeneratorTests
     private static string Snapshot(string output) => string.Concat(
         Directory.GetFiles(output, "*.json").Order().Select(path => $"=== {Path.GetFileName(path)} ===\n{File.ReadAllText(path)}"));
 
-    private sealed record GenerationRun(string Root, string Manifest, string Output, int ExitCode, string Error, string OutputMessage) : IDisposable
+    private sealed record GenerationRun(TemporaryDirectory Root, string Manifest, string Output, int ExitCode, string Error, string OutputMessage) : IDisposable
     {
-        public void Dispose() => Directory.Delete(Root, recursive: true);
+        public void Dispose() => Root.Dispose();
     }
 
     private sealed class TemporaryDirectory : IDisposable

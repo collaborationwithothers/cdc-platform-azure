@@ -1,7 +1,8 @@
 # Connector configuration generator
 
 This generator turns one tenant manifest into one Kafka Connect registration
-body for each tenant. Change data capture (CDC) records committed changes from
+body for each tenant. Kafka Connect is the service that runs and registers
+Debezium connectors. Change data capture (CDC) records committed changes from
 the tenant's SQL Server database. Debezium is the connector that reads those
 CDC records and publishes events to Kafka, a named stream of messages. The
 generator does not run Debezium or register a connector. It prepares the JSON
@@ -15,7 +16,11 @@ connector routing.
 
 ## Generate the files
 
-From the repository root, obtain these inputs from the deployment outputs.
+From the repository root, ask the deployment operator for the tenant manifest
+used by onboarding, the SQL Server host for those tenant databases, and the
+Kafka bootstrap address for the active Kafka cluster. Create a new local output
+directory for this run. Do not reuse a directory that contains connector files
+from an earlier run.
 
 - `--manifest` is the tenant manifest JSON file.
 - `--sql-server-fqdn` is the SQL Server host that Debezium reads.

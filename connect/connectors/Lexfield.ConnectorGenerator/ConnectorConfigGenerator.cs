@@ -21,7 +21,7 @@ public static class ConnectorConfigGenerator
             var options = Parse(args);
             var generatedTenantIds = Generate(options, templateReader ?? ReadTemplate);
             output.WriteLine($"Wrote connector configurations for tenants: {string.Join(", ", generatedTenantIds)}.");
-            output.WriteLine("The files are ready for Kafka Connect registration. Generation does not register connectors or verify Kafka, Debezium, or Azure SQL.");
+            output.WriteLine("The files are ready for Kafka Connect registration. Kafka Connect is the service that runs and registers Debezium connectors. Generation does not register connectors or verify Kafka, Debezium, or Azure SQL.");
             return 0;
         }
         catch (GeneratorInputException exception)
@@ -131,6 +131,24 @@ public static class ConnectorConfigGenerator
             throw Fail($"Cannot read tenant manifest '{manifestPath}'. Connector generation cannot create tenant connector configurations. Check that the manifest path exists and that the current user can read it.");
         }
 
+        JsonDocument document;
+        try
+        {
+            document = JsonDocument.Parse(manifest);
+        }
+        catch (JsonException)
+        {
+            throw Fail($"Tenant manifest '{manifestPath}' is not valid JSON. Connector generation cannot identify tenant entries. Correct the JSON and rerun the generator.");
+        }
+
+        using (document)
+        {
+            if (document.RootElement.ValueKind != JsonValueKind.Array)
+            {
+                throw Fail($"Tenant manifest '{manifestPath}' must contain a JSON array. Connector generation cannot identify tenant entries. Replace the manifest with a JSON array and rerun the generator.");
+            }
+        }
+
         try
         {
             return JsonSerializer.Deserialize<List<TenantManifestEntry?>>(manifest, ManifestOptions)
@@ -138,7 +156,7 @@ public static class ConnectorConfigGenerator
         }
         catch (JsonException)
         {
-            throw Fail($"Tenant manifest '{manifestPath}' is not valid JSON. Connector generation cannot identify tenant entries. Correct the JSON and rerun the generator.");
+            throw Fail($"Tenant manifest '{manifestPath}' contains an entry with values that do not match the required tenantId, database, and streamIsolated fields. Connector generation cannot identify that tenant's connector settings. Use string tenantId and database values and a true or false streamIsolated value.");
         }
     }
 
@@ -174,7 +192,7 @@ public static class ConnectorConfigGenerator
         }
         catch (Exception exception) when (exception is IOException or InvalidOperationException)
         {
-            throw Fail("The embedded connector template cannot be read. Connector generation cannot render a Kafka Connect registration body. Restore the repository connector template before rerunning the generator.");
+            throw Fail("The embedded connector template cannot be read. Connector generation cannot render a Kafka Connect registration body. Kafka Connect is the service that runs and registers Debezium connectors. Restore the repository connector template before rerunning the generator.");
         }
     }
 
@@ -183,11 +201,11 @@ public static class ConnectorConfigGenerator
         try
         {
             return JsonNode.Parse(template)
-                ?? throw Fail("The embedded connector template is not valid JSON. Connector generation cannot render a Kafka Connect registration body. Restore the repository connector template before rerunning the generator.");
+                ?? throw Fail("The embedded connector template is not valid JSON. Connector generation cannot render a Kafka Connect registration body. Kafka Connect is the service that runs and registers Debezium connectors. Restore the repository connector template before rerunning the generator.");
         }
         catch (JsonException)
         {
-            throw Fail("The embedded connector template is not valid JSON. Connector generation cannot render a Kafka Connect registration body. Restore the repository connector template before rerunning the generator.");
+            throw Fail("The embedded connector template is not valid JSON. Connector generation cannot render a Kafka Connect registration body. Kafka Connect is the service that runs and registers Debezium connectors. Restore the repository connector template before rerunning the generator.");
         }
     }
 
