@@ -4,7 +4,8 @@ Every human-facing output from this repository must stand alone. The reader is
 an Azure engineer who has never seen this repository and is new to event-driven
 architecture, distributed systems, Kafka, Kafka Connect, and Debezium. The
 reader must be able to understand the result without an earlier chat turn or a
-required link.
+required link. Governance review output delivered in chat is exempt: its
+reader is Hari, who knows the repo; see AGENTS.md Style precedence.
 
 ## The four things every output supplies
 
@@ -85,16 +86,6 @@ line limit has removed required context.
 > check confirms the event can leave the database. **Next:** verify the queue
 > consumer, the service that reads the event, receives it. The end-to-end path
 > is not complete yet.
-
-### Review finding
-
-> **Problem:** The retry path, a second attempt after a failure, can publish the
-> same workflow transition, a task state change, twice. The notifier, a service
-> that sends workflow emails, reads Kafka, a named stream of messages, so a
-> duplicate message can send two emails for one task change. **Current state:**
-> the diff records delivery after sending. **Required change:** write the
-> delivery record before a retry can send again, or document the remaining
-> duplicate window as an explicit limitation.
 
 ### Commit message
 

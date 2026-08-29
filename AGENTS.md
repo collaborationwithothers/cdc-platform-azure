@@ -25,10 +25,11 @@ states why the result matters, and does not require an earlier chat turn or a
 link to reconstruct the point.
 
 This contract applies to new output and to technically editable
-model-produced history authored by `haripraghash-bot`. It does not rewrite
-existing commit messages or chat history, and it does not change content
-authored by `haripraghash`. Keep `Current state`, `Historical evidence`, and
-`Unknowns` separate whenever more than one applies. Read
+model-produced history authored by `haripraghash-bot`. It does not apply to
+governance review output delivered in chat; see Style precedence. It does not
+rewrite existing commit messages or chat history, and it does not change
+content authored by `haripraghash`. Keep `Current state`, `Historical
+evidence`, and `Unknowns` separate whenever more than one applies. Read
 docs/agents/reader-contract.md for the output-specific examples and final
 self-review.
 
@@ -38,6 +39,10 @@ self-review.
   commit bodies, or governance review output.
 - Global brevity rules do apply to: chat responses, status updates, and
   ticket pickup confirmations.
+- Governance review output is exempt from the first-time reader contract.
+  Its reader is Hari, who knows the repo. Findings do not define terms or
+  restate system context; they cite file and line, state the problem in one
+  sentence, and state the required change.
 
 ## GOVERNANCE (maintained by Hari only; do not edit)
 
@@ -213,8 +218,7 @@ match its register.
   term still gets a short reminder when the output must stand alone.
 - Output budgets guide attention. They never override the first-time reader
   contract. Use the shortest self-contained form, even when required context
-  needs more than a customary line or concept budget. A review finding still
-  states the problem in one plain sentence before its supporting detail.
+  needs more than a customary line or concept budget.
 - Anchor before detail; keep the first layer to at most three new concepts when
   that still leaves the output self-contained. Required context takes priority
   over the concept guide. Use layered structure (point, picture, detail) and
@@ -299,9 +303,10 @@ exactly, run the declared verification method locally where possible, open a
 PR referencing the issue using the template, apply the agent:* label, watch CI
 and fix failures until green.
 
-Finish: complete the PR template's review summary, tick only checklist items
-that are actually true, request review from Hari, remove the in-progress
-label, and stop.
+Finish: complete the PR template's review summary, paste the pre-PR
+code-review self-check output into the template's Self-check section, tick
+only checklist items that are actually true, request review from Hari, remove
+the in-progress label, and stop.
 
 Batch mode: the operator may authorise up to N tickets per session
 (default 1; Hari currently runs N=2). Each ticket is completed fully,
@@ -322,31 +327,57 @@ Hard stops:
 ### Governance review workflow
 
 Executed by the review-tier session only. The reviewing session is read-only:
-it does not modify files, merge, approve on GitHub, or post to GitHub; findings
-are for Hari, who acts on them himself.
+it does not modify files, merge, approve on GitHub, or post to GitHub;
+findings are for Hari, who acts on them himself. Output is for Hari and is
+exempt from the first-time reader contract (see Style precedence).
 
-Identify the issue the PR references. Read, in order: AGENTS.md, the issue in
-full, the spec sections it links, the PR review summary, the full diff.
+Read order: the issue in full, the spec sections it links, the PR body, CI
+status checks, the full diff. Do not re-read AGENTS.md or the writing style
+file; they are already loaded.
 
-Then:
-1. Run the code-review pass on the diff.
-2. Independently verify load-bearing claims (Azure limits and SKUs, Debezium
-   and Connect configuration semantics, Strimzi CRD fields, Kafka client
-   behaviour) with the documentation-verification agent. Do not trust the PR's
-   own links; re-derive them. Report each claim VERIFIED / REFUTED / PARTIAL /
-   UNVERIFIABLE.
-3. Walk the acceptance checklist item by item: quote diff evidence or state
-   which items lack it. An unevidenced item is a finding.
-4. Check the out-of-scope list and the Paths list: nothing forbidden in the
-   diff, no files outside the declared paths without a stated reason.
-5. Check governance: no secrets or IDs; budget-alert precondition respected;
-   docs land with code; ASCII punctuation; no unmeasured figures; estimates
-   labelled; verification method actually executed.
-6. Apply docs/agents/pr-size.md; inherited parent changes, unjustified excess,
-   or displaced tests and docs are findings.
-Output: verdict (APPROVE or REQUEST CHANGES), numbered findings by severity
-citing file and line, then a short "For Hari to check by hand" section naming
-the one or two highest-leverage manual checks.
+Gate by merge class first:
+- auto-merge-ok class (docs formatting, typos, lockfiles): run steps 3, 4
+  and 5 only, then the verdict.
+- Everything else: run all steps.
+
+Steps:
+1. Self-check. Read the "Self-check" section of the PR body, which carries
+   the implementation session's code-review output. Do not rerun the
+   code-review skill. If the section is missing or empty, that is a finding
+   and the review stops there with REQUEST CHANGES.
+2. Bounded claim verification. List every claim in the diff that is (a) new
+   in this PR and (b) either changes deployed behaviour or states a figure
+   that will appear in public docs. Verify at most three of them with the
+   documentation-verification agent, choosing the three whose failure would
+   do the most damage. For each: if the PR body supplies a Learn or project
+   documentation link, fetch it; if the page supports the claim, that is
+   VERIFIED with the link cited. Re-derive from search only when no link is
+   supplied. Report each as VERIFIED / REFUTED / PARTIAL / UNVERIFIABLE.
+   List every remaining candidate claim as "not independently verified" so
+   Hari can pick more by hand.
+3. Acceptance checklist. Walk it item by item. For each item, cite the diff
+   hunk (file and line) that evidences it, or mark "no evidence". An
+   unevidenced item is a finding.
+4. Scope. Check the out-of-scope list and the Paths list against the diff.
+   Anything forbidden, or outside declared paths without a stated reason, is
+   a finding.
+5. Governance. Read the CI status checks for ASCII punctuation and PR size;
+   do not repeat those checks by hand. Check by hand only what CI does not:
+   no secrets, subscription ids, tenant ids or resource ids in the diff;
+   budget-alert precondition respected for any billable resource;
+   docs land with code; no unmeasured figures; estimates labelled;
+   the verification method named in the PR body was actually executed
+   (evidence present). Apply docs/agents/pr-size.md's rules on inherited
+   parent changes and displaced tests or docs.
+
+Output, in this order and nothing else:
+- Verdict: APPROVE or REQUEST CHANGES, one line.
+- Findings, numbered, ordered by severity (blocking, then should-fix, then
+  note). Each finding is three lines maximum: file:line; the problem in one
+  sentence; the required change in one sentence. No term definitions, no
+  system context, no restating what the PR does.
+- Claim verification table from step 2 (claim, verdict, source).
+- For Hari to check by hand: the one or two highest-leverage manual checks.
 
 ### Learning loop
 

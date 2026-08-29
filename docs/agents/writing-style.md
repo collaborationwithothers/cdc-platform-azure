@@ -190,3 +190,9 @@ above them. Seeded from the sibling repo's repo-neutral rules.
 - 2026-08-28: Distinguish a committed literal environment identifier from a
   Terraform expression that resolves the identifier during planning or apply.
   Do not cite the no-identifiers rule as a reason to reject a computed reference.
+- 2026-08-29: When a change to one workflow's output contract makes another
+  document's shape or cross-reference stale, fix that document in the same
+  PR rather than only flagging the contradiction, as long as it sits outside
+  the Hari-only GOVERNANCE block. Deferring a small in-scope fix to "surfaced
+  for Hari to decide" is not a substitute for making it when the fix is
+  clear and the file is not gated.

@@ -22,8 +22,9 @@ collision back-off, the read order, the issue-start verification step, the PR
 size forecast, branch (claude/ prefix, worktree per
 docs/runbooks/development-environment.md), implement, verify by the ticket's
 declared method, open the PR with the template and agent:claude label, get CI
-green, complete the review summary, request review from Hari, remove the
-in-progress label, stop.
+green, paste the pre-PR code-review self-check into the PR template's
+Self-check section, complete the review summary, request review from Hari,
+remove the in-progress label, stop.
 
 Batch mode per AGENTS.md applies: default 1 ticket; if Hari's session message
 authorises more, complete each fully before the next claim and honour the

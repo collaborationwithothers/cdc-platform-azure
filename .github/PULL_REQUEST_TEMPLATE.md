@@ -67,6 +67,12 @@ Proven boundary:
 
 Unverified boundary:
 
+## Self-check
+
+<!-- Paste the pre-PR code-review skill output (Standards and Spec axes)
+here, or link the commit that recorded it. Governance review reads this
+instead of rerunning the review. An empty section is a REQUEST CHANGES. -->
+
 ## PR size
 
 Independently verified behavior:

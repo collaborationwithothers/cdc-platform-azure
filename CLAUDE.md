@@ -32,7 +32,8 @@ given a session id, ask for one before claiming any ticket.
 - /work-frontier (.claude/commands/work-frontier.md, Sonnet): runs the parallel
   frontier workflow defined in AGENTS.md as a claude session.
 - /governance-review (.claude/commands/governance-review.md, Opus): runs the
-  governance review workflow defined in AGENTS.md.
+  governance review workflow defined in AGENTS.md; output is for Hari and
+  exempt from the reader contract.
 - /teach (.claude/commands/teach.md, any model): Socratic walkthrough of a
   merged PR for Hari's learning; updates the learning ledger and the Obsidian
   architecture vault. Repo read-only apart from the ledger docs PR.
