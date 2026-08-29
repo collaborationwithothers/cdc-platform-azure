@@ -8,6 +8,7 @@ namespace Lexfield.ConnectorGenerator;
 
 public static class ConnectorConfigGenerator
 {
+    private const string CommandContext = "The connector generator prepares one Kafka Connect registration for each tenant. Kafka Connect runs Debezium, a connector that reads committed SQL Server changes and publishes them to Kafka, a named stream of messages.";
     private static readonly JsonSerializerOptions ManifestOptions = new(JsonSerializerDefaults.Web);
     private static readonly JsonSerializerOptions OutputOptions = new() { WriteIndented = true };
     private static readonly Regex PlaceholderPattern = new(
@@ -22,12 +23,14 @@ public static class ConnectorConfigGenerator
         {
             var options = Parse(args);
             var generatedTenantIds = Generate(options, templateReader ?? ReadTemplate);
+            output.WriteLine(CommandContext);
             output.WriteLine($"Wrote connector configurations for tenants: {string.Join(", ", generatedTenantIds)}.");
             output.WriteLine("The files are ready for Kafka Connect registration. Kafka Connect is the service that runs and registers Debezium connectors. Generation does not register connectors or verify Kafka, Debezium, or Azure SQL.");
             return 0;
         }
         catch (GeneratorFailureException exception)
         {
+            error.WriteLine(CommandContext);
             error.WriteLine(exception.Message);
             return 2;
         }

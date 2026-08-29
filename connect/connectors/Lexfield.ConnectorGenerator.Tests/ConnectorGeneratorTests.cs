@@ -5,6 +5,7 @@ namespace Lexfield.ConnectorGenerator.Tests;
 
 public sealed class ConnectorGeneratorTests
 {
+    private const string CommandContext = "The connector generator prepares one Kafka Connect registration for each tenant. Kafka Connect runs Debezium, a connector that reads committed SQL Server changes and publishes them to Kafka, a named stream of messages.";
     private const string ThreeTenants = """
         [{"tenantId":"lexfield-001","database":"tenant-001","streamIsolated":false},
          {"tenantId":"lexfield-002","database":"tenant-002","streamIsolated":false},
@@ -19,6 +20,7 @@ public sealed class ConnectorGeneratorTests
         Assert.Equal(0, run.ExitCode);
         Assert.Equal(string.Empty, run.Error);
         Assert.Equal(
+            CommandContext + "\n" +
             "Wrote connector configurations for tenants: lexfield-001, lexfield-002, lexfield-003.\n" +
             "The files are ready for Kafka Connect registration. Kafka Connect is the service that runs and registers Debezium connectors. Generation does not register connectors or verify Kafka, Debezium, or Azure SQL.\n",
             run.OutputMessage);
@@ -317,7 +319,7 @@ public sealed class ConnectorGeneratorTests
     private static void AssertFailure((int ExitCode, string Error, string OutputMessage) result, string expectedError)
     {
         Assert.Equal(2, result.ExitCode);
-        Assert.Equal(expectedError, result.Error);
+        Assert.Equal(CommandContext + "\n" + expectedError, result.Error);
         Assert.Equal(string.Empty, result.OutputMessage);
         Assert.DoesNotContain(" at ", result.Error, StringComparison.Ordinal);
     }
