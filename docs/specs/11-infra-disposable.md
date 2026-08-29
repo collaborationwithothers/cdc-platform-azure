@@ -116,6 +116,23 @@ order:
    absent, per [00-shared-contracts.md](00-shared-contracts.md).
    `DebeziumSignal` is the connector's incremental-snapshot watermarking table;
    see [30-connect.md](30-connect.md).
+
+> **Current state (model-authored, 2026-08-29).** Change data capture (CDC)
+> records committed table changes for Debezium to read. The current onboarding
+> enables CDC on both `dbo.Outbox` and `dbo.DebeziumSignal`. Kafka carries the
+> external `execute-snapshot` command. Debezium then writes and reads OPEN and
+> CLOSE watermark rows in `dbo.DebeziumSignal` to delimit the snapshot inside
+> the source change stream. The connector identity therefore has the usual read
+> access plus a narrow `INSERT` and `SELECT` exception on that signal table.
+> Business tables remain read-only.
+>
+> **Historical evidence.** The protected human-authored step below records the
+> earlier Outbox-only CDC design. It is not the current onboarding behavior.
+>
+> **Unknowns.** The incremental-snapshot container test exercises the Kafka
+> command and signal-table watermark path with the pinned Debezium image. It
+> does not prove Azure SQL behavior, managed identity authentication, or
+> performance in a live Azure environment.
 2. Enable CDC on the database, then on `dbo.Outbox` only.
 3. Enable Change Tracking on the database, then on `dbo.WorkflowTask` only,
    with `TRACK_COLUMNS_UPDATED = OFF`. SPEC-LEVEL: column tracking is off
