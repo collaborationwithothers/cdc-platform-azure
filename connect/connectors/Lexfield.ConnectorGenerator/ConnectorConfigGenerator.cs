@@ -24,7 +24,7 @@ public static class ConnectorConfigGenerator
             output.WriteLine("The files are ready for Kafka Connect registration. Kafka Connect is the service that runs and registers Debezium connectors. Generation does not register connectors or verify Kafka, Debezium, or Azure SQL.");
             return 0;
         }
-        catch (GeneratorInputException exception)
+        catch (GeneratorFailureException exception)
         {
             error.WriteLine(exception.Message);
             return 2;
@@ -147,16 +147,16 @@ public static class ConnectorConfigGenerator
             {
                 throw Fail($"Tenant manifest '{manifestPath}' must contain a JSON array. Connector generation cannot identify tenant entries. Replace the manifest with a JSON array and rerun the generator.");
             }
-        }
 
-        try
-        {
-            return JsonSerializer.Deserialize<List<TenantManifestEntry?>>(manifest, ManifestOptions)
-                ?? throw Fail($"Tenant manifest '{manifestPath}' must contain a JSON array. Connector generation cannot identify tenant entries. Replace the manifest with a JSON array and rerun the generator.");
-        }
-        catch (JsonException)
-        {
-            throw Fail($"Tenant manifest '{manifestPath}' contains an entry with values that do not match the required tenantId, database, and streamIsolated fields. Connector generation cannot identify that tenant's connector settings. Use string tenantId and database values and a true or false streamIsolated value.");
+            try
+            {
+                return JsonSerializer.Deserialize<List<TenantManifestEntry?>>(document.RootElement, ManifestOptions)
+                    ?? throw Fail($"Tenant manifest '{manifestPath}' must contain a JSON array. Connector generation cannot identify tenant entries. Replace the manifest with a JSON array and rerun the generator.");
+            }
+            catch (JsonException)
+            {
+                throw Fail($"Tenant manifest '{manifestPath}' contains an entry with values that do not match the required tenantId, database, and streamIsolated fields. Connector generation cannot identify that tenant's connector settings. Use string tenantId and database values and a true or false streamIsolated value.");
+            }
         }
     }
 
@@ -257,13 +257,13 @@ public static class ConnectorConfigGenerator
         return reader.ReadToEnd();
     }
 
-    private static GeneratorInputException Usage() => Fail(
-        "Usage: Lexfield.ConnectorGenerator --manifest <tenant-manifest.json> --sql-server-fqdn <sql-server-host> --bootstrap-servers <kafka-bootstrap-host:port> --output-dir <output-directory>. The tenant manifest maps each tenant to its database and stream settings. The SQL Server host lets Debezium read CDC records. The Kafka bootstrap server lets Debezium reach Kafka. The output directory receives one connector configuration per tenant. Provide all four options as name and value pairs.");
+    private static GeneratorFailureException Usage() => Fail(
+        "Usage: Lexfield.ConnectorGenerator --manifest <tenant-manifest.json> --sql-server-fqdn <sql-server-host> --bootstrap-servers <kafka-bootstrap-host:port> --output-dir <output-directory>. The tenant manifest maps each tenant to its database and stream settings. Change data capture (CDC) is SQL Server's record of committed changes. Debezium is the connector that reads CDC records. Kafka is the message stream that Debezium publishes to. The SQL Server host lets Debezium read CDC records. The Kafka bootstrap server lets Debezium reach Kafka. The output directory receives one connector configuration per tenant. Provide all four options as name and value pairs.");
 
-    private static GeneratorInputException Fail(string message) => new(message);
+    private static GeneratorFailureException Fail(string message) => new(message);
 
     private sealed record GeneratorOptions(
         string Manifest, string SqlServerFqdn, string BootstrapServers, string OutputDirectory);
     private sealed record TenantManifestEntry(string TenantId, string Database, bool StreamIsolated);
-    private sealed class GeneratorInputException(string message) : Exception(message);
+    private sealed class GeneratorFailureException(string message) : Exception(message);
 }
