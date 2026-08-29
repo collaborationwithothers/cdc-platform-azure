@@ -22,6 +22,12 @@ it sends a request to Microsoft Graph. Microsoft Graph accepts the property on
 an application's `optionalClaims` object, and the `microsoft/msgraph` provider can
 send that Graph application body without the AzureAD allowlist.
 
+An exposed delegated scope is requestable only when the API has an Application
+ID URI. The URI must use a Microsoft-allowed pattern without committing this
+tenant's identifier to the public repository. The application also needs a
+tenant-local service principal before a later client can receive a delegated
+grant or an application-role assignment.
+
 ## Decision
 
 The `microsoft/msgraph` provider creates and owns the complete task-api
@@ -29,6 +35,19 @@ application registration. The scope, role, and optional claim remain properties
 of one Terraform resource. The application-owner relationship is a second Graph
 resource because Microsoft Graph models owners as a relationship rather than an
 application property.
+
+The registration uses
+`api://<tenantId>/cdc-platform-task-api`, with `<tenantId>` read from the
+authenticated Terraform environment. Microsoft documents that as an allowed
+Application ID URI pattern. It avoids a checked-in tenant, application, or
+object identifier and gives a client a stable prefix for `Tasks.Write`.
+
+The same provider creates one task-api service principal from the Graph-created
+application's exported `appId`. This is not split ownership of the application:
+the service principal is a separate tenant-local Entra object, while the
+application resource still owns every property of the registration. Terraform
+exports the application ID, Application ID URI, and service-principal object ID
+for later callers. None of those outputs is a credential.
 
 `hashicorp/azuread` remains the default provider for the repository's other Entra
 resources. This is a narrow exception for a property that provider cannot
@@ -51,6 +70,18 @@ express, not a repository-wide provider migration.
 - Move every Entra resource to `microsoft/msgraph`: rejected because the generic
   Graph body gives up typed Terraform schema validation where AzureAD already
   expresses the required resource correctly.
+- Leave `identifierUris` empty: rejected because clients need an Application ID
+  URI to request the delegated scope, and the resource would not be a complete
+  API audience.
+- Use `api://cdc-platform-task-api`: rejected because a bare string is not a
+  documented safe pattern unless it is a verified or initial tenant domain.
+  This repository neither establishes nor commits such a domain.
+- Use `api://<appId>`: rejected because Graph generates `appId` while creating
+  the application and the provider exposes it only after the response. Using it
+  in the same create body would introduce a dependency cycle.
+- Create the service principal from the application object ID: rejected because
+  Microsoft Graph requires the application's `appId` when creating a service
+  principal. The object ID identifies a different Entra object.
 
 ## Consequences
 
@@ -58,7 +89,8 @@ express, not a repository-wide provider migration.
   Microsoft Graph property name and value. Provider-mocked tests therefore
   assert the exact scope, role, member type, and optional-claim body.
 - A Hari-owned live apply must still prove that Microsoft Graph accepts the
-  complete application body. Static tests do not prove a live Graph response.
+  complete application body and materializes the service principal. Static
+  tests do not prove a live Graph response.
 - Returning this application to AzureAD later requires a deliberate Terraform
   state migration. Recreating it instead would change its client ID and break
   grants made to the existing registration.
@@ -70,6 +102,8 @@ express, not a repository-wide provider migration.
 
 - [ADR-004: Delta events with version numbers over state snapshots](ADR-004-delta-events-with-version-numbers.md)
 - [Microsoft Graph: Create application](https://learn.microsoft.com/graph/api/application-post-applications?view=graph-rest-1.0)
+- [Microsoft Entra: Identifier URI restrictions](https://learn.microsoft.com/entra/identity-platform/identifier-uri-restrictions)
+- [Microsoft Graph: Create service principal](https://learn.microsoft.com/graph/api/serviceprincipal-post-serviceprincipals?view=graph-rest-1.0)
 - [Microsoft identity platform: Optional claims reference](https://learn.microsoft.com/entra/identity-platform/optional-claims-reference)
 - [Microsoft Graph Terraform provider: `msgraph_resource`](https://registry.terraform.io/providers/microsoft/msgraph/latest/docs/resources/resource)
 - [Microsoft Graph Terraform provider: `msgraph_update_resource`](https://registry.terraform.io/providers/microsoft/msgraph/latest/docs/resources/update_resource)

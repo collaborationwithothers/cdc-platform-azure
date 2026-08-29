@@ -38,6 +38,17 @@ mock_provider "azuread" {
 
 mock_provider "msgraph" {
   override_during = plan
+
+  # A Graph create response supplies the application ID that the next resource
+  # uses to create the tenant-local service principal.
+  mock_resource "msgraph_resource" {
+    defaults = {
+      id = "00000000-0000-0000-0000-000000000001"
+      output = {
+        app_id = "00000000-0000-0000-0000-000000000002"
+      }
+    }
+  }
 }
 
 run "exposes_the_delegated_task_write_scope" {
@@ -104,5 +115,44 @@ run "emits_idtyp_for_user_tokens" {
   assert {
     condition     = toset(msgraph_resource.taskapi.body.optionalClaims.accessToken[0].additionalProperties) == toset(["include_user_token"])
     error_message = "include_user_token is the Microsoft Graph property that makes Entra emit idtyp on user tokens as well as app-only tokens."
+  }
+}
+
+run "makes_task_api_a_requestable_resource" {
+  command = plan
+
+  assert {
+    condition     = msgraph_resource.taskapi.response_export_values.app_id == "appId"
+    error_message = "The task-api application must export Graph's appId for the service-principal request and later callers."
+  }
+
+  assert {
+    condition     = msgraph_resource.taskapi.body.identifierUris == ["api://${data.azuread_client_config.current.tenant_id}/cdc-platform-task-api"]
+    error_message = "The task-api Application ID URI must use the tenant-derived URI that prefixes Tasks.Write without committing an identifier."
+  }
+
+  assert {
+    condition     = msgraph_resource.taskapi_service_principal.url == "servicePrincipals"
+    error_message = "The task-api tenant instance must be requested from Graph's service-principals collection."
+  }
+
+  assert {
+    condition     = msgraph_resource.taskapi_service_principal.body.appId == msgraph_resource.taskapi.output.app_id
+    error_message = "The task-api service principal must be created from the application ID Graph generated for the task-api application."
+  }
+
+  assert {
+    condition     = output.taskapi_application_id == "00000000-0000-0000-0000-000000000002"
+    error_message = "Later callers must receive the non-secret task-api application ID from the application response."
+  }
+
+  assert {
+    condition     = output.taskapi_application_id_uri == msgraph_resource.taskapi.body.identifierUris[0]
+    error_message = "Later callers must receive the Application ID URI that prefixes the task-api delegated scope."
+  }
+
+  assert {
+    condition     = output.taskapi_service_principal_object_id == "00000000-0000-0000-0000-000000000001"
+    error_message = "Later callers must receive the tenant-local task-api service principal object ID."
   }
 }
