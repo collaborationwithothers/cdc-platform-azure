@@ -1,3 +1,4 @@
+using System.Text.Json.Serialization;
 using Lexfield.Contracts;
 using Lexfield.TaskApi.FaultInjection;
 
@@ -16,6 +17,7 @@ public static class TransitionEndpoints
             if (request.To is null || request.ExpectedVersion is null) return Results.BadRequest();
             var actorContext = actorContexts.Resolve(http.User);
             if (actorContext is null) return Results.Unauthorized();
+            if (!TaskWriteAuthorization.IsAuthorized(http.User, actorContext)) return Results.Forbid();
             if (suppressOutbox is true && !OutboxSuppressionTransition.IsEnabled(configuration))
                 return Results.BadRequest();
 
@@ -40,6 +42,7 @@ public static class TransitionEndpoints
     }
 }
 
+[JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
 public sealed record TransitionRequest(
     TaskState? To, int? ExpectedVersion, string? TeamId, string? AssigneeId);
 public sealed record TransitionResponse(int TaskId, int Version);

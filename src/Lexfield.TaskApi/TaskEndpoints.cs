@@ -1,3 +1,4 @@
+using System.Text.Json.Serialization;
 using Lexfield.TaskApi.Changes;
 using Lexfield.TaskApi.Repair;
 using Lexfield.TaskApi.TenantInfo;
@@ -14,6 +15,7 @@ public static class TaskEndpoints
         {
             var actorContext = actorContexts.Resolve(http.User);
             if (actorContext is null) return Results.Unauthorized();
+            if (!TaskWriteAuthorization.IsAuthorized(http.User, actorContext)) return Results.Forbid();
             var taskId = await creation.CreateAsync(
                 new TaskCreationCommand(
                     tenantId, actorContext.Actor, actorContext.ClientApplicationId,
@@ -32,5 +34,6 @@ public static class TaskEndpoints
     }
 }
 
+[JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
 public sealed record CreateTaskRequest(string? TeamId, string? AssigneeId);
 public sealed record CreateTaskResponse(int TaskId, int Version);

@@ -138,7 +138,6 @@ public sealed class LoadRunner
         var body = new
         {
             to,
-            actor = SyntheticActor,
             expectedVersion = progress.Version,
             teamId = $"{tenantId}-team",
             assigneeId = SyntheticActor,

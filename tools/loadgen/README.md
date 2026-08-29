@@ -6,11 +6,10 @@ update real rows in whichever tenant database `task-api` selects, so synthetic
 describes the generated values, not the destination or the side effects. Use
 the tool only with a test-only endpoint, bearer token, and tenant catalog.
 
-Generated tenant IDs, team IDs, assignee IDs, and transition actor values are
-synthetic test data. Task creation actor resolution uses the caller's `name
-identifier` claim, then `sub`, then the literal `unknown`; the generator cannot
-set that field. Task IDs are returned by `task-api` and belong to this run, but
-the requests still change the selected database.
+Generated tenant IDs, team IDs, and assignee IDs are synthetic test data.
+`task-api` derives each audit actor from required bearer-token claims. The
+generator never sends an actor field. Task IDs are returned by `task-api` and
+belong to this run, but the requests still change the selected database.
 
 ## Safety boundary
 
@@ -23,7 +22,12 @@ dry-run mode.
 Before starting a run, verify all three inputs:
 
 1. The base address points to the disposable or local `task-api` instance.
-2. The bearer token is a test credential whose `tenantId` claim matches every route.
+2. The bearer token is a test credential with Entra `tid`, `oid`, and `idtyp`
+   claims. `idtyp` is `user` for a delegated user token and `app` for an
+   application token. Its business `tenantId` claim matches every generated
+   route. A delegated user token also has `Tasks.Write` in `scp`, the
+   space-separated list of delegated scopes. An application token instead has
+   `Tasks.Write.All` in `roles`, the list of application permissions.
 3. The `task-api` catalog contains the generated IDs and maps them to test databases.
 
 ## Vocabulary for this run
@@ -45,7 +49,13 @@ Before starting a run, verify all three inputs:
 - **Outbox**: a table where `task-api` records an event in the same transaction
   as the task change. The CDC connector reads that committed row later.
 - **Bearer token**: a credential in the HTTP `Authorization` header.
-  `task-api` requires its `tenantId` claim to match each route.
+  `task-api` requires Entra `tid`, `oid`, and `idtyp`, and a business
+  `tenantId` that matches each route. The `tid` identifies the Entra directory.
+  The `oid` identifies the user or application object. The `idtyp` value is
+  `user` for a delegated user token and `app` for an application token. The
+  `tenantId` identifies this platform's tenant. A delegated token needs
+  `Tasks.Write` in `scp`, its space-separated delegated scopes. An application
+  token needs `Tasks.Write.All` in `roles`, its application permissions.
 - **Trace context**: metadata linking a request to related logs and messages;
   this tool starts no trace and sends no trace context.
 - **Stage zero**: the client-side UTC timestamp recorded immediately before an
@@ -91,7 +101,15 @@ output are the authority. This README publishes no historical benchmark.
 
 ## Run the tool
 
-From the repository root, set a bearer token and start the tool:
+This repository does not currently provision the complete disposable endpoint,
+Entra client, permission grants, or tenant catalog needed for this command.
+Before running it, obtain the test endpoint, bearer token, and matching catalog
+entry from Hari as the owner of the disposable environment. The token must meet
+the claim and permission checks in Safety boundary above. If Hari has not
+supplied all three inputs for a test-only environment, stop. Do not substitute a
+production endpoint or token.
+
+From the repository root, set the supplied bearer token and start the tool:
 
 ```text
 export LEXFIELD_LOADGEN_TOKEN='<bearer token accepted by task-api>'
@@ -172,9 +190,9 @@ Observed measurements:
   tenants drawn:    <tenant keys selected> of <configured tenant-key count>
 Derived values:
   observed rate:    <issued events divided by elapsed time>/s
-Generated tenant keys, task payloads, and transition actor values are synthetic.
-Task IDs returned by task-api belong to this synthetic run. The task creation audit
-actor comes from the bearer token subject and may be a real test identity.
+Generated tenant keys and task payloads are synthetic.
+Task IDs returned by task-api belong to this synthetic run. task-api derives each
+audit actor from required bearer-token claims; the generator never sends an actor field.
 ```
 
 The angle-bracket values describe the output shape, not measurements. The observed rate is derived from issued events and elapsed run time. It is not a benchmark claim.
