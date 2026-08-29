@@ -18,6 +18,10 @@ public sealed class ConnectorGeneratorTests
 
         Assert.Equal(0, run.ExitCode);
         Assert.Equal(string.Empty, run.Error);
+        Assert.Equal(
+            "Wrote connector configurations for tenants: lexfield-001, lexfield-002, lexfield-003.\n" +
+            "The files are ready for Kafka Connect registration. Generation does not register connectors or verify Kafka, Debezium, or Azure SQL.\n",
+            run.OutputMessage);
         Assert.Equal(File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "connector-configs.golden")), Snapshot(run.Output));
     }
 
@@ -104,8 +108,9 @@ public sealed class ConnectorGeneratorTests
     {
         using var run = Generate("[null]");
 
-        Assert.Equal(2, run.ExitCode);
-        Assert.Contains("must be a JSON object", run.Error);
+        AssertFailure(
+            run,
+            "Tenant manifest entry 1 must be a JSON object. Connector generation cannot identify that tenant's database and stream settings. Replace entry 1 with an object containing tenantId and database.\n");
     }
 
     [Fact]
@@ -116,24 +121,112 @@ public sealed class ConnectorGeneratorTests
         Assert.Equal("workflow-transitions", ReadConfig(run.Output, "lexfield-004")["transforms.outbox.route.topic.replacement"]);
     }
 
-    private static GenerationRun Generate(string manifest)
+    [Fact]
+    public void MissingOptionsExplainEveryRequiredGeneratorInput()
+    {
+        var result = RunArguments([]);
+
+        AssertFailure(
+            result,
+            "Usage: Lexfield.ConnectorGenerator --manifest <tenant-manifest.json> --sql-server-fqdn <sql-server-host> --bootstrap-servers <kafka-bootstrap-host:port> --output-dir <output-directory>. The tenant manifest maps each tenant to its database and stream settings. The SQL Server host lets Debezium read CDC records. The Kafka bootstrap server lets Debezium reach Kafka. The output directory receives one connector configuration per tenant. Provide all four options as name and value pairs.\n");
+    }
+
+    [Fact]
+    public void UnreadableManifestNamesTheInputAndSafeCorrection()
+    {
+        using var root = new TemporaryDirectory();
+        var result = Run(root.Path("missing-manifest.json"), root.Path("output"));
+
+        AssertFailure(
+            result,
+            $"Cannot read tenant manifest '{root.Path("missing-manifest.json")}'. Connector generation cannot create tenant connector configurations. Check that the manifest path exists and that the current user can read it.\n");
+    }
+
+    [Fact]
+    public void MalformedManifestNamesTheInputAndSafeCorrection()
+    {
+        using var run = Generate("{");
+
+        AssertFailure(
+            run,
+            $"Tenant manifest '{run.Manifest}' is not valid JSON. Connector generation cannot identify tenant entries. Correct the JSON and rerun the generator.\n");
+    }
+
+    [Theory]
+    [InlineData("[{\"tenantId\":\"\",\"database\":\"tenant-001\"}]", "Tenant manifest entry 1 has a blank tenantId. Connector generation cannot name the tenant connector file or stream settings. Supply a non-blank tenantId.\n")]
+    [InlineData("[{\"tenantId\":\"lexfield-001\",\"database\":\"\"}]", "Tenant manifest entry 1 has a blank database. Connector generation cannot configure the SQL Server database to capture. Supply a non-blank database name.\n")]
+    [InlineData("[{\"tenantId\":\"../lexfield-001\",\"database\":\"tenant-001\"}]", "Tenant manifest entry 1 has tenantId '../lexfield-001' with a path separator. Connector generation cannot safely create that tenant's output file. Use a tenantId without a path separator.\n")]
+    [InlineData("[{\"tenantId\":\"lexfield-001\",\"database\":\"tenant-001\"},{\"tenantId\":\"lexfield-001\",\"database\":\"tenant-002\"}]", "Tenant manifest contains duplicate tenantId 'lexfield-001'. Connector generation cannot create one unambiguous connector file and stream identity for that tenant. Keep one manifest entry for each tenantId.\n")]
+    public void InvalidManifestEntriesNameTheInputConsequenceAndCorrection(string manifest, string error)
+    {
+        using var run = Generate(manifest);
+
+        AssertFailure(run, error);
+    }
+
+    [Fact]
+    public void TemplateFailureDoesNotExposeAnException()
+    {
+        using var run = Generate(ThreeTenants, () => "{");
+
+        AssertFailure(
+            run,
+            "The embedded connector template is not valid JSON. Connector generation cannot render a Kafka Connect registration body. Restore the repository connector template before rerunning the generator.\n");
+    }
+
+    [Fact]
+    public void OutputFailureNamesTheOutputDirectoryAndSafeCorrection()
+    {
+        using var root = new TemporaryDirectory();
+        var manifest = root.Path("manifest.json");
+        var outputFile = root.Path("output-file");
+        File.WriteAllText(manifest, ThreeTenants);
+        File.WriteAllText(outputFile, "not a directory");
+
+        var result = Run(manifest, outputFile);
+
+        AssertFailure(
+            result,
+            $"Cannot prepare output directory '{outputFile}'. Connector generation cannot write one configuration file per tenant. Use a writable directory path that is not a file, then rerun the generator.\n");
+    }
+
+    private static GenerationRun Generate(string manifest, Func<string>? templateReader = null)
     {
         var root = Path.Combine(Path.GetTempPath(), $"lexfield-connectors-{Guid.NewGuid():N}");
         Directory.CreateDirectory(root);
         var manifestPath = Path.Combine(root, "manifest.json");
         var output = Path.Combine(root, "output");
         File.WriteAllText(manifestPath, manifest);
-        var result = Run(manifestPath, output);
-        return new GenerationRun(root, manifestPath, output, result.ExitCode, result.Error);
+        var result = Run(manifestPath, output, templateReader);
+        return new GenerationRun(root, manifestPath, output, result.ExitCode, result.Error, result.OutputMessage);
     }
 
-    private static (int ExitCode, string Error) Run(string manifest, string output)
+    private static (int ExitCode, string Error, string OutputMessage) Run(string manifest, string output, Func<string>? templateReader = null)
+    {
+        return RunArguments(
+            ["--manifest", manifest, "--sql-server-fqdn", "sql.lexfield.test", "--bootstrap-servers", "kafka:9092", "--output-dir", output],
+            templateReader);
+    }
+
+    private static (int ExitCode, string Error, string OutputMessage) RunArguments(string[] args, Func<string>? templateReader = null)
     {
         using var error = new StringWriter();
+        using var output = new StringWriter();
         var exitCode = ConnectorConfigGenerator.Run(
-            ["--manifest", manifest, "--sql-server-fqdn", "sql.lexfield.test", "--bootstrap-servers", "kafka:9092", "--output-dir", output], error);
-        return (exitCode, error.ToString());
+            args, error, output, templateReader);
+        return (exitCode, error.ToString(), output.ToString());
     }
+
+    private static void AssertFailure((int ExitCode, string Error, string OutputMessage) result, string expectedError)
+    {
+        Assert.Equal(2, result.ExitCode);
+        Assert.Equal(expectedError, result.Error);
+        Assert.Equal(string.Empty, result.OutputMessage);
+        Assert.DoesNotContain(" at ", result.Error, StringComparison.Ordinal);
+    }
+
+    private static void AssertFailure(GenerationRun result, string expectedError) =>
+        AssertFailure((result.ExitCode, result.Error, result.OutputMessage), expectedError);
 
     private static Dictionary<string, string> ReadConfig(string output, string tenantId)
     {
@@ -145,8 +238,19 @@ public sealed class ConnectorGeneratorTests
     private static string Snapshot(string output) => string.Concat(
         Directory.GetFiles(output, "*.json").Order().Select(path => $"=== {Path.GetFileName(path)} ===\n{File.ReadAllText(path)}"));
 
-    private sealed record GenerationRun(string Root, string Manifest, string Output, int ExitCode, string Error) : IDisposable
+    private sealed record GenerationRun(string Root, string Manifest, string Output, int ExitCode, string Error, string OutputMessage) : IDisposable
     {
         public void Dispose() => Directory.Delete(Root, recursive: true);
+    }
+
+    private sealed class TemporaryDirectory : IDisposable
+    {
+        private readonly string root = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"lexfield-connectors-{Guid.NewGuid():N}");
+
+        public TemporaryDirectory() => Directory.CreateDirectory(root);
+
+        public string Path(string name) => System.IO.Path.Combine(root, name);
+
+        public void Dispose() => Directory.Delete(root, recursive: true);
     }
 }
