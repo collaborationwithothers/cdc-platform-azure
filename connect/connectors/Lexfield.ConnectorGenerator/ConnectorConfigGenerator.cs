@@ -2,6 +2,8 @@ using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Text.RegularExpressions;
 
+[assembly: System.Runtime.CompilerServices.InternalsVisibleTo("Lexfield.ConnectorGenerator.Tests")]
+
 namespace Lexfield.ConnectorGenerator;
 
 public static class ConnectorConfigGenerator
@@ -14,7 +16,7 @@ public static class ConnectorConfigGenerator
 
     public static int Run(string[] args, TextWriter error) => Run(args, error, TextWriter.Null);
 
-    public static int Run(string[] args, TextWriter error, TextWriter output, Func<string>? templateReader = null)
+    internal static int Run(string[] args, TextWriter error, TextWriter output, Func<string>? templateReader = null)
     {
         try
         {
