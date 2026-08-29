@@ -148,26 +148,6 @@ ticket. Preserve the previous session's useful evidence.
 **Unknowns:** **[Unresolved questions, or `None`].**
 ```
 
-## Review finding
-
-Use this shape for one actionable finding. State the problem before its detail.
-
-```markdown
-**Context:** This repository sends committed changes from tenant Azure SQL databases through Debezium to Kafka. Debezium is a connector that reads committed database changes. Kafka is a named stream of messages. A consumer is a service that reads those messages. **[Component]** is the consumer service that [plain role], so this finding affects **[person, service, or operator].**
-
-**Problem:** **[Concrete sequence or input that produces the incorrect result.]**
-
-**Current state:** **[What the diff does now, with file and line or verification evidence.]**
-
-**Why it matters:** **[Concrete consequence, such as a duplicate message, stale consumer copy, or operator action that reports success too early.]**
-
-**Required change:** **[One change that resolves the problem, or a documented limitation with its owner.]**
-
-**Boundary:** The evidence proves **[specific boundary].**
-
-**Unknowns:** **[Remaining unknown, or `None`].**
-```
-
 ## Historical rewrite
 
 Use this shape when replacing technically editable model-produced GitHub

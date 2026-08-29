@@ -218,8 +218,7 @@ match its register.
   term still gets a short reminder when the output must stand alone.
 - Output budgets guide attention. They never override the first-time reader
   contract. Use the shortest self-contained form, even when required context
-  needs more than a customary line or concept budget. A review finding still
-  states the problem in one plain sentence before its supporting detail.
+  needs more than a customary line or concept budget.
 - Anchor before detail; keep the first layer to at most three new concepts when
   that still leaves the output self-contained. Required context takes priority
   over the concept guide. Use layered structure (point, picture, detail) and

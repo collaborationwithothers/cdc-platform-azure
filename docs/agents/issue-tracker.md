@@ -84,10 +84,10 @@ and its verification state are clear without an earlier chat turn. Keep
 one applies. Required context takes priority over a customary line limit.
 
 Use the comment shapes in `docs/agents/github-comment-shapes.md` for pickup,
-progress, blocker, verification, completion, takeover, review finding, and
-historical rewrite messages. Replace every bracketed placeholder before
-posting. A comment reports the boundary it proves; it does not turn a unit
-check into a container or live result.
+progress, blocker, verification, completion, takeover, and historical
+rewrite messages. Replace every bracketed placeholder before posting. A
+comment reports the boundary it proves; it does not turn a unit check into a
+container or live result.
 
 ## Agent skill operations (gh CLI)
 
