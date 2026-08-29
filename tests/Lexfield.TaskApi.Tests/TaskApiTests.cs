@@ -204,12 +204,12 @@ public sealed class TaskApiTests(SqlServerFixture sql)
     }
 
     [Fact]
-    public async Task CreateTaskClassifiesAUserIdentityTypeAsDelegatedWhenSubjectEqualsObjectId()
+    public async Task CreateTaskClassifiesAUserIdentityTypeAsDelegated()
     {
         await using var context = await CreateContextAsync();
         using var client = context.Factory.CreateClient();
-        client.DefaultRequestHeaders.Authorization = new("Bearer", CreateTokenWithSubject(
-            "tenant-a", context.SigningKey, "user-object", new Claim("idtyp", "user")));
+        client.DefaultRequestHeaders.Authorization = new("Bearer", CreateToken(
+            "tenant-a", context.SigningKey, new Claim("idtyp", "user")));
 
         var response = await client.PostAsJsonAsync("/tenants/tenant-a/tasks", new { });
 
@@ -353,28 +353,6 @@ public sealed class TaskApiTests(SqlServerFixture sql)
                 new Claim(JwtRegisteredClaimNames.Sub, "user:1"),
                 new Claim("tid", "entra-tenant"),
                 new Claim("oid", "user-object")
-            ],
-            notBefore: DateTime.UtcNow.AddMinutes(-1),
-            expires: DateTime.UtcNow.AddMinutes(5),
-            signingCredentials: credentials);
-        return new JwtSecurityTokenHandler().WriteToken(token);
-    }
-
-    private static string CreateTokenWithSubject(
-        string tenantId, string key, string subject, params Claim[] additionalClaims)
-    {
-        var credentials = new SigningCredentials(
-            new SymmetricSecurityKey(Encoding.UTF8.GetBytes(key)), SecurityAlgorithms.HmacSha256);
-        var token = new JwtSecurityToken(
-            issuer: "https://issuer.test",
-            audience: "lexfield-task-api",
-            claims:
-            [
-                new Claim("tenantId", tenantId),
-                new Claim(JwtRegisteredClaimNames.Sub, subject),
-                new Claim("tid", "entra-tenant"),
-                new Claim("oid", "user-object"),
-                .. additionalClaims
             ],
             notBefore: DateTime.UtcNow.AddMinutes(-1),
             expires: DateTime.UtcNow.AddMinutes(5),

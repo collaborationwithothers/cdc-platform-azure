@@ -17,7 +17,7 @@ public static class TaskEndpoints
             var taskId = await creation.CreateAsync(
                 new TaskCreationCommand(
                     tenantId, actorContext.Actor, actorContext.ClientApplicationId,
-                    actorContext.PermissionMode, request?.TeamId, request?.AssigneeId),
+                    actorContext.PermissionModeValue, request?.TeamId, request?.AssigneeId),
                 cancellationToken);
             return taskId is null
                 ? Results.NotFound()

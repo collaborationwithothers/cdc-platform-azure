@@ -21,7 +21,7 @@ public static class TransitionEndpoints
 
             var command = new TransitionCommand(
                 tenantId, taskId, request.To.Value, actorContext.Actor,
-                actorContext.ClientApplicationId, actorContext.PermissionMode,
+                actorContext.ClientApplicationId, actorContext.PermissionModeValue,
                 request.ExpectedVersion.Value, request.TeamId, request.AssigneeId);
             var outcome = suppressOutbox is true
                 ? await new OutboxSuppressionTransition(catalog, logger).ExecuteAsync(command, cancellationToken)

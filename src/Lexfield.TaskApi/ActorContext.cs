@@ -12,7 +12,9 @@ public sealed class ActorContextResolver
             || string.IsNullOrWhiteSpace(identityType)) return null;
 
         var application = string.Equals(identityType, "app", StringComparison.OrdinalIgnoreCase);
-        var permissionMode = application ? "application" : "delegated";
+        var permissionMode = application
+            ? ActorPermissionMode.Application
+            : ActorPermissionMode.Delegated;
         var actorType = application ? "workload" : "user";
         var clientApplicationId = FindValue(principal, "azp")
             ?? FindValue(principal, "appid");
@@ -26,4 +28,14 @@ public sealed class ActorContextResolver
 }
 
 public sealed record ActorContext(
-    string Actor, string? ClientApplicationId, string PermissionMode);
+    string Actor, string? ClientApplicationId, ActorPermissionMode PermissionMode)
+{
+    public string PermissionModeValue => PermissionMode switch
+    {
+        ActorPermissionMode.Application => "application",
+        ActorPermissionMode.Delegated => "delegated",
+        _ => throw new InvalidOperationException($"Unknown actor permission mode {PermissionMode}.")
+    };
+}
+
+public enum ActorPermissionMode { Delegated, Application }
