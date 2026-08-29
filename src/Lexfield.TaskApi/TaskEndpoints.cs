@@ -1,4 +1,3 @@
-using System.Security.Claims;
 using Lexfield.TaskApi.Changes;
 using Lexfield.TaskApi.Repair;
 using Lexfield.TaskApi.TenantInfo;
@@ -10,12 +9,15 @@ public static class TaskEndpoints
     {
         endpoints.MapPost("/tenants/{tenantId}/tasks", async (
             HttpContext http, string tenantId, CreateTaskRequest? request,
-            TaskCreation creation, CancellationToken cancellationToken) =>
+            ActorContextResolver actorContexts, TaskCreation creation,
+            CancellationToken cancellationToken) =>
         {
-            var actor = http.User.FindFirstValue(ClaimTypes.NameIdentifier)
-                ?? http.User.FindFirstValue("sub") ?? "unknown";
+            var actorContext = actorContexts.Resolve(http.User);
+            if (actorContext is null) return Results.Unauthorized();
             var taskId = await creation.CreateAsync(
-                new TaskCreationCommand(tenantId, actor, request?.TeamId, request?.AssigneeId),
+                new TaskCreationCommand(
+                    tenantId, actorContext.Actor, actorContext.ClientApplicationId,
+                    actorContext.PermissionModeValue, request?.TeamId, request?.AssigneeId),
                 cancellationToken);
             return taskId is null
                 ? Results.NotFound()

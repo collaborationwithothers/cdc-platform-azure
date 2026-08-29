@@ -3,7 +3,9 @@ using System.Net;
 using System.Net.Http.Json;
 using System.Security.Claims;
 using System.Text;
+using System.Text.Json;
 using Dapper;
+using Lexfield.Contracts;
 using Lexfield.TestSupport;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Hosting;
@@ -25,7 +27,7 @@ public sealed class TaskApiTests(SqlServerFixture sql)
         await using var context = await CreateContextAsync();
         using var client = context.Factory.CreateClient();
 
-        var response = await client.PostAsJsonAsync("/tenants/tenant-a/tasks", new { actor = "user:1" });
+        var response = await client.PostAsJsonAsync("/tenants/tenant-a/tasks", new { });
 
         Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
     }
@@ -38,12 +40,12 @@ public sealed class TaskApiTests(SqlServerFixture sql)
         client.DefaultRequestHeaders.Authorization =
             new("Bearer", CreateToken("tenant-a", context.SigningKey));
 
-        var response = await client.PostAsJsonAsync("/tenants/tenant-b/tasks", new { actor = "user:1" });
+        var response = await client.PostAsJsonAsync("/tenants/tenant-b/tasks", new { });
 
         Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
         client.DefaultRequestHeaders.Authorization =
             new("Bearer", CreateToken("tenant-x", context.SigningKey));
-        response = await client.PostAsJsonAsync("/tenants/tenant-x/tasks", new { actor = "user:1" });
+        response = await client.PostAsJsonAsync("/tenants/tenant-x/tasks", new { });
         Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
     }
 
@@ -62,7 +64,7 @@ public sealed class TaskApiTests(SqlServerFixture sql)
         {
             Console.SetOut(output);
             response = await client.PostAsJsonAsync(
-                "/tenants/tenant-a/tasks", new { actor = "spoofed", teamId = "team-a" });
+                "/tenants/tenant-a/tasks", new { teamId = "team-a" });
         }
         finally
         {
@@ -86,7 +88,7 @@ public sealed class TaskApiTests(SqlServerFixture sql)
 
         Assert.Equal("Created", task.State);
         Assert.Equal(1, task.Version);
-        Assert.Equal("user:1", task.UpdatedBy);
+        Assert.Equal("user:entra-tenant:user-object", task.UpdatedBy);
         Assert.Equal("WorkflowTask", outbox.AggregateType);
         Assert.Equal($"tenant-a-{body.TaskId}", outbox.AggregateId);
         Assert.Equal("TaskTransitioned", outbox.EventType);
@@ -99,6 +101,151 @@ public sealed class TaskApiTests(SqlServerFixture sql)
         Assert.Contains("\"tenantId\":\"tenant-a\"", output.ToString());
         Assert.Contains("\"taskId\":", output.ToString());
         Assert.Contains("\"version\":1", output.ToString());
+    }
+
+    [Fact]
+    public async Task CreateTaskWritesTheSharedDelegatedActorContextToTheTaskAndEvent()
+    {
+        await using var context = await CreateContextAsync();
+        using var client = context.Factory.CreateClient();
+        client.DefaultRequestHeaders.Authorization = new("Bearer", CreateToken(
+            "tenant-a", context.SigningKey,
+            new Claim("tid", "entra-tenant"),
+            new Claim("oid", "user-object"),
+            new Claim("azp", "client-v2"),
+            new Claim("appid", "client-v1")));
+
+        var response = await client.PostAsJsonAsync(
+            "/tenants/tenant-a/tasks", new { teamId = "team-a" });
+
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+        var created = await response.Content.ReadFromJsonAsync<CreateResponse>();
+        Assert.NotNull(created);
+        await using var connection = new SqlConnection(context.TenantA);
+        await connection.OpenAsync();
+        var updatedBy = await connection.QuerySingleAsync<string>(
+            "SELECT UpdatedBy FROM dbo.WorkflowTask WHERE Id = @Id", new { Id = created.TaskId });
+        var payload = await connection.QuerySingleAsync<string>(
+            "SELECT Payload FROM dbo.Outbox WHERE AggregateId = @Id", new { Id = $"tenant-a-{created.TaskId}" });
+        var taskEvent = JsonSerializer.Deserialize<TransitionEvent>(payload);
+
+        Assert.Equal("user:entra-tenant:user-object", updatedBy);
+        Assert.NotNull(taskEvent);
+        Assert.Equal(updatedBy, taskEvent.Actor);
+        Assert.Equal("client-v2", taskEvent.ClientApplicationId);
+        Assert.Equal("delegated", taskEvent.PermissionMode);
+    }
+
+    [Theory]
+    [InlineData("azp", "client-v2")]
+    [InlineData("appid", "client-v1")]
+    public async Task CreateTaskReadsEitherSupportedClientApplicationIdClaim(
+        string claimType, string expectedClientApplicationId)
+    {
+        await using var context = await CreateContextAsync();
+        using var client = context.Factory.CreateClient();
+        client.DefaultRequestHeaders.Authorization = new("Bearer", CreateToken(
+            "tenant-a", context.SigningKey, new Claim(claimType, expectedClientApplicationId)));
+
+        var response = await client.PostAsJsonAsync("/tenants/tenant-a/tasks", new { });
+
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+        var created = await response.Content.ReadFromJsonAsync<CreateResponse>();
+        Assert.NotNull(created);
+        await using var connection = new SqlConnection(context.TenantA);
+        var payload = await connection.QuerySingleAsync<string>(
+            "SELECT Payload FROM dbo.Outbox WHERE AggregateId = @Id", new { Id = $"tenant-a-{created.TaskId}" });
+        Assert.Equal(expectedClientApplicationId,
+            JsonSerializer.Deserialize<TransitionEvent>(payload)!.ClientApplicationId);
+    }
+
+    [Fact]
+    public async Task CreateTaskRecordsAnAbsentClientApplicationIdAndClassifiesAnApplicationToken()
+    {
+        await using var context = await CreateContextAsync();
+        using var client = context.Factory.CreateClient();
+        client.DefaultRequestHeaders.Authorization = new("Bearer", CreateToken(
+            "tenant-a", context.SigningKey, new Claim("idtyp", "app")));
+
+        var response = await client.PostAsJsonAsync("/tenants/tenant-a/tasks", new { });
+
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+        var created = await response.Content.ReadFromJsonAsync<CreateResponse>();
+        Assert.NotNull(created);
+        await using var connection = new SqlConnection(context.TenantA);
+        var payload = await connection.QuerySingleAsync<string>(
+            "SELECT Payload FROM dbo.Outbox WHERE AggregateId = @Id", new { Id = $"tenant-a-{created.TaskId}" });
+        var taskEvent = JsonSerializer.Deserialize<TransitionEvent>(payload)!;
+        Assert.Equal("workload:entra-tenant:user-object", taskEvent.Actor);
+        Assert.Null(taskEvent.ClientApplicationId);
+        Assert.Equal("application", taskEvent.PermissionMode);
+    }
+
+    [Fact]
+    public async Task CreateTaskClassifiesARoleCarryingUserTokenWithoutScopeAsDelegated()
+    {
+        await using var context = await CreateContextAsync();
+        using var client = context.Factory.CreateClient();
+        client.DefaultRequestHeaders.Authorization = new("Bearer", CreateToken(
+            "tenant-a", context.SigningKey,
+            new Claim("idtyp", "user"),
+            new Claim("roles", "Tasks.Write.All")));
+
+        var response = await client.PostAsJsonAsync("/tenants/tenant-a/tasks", new { });
+
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+        var created = await response.Content.ReadFromJsonAsync<CreateResponse>();
+        Assert.NotNull(created);
+        await using var connection = new SqlConnection(context.TenantA);
+        var payload = await connection.QuerySingleAsync<string>(
+            "SELECT Payload FROM dbo.Outbox WHERE AggregateId = @Id", new { Id = $"tenant-a-{created.TaskId}" });
+        var taskEvent = JsonSerializer.Deserialize<TransitionEvent>(payload)!;
+        Assert.Equal("user:entra-tenant:user-object", taskEvent.Actor);
+        Assert.Equal("delegated", taskEvent.PermissionMode);
+    }
+
+    [Fact]
+    public async Task CreateTaskClassifiesAUserIdentityTypeAsDelegated()
+    {
+        await using var context = await CreateContextAsync();
+        using var client = context.Factory.CreateClient();
+        client.DefaultRequestHeaders.Authorization = new("Bearer", CreateToken(
+            "tenant-a", context.SigningKey, new Claim("idtyp", "user")));
+
+        var response = await client.PostAsJsonAsync("/tenants/tenant-a/tasks", new { });
+
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+        var created = await response.Content.ReadFromJsonAsync<CreateResponse>();
+        Assert.NotNull(created);
+        await using var connection = new SqlConnection(context.TenantA);
+        var payload = await connection.QuerySingleAsync<string>(
+            "SELECT Payload FROM dbo.Outbox WHERE AggregateId = @Id", new { Id = $"tenant-a-{created.TaskId}" });
+        Assert.Equal("delegated", JsonSerializer.Deserialize<TransitionEvent>(payload)!.PermissionMode);
+    }
+
+    [Fact]
+    public async Task CreateTaskRejectsATokenWithoutIdentityType()
+    {
+        await using var context = await CreateContextAsync();
+        using var client = context.Factory.CreateClient();
+        client.DefaultRequestHeaders.Authorization = new("Bearer", CreateTokenWithoutIdentityType(
+            "tenant-a", context.SigningKey));
+
+        var response = await client.PostAsJsonAsync("/tenants/tenant-a/tasks", new { });
+
+        Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task CreateTaskRejectsMissingRequiredActorClaims()
+    {
+        await using var context = await CreateContextAsync();
+        using var client = context.Factory.CreateClient();
+        client.DefaultRequestHeaders.Authorization = new("Bearer", CreateTokenWithoutRequiredActorClaims(
+            "tenant-a", context.SigningKey));
+
+        var missingClaims = await client.PostAsJsonAsync("/tenants/tenant-a/tasks", new { });
+        Assert.Equal(HttpStatusCode.Unauthorized, missingClaims.StatusCode);
     }
 
     [Fact]
@@ -120,7 +267,7 @@ public sealed class TaskApiTests(SqlServerFixture sql)
         using var client = context.Factory.CreateClient();
         client.DefaultRequestHeaders.Authorization =
             new("Bearer", CreateToken("tenant-a", context.SigningKey));
-        var response = await client.PostAsJsonAsync("/tenants/tenant-a/tasks", new { actor = "user:1" });
+        var response = await client.PostAsJsonAsync("/tenants/tenant-a/tasks", new { });
 
         Assert.Equal(HttpStatusCode.InternalServerError, response.StatusCode);
         await using var verify = new SqlConnection(context.TenantA);
@@ -159,7 +306,28 @@ public sealed class TaskApiTests(SqlServerFixture sql)
         return new TestContext(factory, databaseA, databaseB, key, manifest, port, originalPort);
     }
 
-    private static string CreateToken(string tenantId, string key)
+    private static string CreateToken(string tenantId, string key, params Claim[] additionalClaims)
+    {
+        var credentials = new SigningCredentials(
+            new SymmetricSecurityKey(Encoding.UTF8.GetBytes(key)), SecurityAlgorithms.HmacSha256);
+        var token = new JwtSecurityToken(
+            issuer: "https://issuer.test",
+            audience: "lexfield-task-api",
+            claims:
+            [
+                new Claim("tenantId", tenantId),
+                new Claim(JwtRegisteredClaimNames.Sub, "user:1"),
+                new Claim("tid", "entra-tenant"),
+                new Claim("oid", "user-object"),
+                .. TestIdentityClaims.WithDefaultUserIdentityType(additionalClaims)
+            ],
+            notBefore: DateTime.UtcNow.AddMinutes(-1),
+            expires: DateTime.UtcNow.AddMinutes(5),
+            signingCredentials: credentials);
+        return new JwtSecurityTokenHandler().WriteToken(token);
+    }
+
+    private static string CreateTokenWithoutRequiredActorClaims(string tenantId, string key)
     {
         var credentials = new SigningCredentials(
             new SymmetricSecurityKey(Encoding.UTF8.GetBytes(key)), SecurityAlgorithms.HmacSha256);
@@ -167,6 +335,26 @@ public sealed class TaskApiTests(SqlServerFixture sql)
             issuer: "https://issuer.test",
             audience: "lexfield-task-api",
             claims: [new Claim("tenantId", tenantId), new Claim(JwtRegisteredClaimNames.Sub, "user:1")],
+            notBefore: DateTime.UtcNow.AddMinutes(-1),
+            expires: DateTime.UtcNow.AddMinutes(5),
+            signingCredentials: credentials);
+        return new JwtSecurityTokenHandler().WriteToken(token);
+    }
+
+    private static string CreateTokenWithoutIdentityType(string tenantId, string key)
+    {
+        var credentials = new SigningCredentials(
+            new SymmetricSecurityKey(Encoding.UTF8.GetBytes(key)), SecurityAlgorithms.HmacSha256);
+        var token = new JwtSecurityToken(
+            issuer: "https://issuer.test",
+            audience: "lexfield-task-api",
+            claims:
+            [
+                new Claim("tenantId", tenantId),
+                new Claim(JwtRegisteredClaimNames.Sub, "user:1"),
+                new Claim("tid", "entra-tenant"),
+                new Claim("oid", "user-object")
+            ],
             notBefore: DateTime.UtcNow.AddMinutes(-1),
             expires: DateTime.UtcNow.AddMinutes(5),
             signingCredentials: credentials);
