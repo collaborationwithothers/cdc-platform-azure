@@ -1,4 +1,3 @@
-using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
 
 public sealed class ActorContextResolver
@@ -7,14 +6,12 @@ public sealed class ActorContextResolver
     {
         var tenantId = FindValue(principal, "tid", "http://schemas.microsoft.com/identity/claims/tenantid");
         var objectId = FindValue(principal, "oid", "http://schemas.microsoft.com/identity/claims/objectidentifier");
-        if (string.IsNullOrWhiteSpace(tenantId) || string.IsNullOrWhiteSpace(objectId)) return null;
-
-        var subject = principal.FindFirst(JwtRegisteredClaimNames.Sub)?.Value
-            ?? principal.FindFirst(ClaimTypes.NameIdentifier)?.Value;
         var identityType = FindValue(principal, "idtyp");
-        var application = identityType is not null
-            ? string.Equals(identityType, "app", StringComparison.OrdinalIgnoreCase)
-            : string.Equals(subject, objectId, StringComparison.Ordinal);
+        if (string.IsNullOrWhiteSpace(tenantId)
+            || string.IsNullOrWhiteSpace(objectId)
+            || string.IsNullOrWhiteSpace(identityType)) return null;
+
+        var application = string.Equals(identityType, "app", StringComparison.OrdinalIgnoreCase);
         var permissionMode = application ? "application" : "delegated";
         var actorType = application ? "workload" : "user";
         var clientApplicationId = FindValue(principal, "azp")

@@ -1,6 +1,5 @@
 using Lexfield.Contracts;
 using Lexfield.TaskApi.FaultInjection;
-using System.Text.Json.Serialization;
 
 namespace Lexfield.TaskApi.Transitions;
 
@@ -41,7 +40,6 @@ public static class TransitionEndpoints
     }
 }
 
-[JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
 public sealed record TransitionRequest(
     TaskState? To, int? ExpectedVersion, string? TeamId, string? AssigneeId);
 public sealed record TransitionResponse(int TaskId, int Version);

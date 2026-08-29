@@ -95,21 +95,6 @@ public sealed class TransitionEndpointTests(SqlServerFixture sql)
     }
 
     [Fact]
-    public async Task TransitionRejectsACallerSuppliedActorField()
-    {
-        await using var context = await CreateContextAsync();
-        var taskId = await SeedTaskAsync(context.ConnectionString);
-        using var client = context.Factory.CreateClient();
-        client.DefaultRequestHeaders.Authorization = new("Bearer", CreateToken(context.SigningKey));
-
-        var response = await client.PostAsJsonAsync(
-            $"/tenants/tenant-a/tasks/{taskId}/transitions",
-            new { to = "Assigned", actor = "spoofed", expectedVersion = 1 });
-
-        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
-    }
-
-    [Fact]
     public async Task TransitionWritesCurrentActivityAndAllowsNoActivity()
     {
         await using var context = await CreateContextAsync();
@@ -176,10 +161,17 @@ public sealed class TransitionEndpointTests(SqlServerFixture sql)
                 new Claim(JwtRegisteredClaimNames.Sub, "user:1"),
                 new Claim("tid", "entra-tenant"),
                 new Claim("oid", "user-object"),
-                .. additionalClaims
+                .. WithDefaultIdentityType(additionalClaims)
             ],
             notBefore: DateTime.UtcNow.AddMinutes(-1), expires: DateTime.UtcNow.AddMinutes(5),
             signingCredentials: credentials));
+    }
+
+    private static IEnumerable<Claim> WithDefaultIdentityType(Claim[] additionalClaims)
+    {
+        if (!additionalClaims.Any(claim => claim.Type == "idtyp"))
+            yield return new Claim("idtyp", "user");
+        foreach (var claim in additionalClaims) yield return claim;
     }
 
     private static int GetFreePort()

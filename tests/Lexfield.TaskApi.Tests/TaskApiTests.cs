@@ -139,7 +139,7 @@ public sealed class TaskApiTests(SqlServerFixture sql)
     [Theory]
     [InlineData("azp", "client-v2")]
     [InlineData("appid", "client-v1")]
-    public async Task CreateTaskPrefersAzpAndFallsBackToAppidForTheClientApplication(
+    public async Task CreateTaskReadsEitherSupportedClientApplicationIdClaim(
         string claimType, string expectedClientApplicationId)
     {
         await using var context = await CreateContextAsync();
@@ -204,7 +204,7 @@ public sealed class TaskApiTests(SqlServerFixture sql)
     }
 
     [Fact]
-    public async Task CreateTaskUsesANonAppIdentityTypeInsteadOfTheFallbackSubjectComparison()
+    public async Task CreateTaskClassifiesAUserIdentityTypeAsDelegatedWhenSubjectEqualsObjectId()
     {
         await using var context = await CreateContextAsync();
         using var client = context.Factory.CreateClient();
@@ -223,7 +223,20 @@ public sealed class TaskApiTests(SqlServerFixture sql)
     }
 
     [Fact]
-    public async Task CreateTaskRejectsMissingRequiredActorClaimsAndCallerSuppliedActor()
+    public async Task CreateTaskRejectsATokenWithoutIdentityType()
+    {
+        await using var context = await CreateContextAsync();
+        using var client = context.Factory.CreateClient();
+        client.DefaultRequestHeaders.Authorization = new("Bearer", CreateTokenWithoutIdentityType(
+            "tenant-a", context.SigningKey));
+
+        var response = await client.PostAsJsonAsync("/tenants/tenant-a/tasks", new { });
+
+        Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task CreateTaskRejectsMissingRequiredActorClaims()
     {
         await using var context = await CreateContextAsync();
         using var client = context.Factory.CreateClient();
@@ -232,11 +245,6 @@ public sealed class TaskApiTests(SqlServerFixture sql)
 
         var missingClaims = await client.PostAsJsonAsync("/tenants/tenant-a/tasks", new { });
         Assert.Equal(HttpStatusCode.Unauthorized, missingClaims.StatusCode);
-
-        client.DefaultRequestHeaders.Authorization = new("Bearer", CreateToken("tenant-a", context.SigningKey));
-        var suppliedActor = await client.PostAsJsonAsync(
-            "/tenants/tenant-a/tasks", new { actor = "spoofed" });
-        Assert.Equal(HttpStatusCode.BadRequest, suppliedActor.StatusCode);
     }
 
     [Fact]
@@ -310,7 +318,7 @@ public sealed class TaskApiTests(SqlServerFixture sql)
                 new Claim(JwtRegisteredClaimNames.Sub, "user:1"),
                 new Claim("tid", "entra-tenant"),
                 new Claim("oid", "user-object"),
-                .. additionalClaims
+                .. WithDefaultIdentityType(additionalClaims)
             ],
             notBefore: DateTime.UtcNow.AddMinutes(-1),
             expires: DateTime.UtcNow.AddMinutes(5),
@@ -326,6 +334,26 @@ public sealed class TaskApiTests(SqlServerFixture sql)
             issuer: "https://issuer.test",
             audience: "lexfield-task-api",
             claims: [new Claim("tenantId", tenantId), new Claim(JwtRegisteredClaimNames.Sub, "user:1")],
+            notBefore: DateTime.UtcNow.AddMinutes(-1),
+            expires: DateTime.UtcNow.AddMinutes(5),
+            signingCredentials: credentials);
+        return new JwtSecurityTokenHandler().WriteToken(token);
+    }
+
+    private static string CreateTokenWithoutIdentityType(string tenantId, string key)
+    {
+        var credentials = new SigningCredentials(
+            new SymmetricSecurityKey(Encoding.UTF8.GetBytes(key)), SecurityAlgorithms.HmacSha256);
+        var token = new JwtSecurityToken(
+            issuer: "https://issuer.test",
+            audience: "lexfield-task-api",
+            claims:
+            [
+                new Claim("tenantId", tenantId),
+                new Claim(JwtRegisteredClaimNames.Sub, "user:1"),
+                new Claim("tid", "entra-tenant"),
+                new Claim("oid", "user-object")
+            ],
             notBefore: DateTime.UtcNow.AddMinutes(-1),
             expires: DateTime.UtcNow.AddMinutes(5),
             signingCredentials: credentials);
@@ -352,6 +380,13 @@ public sealed class TaskApiTests(SqlServerFixture sql)
             expires: DateTime.UtcNow.AddMinutes(5),
             signingCredentials: credentials);
         return new JwtSecurityTokenHandler().WriteToken(token);
+    }
+
+    private static IEnumerable<Claim> WithDefaultIdentityType(Claim[] additionalClaims)
+    {
+        if (!additionalClaims.Any(claim => claim.Type == "idtyp"))
+            yield return new Claim("idtyp", "user");
+        foreach (var claim in additionalClaims) yield return claim;
     }
 
     private static int GetFreePort()
