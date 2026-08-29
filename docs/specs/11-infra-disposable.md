@@ -118,13 +118,15 @@ order:
    see [30-connect.md](30-connect.md).
 
 > **Current state (model-authored, 2026-08-29).** Change data capture (CDC)
-> records committed table changes for Debezium to read. The current onboarding
-> enables CDC on both `dbo.Outbox` and `dbo.DebeziumSignal`. Kafka carries the
-> external `execute-snapshot` command. Debezium then writes and reads OPEN and
-> CLOSE watermark rows in `dbo.DebeziumSignal` to delimit the snapshot inside
-> the source change stream. The connector identity therefore has the usual read
-> access plus a narrow `INSERT` and `SELECT` exception on that signal table.
-> Business tables remain read-only.
+> records committed table changes for Debezium, the connector that reads them.
+> The current onboarding enables CDC on both `dbo.Outbox` and
+> `dbo.DebeziumSignal`. Kafka, the named stream that carries messages, holds the
+> external `execute-snapshot` command that tells Debezium to start an
+> incremental snapshot. Debezium then writes and reads OPEN and CLOSE watermark
+> rows, which mark each snapshot chunk's boundaries, in `dbo.DebeziumSignal`.
+> The connector identity has `db_datareader` and `EXECUTE` on the `cdc` schema,
+> plus the narrow `INSERT` and `SELECT` exception on that signal table. Business
+> tables remain read-only.
 >
 > **Historical evidence.** The protected human-authored step below records the
 > earlier Outbox-only CDC design. It is not the current onboarding behavior.
