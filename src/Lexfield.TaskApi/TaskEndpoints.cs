@@ -1,3 +1,4 @@
+using System.Text.Json.Serialization;
 using Lexfield.TaskApi.Changes;
 using Lexfield.TaskApi.Repair;
 using Lexfield.TaskApi.TenantInfo;
@@ -33,5 +34,6 @@ public static class TaskEndpoints
     }
 }
 
+[JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
 public sealed record CreateTaskRequest(string? TeamId, string? AssigneeId);
 public sealed record CreateTaskResponse(int TaskId, int Version);

@@ -35,7 +35,7 @@ public sealed class TenantRouteRequirement : IAuthorizationRequirement;
 public static class TaskWriteAuthorization
 {
     public static bool IsAuthorized(ClaimsPrincipal principal, ActorContext actorContext) =>
-        actorContext.PermissionMode == "application"
+        actorContext.PermissionMode == ActorPermissionMode.Application
             ? HasRole(principal, "Tasks.Write.All")
             : HasScope(principal, "Tasks.Write");
 

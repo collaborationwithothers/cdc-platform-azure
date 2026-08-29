@@ -96,7 +96,7 @@ public sealed class TransitionEndpointTests(SqlServerFixture sql)
     }
 
     [Fact]
-    public async Task TransitionIgnoresCallerSuppliedActorAndUsesTokenActor()
+    public async Task TransitionRejectsACallerSuppliedActorField()
     {
         await using var context = await CreateContextAsync();
         var taskId = await SeedTaskAsync(context.ConnectionString);
@@ -107,15 +107,7 @@ public sealed class TransitionEndpointTests(SqlServerFixture sql)
             $"/tenants/tenant-a/tasks/{taskId}/transitions",
             new { to = "Assigned", actor = "body:spoofed", expectedVersion = 1 });
 
-        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
-        await using var connection = new SqlConnection(context.ConnectionString);
-        var task = await connection.QuerySingleAsync<TaskRow>(
-            "SELECT State, Version, UpdatedBy FROM dbo.WorkflowTask WHERE Id = @taskId", new { taskId });
-        var payload = await connection.QuerySingleAsync<string>("SELECT Payload FROM dbo.Outbox");
-        var taskEvent = JsonSerializer.Deserialize<TransitionEvent>(payload);
-        Assert.Equal(new TaskRow("Assigned", 2, "user:entra-tenant:user-object"), task);
-        Assert.NotNull(taskEvent);
-        Assert.Equal(task.UpdatedBy, taskEvent.Actor);
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
     }
 
     [Fact]

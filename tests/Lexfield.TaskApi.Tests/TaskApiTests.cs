@@ -187,22 +187,14 @@ public sealed class TaskApiTests(SqlServerFixture sql)
     {
         await using var context = await CreateContextAsync();
         using var client = context.Factory.CreateClient();
-        client.DefaultRequestHeaders.Authorization = new("Bearer", CreateToken(
+        client.DefaultRequestHeaders.Authorization = new("Bearer", CreateTokenWithoutPermission(
             "tenant-a", context.SigningKey,
             new Claim("idtyp", "user"),
             new Claim("roles", "Tasks.Write.All")));
 
         var response = await client.PostAsJsonAsync("/tenants/tenant-a/tasks", new { });
 
-        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
-        var created = await response.Content.ReadFromJsonAsync<CreateResponse>();
-        Assert.NotNull(created);
-        await using var connection = new SqlConnection(context.TenantA);
-        var payload = await connection.QuerySingleAsync<string>(
-            "SELECT Payload FROM dbo.Outbox WHERE AggregateId = @Id", new { Id = $"tenant-a-{created.TaskId}" });
-        var taskEvent = JsonSerializer.Deserialize<TransitionEvent>(payload)!;
-        Assert.Equal("user:entra-tenant:user-object", taskEvent.Actor);
-        Assert.Equal("delegated", taskEvent.PermissionMode);
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
     }
 
     [Fact]
@@ -250,6 +242,20 @@ public sealed class TaskApiTests(SqlServerFixture sql)
     }
 
     [Fact]
+    public async Task CreateTaskRejectsACallerSuppliedActorField()
+    {
+        await using var context = await CreateContextAsync();
+        using var client = context.Factory.CreateClient();
+        client.DefaultRequestHeaders.Authorization = new("Bearer", CreateToken(
+            "tenant-a", context.SigningKey));
+
+        var response = await client.PostAsJsonAsync(
+            "/tenants/tenant-a/tasks", new { actor = "spoofed" });
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+    }
+
+    [Fact]
     public async Task CreateTaskRejectsTokensWithoutTheirModeSpecificWritePermission()
     {
         await using var context = await CreateContextAsync();
@@ -264,11 +270,6 @@ public sealed class TaskApiTests(SqlServerFixture sql)
             "tenant-a", context.SigningKey, new Claim("idtyp", "app")));
         var application = await client.PostAsJsonAsync("/tenants/tenant-a/tasks", new { });
         Assert.Equal(HttpStatusCode.Forbidden, application.StatusCode);
-
-        client.DefaultRequestHeaders.Authorization = new("Bearer", CreateTokenWithoutPermission(
-            "tenant-a", context.SigningKey, new Claim("roles", "Tasks.Write.All")));
-        var roleCarryingUser = await client.PostAsJsonAsync("/tenants/tenant-a/tasks", new { });
-        Assert.Equal(HttpStatusCode.Forbidden, roleCarryingUser.StatusCode);
 
         client.DefaultRequestHeaders.Authorization = new("Bearer", CreateTokenWithoutPermission(
             "tenant-a", context.SigningKey,
