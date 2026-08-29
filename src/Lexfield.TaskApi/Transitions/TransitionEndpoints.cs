@@ -1,3 +1,4 @@
+using System.Text.Json.Serialization;
 using Lexfield.Contracts;
 using Lexfield.TaskApi.FaultInjection;
 
