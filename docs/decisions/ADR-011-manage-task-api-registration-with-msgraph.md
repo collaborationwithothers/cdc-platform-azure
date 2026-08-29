@@ -8,8 +8,12 @@ task-api owns workflow tasks and records whether each write came from a signed-i
 user or a background service. Its Microsoft Entra application registration must
 expose the delegated scope `Tasks.Write`, the application-only role
 `Tasks.Write.All`, and the `idtyp` access-token optional claim with the
-`include_user_token` additional property. ADR-004 defines why that claim is part
-of the provenance contract.
+`include_user_token` additional property. `idtyp` tells task-api what kind of
+caller the validated token represents. Entra emits the claim on app-only access
+tokens by default; `include_user_token` also emits it on user access tokens, so
+the claim is available on both authorization paths. ADR-004 defines the full
+provenance contract. The value carried by a user token remains a live-check
+unknown owned by issue #266.
 
 The repository normally manages Entra directory objects through the typed
 `hashicorp/azuread` Terraform provider. Version 3.9 can express the application,

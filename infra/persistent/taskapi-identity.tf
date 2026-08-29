@@ -99,12 +99,6 @@ resource "msgraph_resource" "taskapi" {
     }
   }
 
-  # Keep the state output narrow. The provider already stores the Graph object
-  # ID as this resource's id; appId is exported only for a later service-
-  # principal or Application ID URI follow-up.
-  response_export_values = {
-    app_id = "appId"
-  }
 }
 
 # An application owner can recover and modify the registration independently of
