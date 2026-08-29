@@ -22,7 +22,10 @@ dry-run mode.
 Before starting a run, verify all three inputs:
 
 1. The base address points to the disposable or local `task-api` instance.
-2. The bearer token is a test credential whose `tenantId` claim matches every route.
+2. The bearer token is a test credential with Entra `tid` and `oid` claims.
+   Its business `tenantId` claim matches every generated route. A delegated
+   user token also has `Tasks.Write` in `scp`. An application token instead
+   has `Tasks.Write.All` in `roles`.
 3. The `task-api` catalog contains the generated IDs and maps them to test databases.
 
 ## Vocabulary for this run
@@ -44,7 +47,11 @@ Before starting a run, verify all three inputs:
 - **Outbox**: a table where `task-api` records an event in the same transaction
   as the task change. The CDC connector reads that committed row later.
 - **Bearer token**: a credential in the HTTP `Authorization` header.
-  `task-api` requires its `tenantId` claim to match each route.
+  `task-api` requires Entra `tid` and `oid`, and a business `tenantId` that
+  matches each route. The `tid` identifies the Entra directory. The
+  `tenantId` identifies this platform's tenant. A delegated token needs
+  `Tasks.Write` in `scp`; an application token needs `Tasks.Write.All` in
+  `roles`.
 - **Trace context**: metadata linking a request to related logs and messages;
   this tool starts no trace and sends no trace context.
 - **Stage zero**: the client-side UTC timestamp recorded immediately before an
