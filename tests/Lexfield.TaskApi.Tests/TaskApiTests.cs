@@ -188,6 +188,7 @@ public sealed class TaskApiTests(SqlServerFixture sql)
         using var client = context.Factory.CreateClient();
         client.DefaultRequestHeaders.Authorization = new("Bearer", CreateToken(
             "tenant-a", context.SigningKey,
+            new Claim("idtyp", "user"),
             new Claim("roles", "Tasks.Write.All")));
 
         var response = await client.PostAsJsonAsync("/tenants/tenant-a/tasks", new { });
@@ -318,7 +319,7 @@ public sealed class TaskApiTests(SqlServerFixture sql)
                 new Claim(JwtRegisteredClaimNames.Sub, "user:1"),
                 new Claim("tid", "entra-tenant"),
                 new Claim("oid", "user-object"),
-                .. WithDefaultIdentityType(additionalClaims)
+                .. TestIdentityClaims.WithDefaultUserIdentityType(additionalClaims)
             ],
             notBefore: DateTime.UtcNow.AddMinutes(-1),
             expires: DateTime.UtcNow.AddMinutes(5),
@@ -358,13 +359,6 @@ public sealed class TaskApiTests(SqlServerFixture sql)
             expires: DateTime.UtcNow.AddMinutes(5),
             signingCredentials: credentials);
         return new JwtSecurityTokenHandler().WriteToken(token);
-    }
-
-    private static IEnumerable<Claim> WithDefaultIdentityType(Claim[] additionalClaims)
-    {
-        if (!additionalClaims.Any(claim => claim.Type == "idtyp"))
-            yield return new Claim("idtyp", "user");
-        foreach (var claim in additionalClaims) yield return claim;
     }
 
     private static int GetFreePort()

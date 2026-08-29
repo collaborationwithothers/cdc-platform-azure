@@ -4,6 +4,7 @@ public sealed class ActorContextResolver
 {
     public ActorContext? Resolve(ClaimsPrincipal principal)
     {
+        // .NET can map tid and oid to Microsoft URI claim types. idtyp has no URI mapping.
         var tenantId = FindValue(principal, "tid", "http://schemas.microsoft.com/identity/claims/tenantid");
         var objectId = FindValue(principal, "oid", "http://schemas.microsoft.com/identity/claims/objectidentifier");
         var identityType = FindValue(principal, "idtyp");

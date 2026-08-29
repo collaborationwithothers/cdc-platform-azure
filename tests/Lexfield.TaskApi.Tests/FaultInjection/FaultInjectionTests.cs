@@ -129,7 +129,7 @@ public sealed class FaultInjectionTests(SqlServerFixture sql)
                 new Claim(JwtRegisteredClaimNames.Sub, "user:1"),
                 new Claim("tid", "entra-tenant"),
                 new Claim("oid", "user-object"),
-                new Claim("idtyp", "user")
+                TestIdentityClaims.UserIdentityType()
             ],
             notBefore: DateTime.UtcNow.AddMinutes(-1), expires: DateTime.UtcNow.AddMinutes(5),
             signingCredentials: credentials));
