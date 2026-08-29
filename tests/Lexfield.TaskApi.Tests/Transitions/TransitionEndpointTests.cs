@@ -31,7 +31,8 @@ public sealed class TransitionEndpointTests(SqlServerFixture sql)
         var taskId = await SeedTaskAsync(context.ConnectionString);
         using var client = context.Factory.CreateClient();
         client.DefaultRequestHeaders.Authorization = new("Bearer", CreateToken(
-            context.SigningKey, new Claim("idtyp", "app"), new Claim("azp", "transition-client")));
+            context.SigningKey, new Claim("idtyp", "app"), new Claim("azp", "transition-client"),
+            new Claim("roles", "Tasks.Write.All")));
         var path = $"/tenants/tenant-a/tasks/{taskId}/transitions";
         var body = new { to = "Assigned", expectedVersion = 1, teamId = "team-a" };
 
@@ -118,6 +119,22 @@ public sealed class TransitionEndpointTests(SqlServerFixture sql)
     }
 
     [Fact]
+    public async Task TransitionRejectsAnApplicationTokenWithOnlyTheDelegatedScope()
+    {
+        await using var context = await CreateContextAsync();
+        var taskId = await SeedTaskAsync(context.ConnectionString);
+        using var client = context.Factory.CreateClient();
+        client.DefaultRequestHeaders.Authorization = new("Bearer", CreateToken(
+            context.SigningKey, new Claim("idtyp", "app")));
+
+        var response = await client.PostAsJsonAsync(
+            $"/tenants/tenant-a/tasks/{taskId}/transitions",
+            new { to = "Assigned", expectedVersion = 1 });
+
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+    }
+
+    [Fact]
     public async Task TransitionWritesCurrentActivityAndAllowsNoActivity()
     {
         await using var context = await CreateContextAsync();
@@ -184,6 +201,7 @@ public sealed class TransitionEndpointTests(SqlServerFixture sql)
                 new Claim(JwtRegisteredClaimNames.Sub, "user:1"),
                 new Claim("tid", "entra-tenant"),
                 new Claim("oid", "user-object"),
+                new Claim("scp", "Tasks.Write"),
                 .. TestIdentityClaims.WithDefaultUserIdentityType(additionalClaims)
             ],
             notBefore: DateTime.UtcNow.AddMinutes(-1), expires: DateTime.UtcNow.AddMinutes(5),

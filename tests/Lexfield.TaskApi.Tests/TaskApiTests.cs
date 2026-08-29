@@ -165,7 +165,8 @@ public sealed class TaskApiTests(SqlServerFixture sql)
         await using var context = await CreateContextAsync();
         using var client = context.Factory.CreateClient();
         client.DefaultRequestHeaders.Authorization = new("Bearer", CreateToken(
-            "tenant-a", context.SigningKey, new Claim("idtyp", "app")));
+            "tenant-a", context.SigningKey,
+            new Claim("idtyp", "app"), new Claim("roles", "Tasks.Write.All")));
 
         var response = await client.PostAsJsonAsync("/tenants/tenant-a/tasks", new { });
 
@@ -249,6 +250,34 @@ public sealed class TaskApiTests(SqlServerFixture sql)
     }
 
     [Fact]
+    public async Task CreateTaskRejectsTokensWithoutTheirModeSpecificWritePermission()
+    {
+        await using var context = await CreateContextAsync();
+        using var client = context.Factory.CreateClient();
+        client.DefaultRequestHeaders.Authorization = new("Bearer", CreateTokenWithoutPermission(
+            "tenant-a", context.SigningKey));
+
+        var delegated = await client.PostAsJsonAsync("/tenants/tenant-a/tasks", new { });
+        Assert.Equal(HttpStatusCode.Forbidden, delegated.StatusCode);
+
+        client.DefaultRequestHeaders.Authorization = new("Bearer", CreateTokenWithoutPermission(
+            "tenant-a", context.SigningKey, new Claim("idtyp", "app")));
+        var application = await client.PostAsJsonAsync("/tenants/tenant-a/tasks", new { });
+        Assert.Equal(HttpStatusCode.Forbidden, application.StatusCode);
+
+        client.DefaultRequestHeaders.Authorization = new("Bearer", CreateTokenWithoutPermission(
+            "tenant-a", context.SigningKey, new Claim("roles", "Tasks.Write.All")));
+        var roleCarryingUser = await client.PostAsJsonAsync("/tenants/tenant-a/tasks", new { });
+        Assert.Equal(HttpStatusCode.Forbidden, roleCarryingUser.StatusCode);
+
+        client.DefaultRequestHeaders.Authorization = new("Bearer", CreateTokenWithoutPermission(
+            "tenant-a", context.SigningKey,
+            new Claim("idtyp", "app"), new Claim("scp", "Tasks.Write")));
+        var applicationWithDelegatedScope = await client.PostAsJsonAsync("/tenants/tenant-a/tasks", new { });
+        Assert.Equal(HttpStatusCode.Forbidden, applicationWithDelegatedScope.StatusCode);
+    }
+
+    [Fact]
     public async Task OutboxFailureRollsBackTheTask()
     {
         await using var context = await CreateContextAsync();
@@ -319,6 +348,7 @@ public sealed class TaskApiTests(SqlServerFixture sql)
                 new Claim(JwtRegisteredClaimNames.Sub, "user:1"),
                 new Claim("tid", "entra-tenant"),
                 new Claim("oid", "user-object"),
+                new Claim("scp", "Tasks.Write"),
                 .. TestIdentityClaims.WithDefaultUserIdentityType(additionalClaims)
             ],
             notBefore: DateTime.UtcNow.AddMinutes(-1),
@@ -354,6 +384,28 @@ public sealed class TaskApiTests(SqlServerFixture sql)
                 new Claim(JwtRegisteredClaimNames.Sub, "user:1"),
                 new Claim("tid", "entra-tenant"),
                 new Claim("oid", "user-object")
+            ],
+            notBefore: DateTime.UtcNow.AddMinutes(-1),
+            expires: DateTime.UtcNow.AddMinutes(5),
+            signingCredentials: credentials);
+        return new JwtSecurityTokenHandler().WriteToken(token);
+    }
+
+    private static string CreateTokenWithoutPermission(
+        string tenantId, string key, params Claim[] additionalClaims)
+    {
+        var credentials = new SigningCredentials(
+            new SymmetricSecurityKey(Encoding.UTF8.GetBytes(key)), SecurityAlgorithms.HmacSha256);
+        var token = new JwtSecurityToken(
+            issuer: "https://issuer.test",
+            audience: "lexfield-task-api",
+            claims:
+            [
+                new Claim("tenantId", tenantId),
+                new Claim(JwtRegisteredClaimNames.Sub, "user:1"),
+                new Claim("tid", "entra-tenant"),
+                new Claim("oid", "user-object"),
+                .. TestIdentityClaims.WithDefaultUserIdentityType(additionalClaims)
             ],
             notBefore: DateTime.UtcNow.AddMinutes(-1),
             expires: DateTime.UtcNow.AddMinutes(5),

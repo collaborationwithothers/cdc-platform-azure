@@ -10,10 +10,11 @@ public static class TaskEndpoints
         endpoints.MapPost("/tenants/{tenantId}/tasks", async (
             HttpContext http, string tenantId, CreateTaskRequest? request,
             ActorContextResolver actorContexts, TaskCreation creation,
-            CancellationToken cancellationToken) =>
+            TaskWriteAuthorization writeAuthorization, CancellationToken cancellationToken) =>
         {
             var actorContext = actorContexts.Resolve(http.User);
             if (actorContext is null) return Results.Unauthorized();
+            if (!writeAuthorization.IsAuthorized(http.User, actorContext)) return Results.Forbid();
             var taskId = await creation.CreateAsync(
                 new TaskCreationCommand(
                     tenantId, actorContext.Actor, actorContext.ClientApplicationId,

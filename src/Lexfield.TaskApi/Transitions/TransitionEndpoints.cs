@@ -11,11 +11,12 @@ public static class TransitionEndpoints
             HttpContext http, string tenantId, int taskId, TransitionRequest request,
             bool? suppressOutbox, TenantCatalog catalog, IConfiguration configuration,
             ActorContextResolver actorContexts, ILogger<TaskTransition> logger,
-            CancellationToken cancellationToken) =>
+            TaskWriteAuthorization writeAuthorization, CancellationToken cancellationToken) =>
         {
             if (request.To is null || request.ExpectedVersion is null) return Results.BadRequest();
             var actorContext = actorContexts.Resolve(http.User);
             if (actorContext is null) return Results.Unauthorized();
+            if (!writeAuthorization.IsAuthorized(http.User, actorContext)) return Results.Forbid();
             if (suppressOutbox is true && !OutboxSuppressionTransition.IsEnabled(configuration))
                 return Results.BadRequest();
 

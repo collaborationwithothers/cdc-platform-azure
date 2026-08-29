@@ -8,6 +8,7 @@ public static class TaskApiAuthentication
     {
         services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme).AddJwtBearer();
         services.AddSingleton<ActorContextResolver>();
+        services.AddSingleton<TaskWriteAuthorization>();
         services.AddOptions<JwtBearerOptions>(JwtBearerDefaults.AuthenticationScheme)
             .Configure<IConfiguration>((options, configuration) =>
             {
