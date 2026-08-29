@@ -1,14 +1,34 @@
 # Connector configuration generator
 
-The generator turns a tenant manifest into one Kafka Connect registration body
-per tenant. Give this command and the onboarding runner the same manifest path.
-The tools do not enforce that pairing, so the operator owns keeping that one
-file as the source for both database setup and connector routing.
+This generator turns one tenant manifest into one Kafka Connect registration
+body for each tenant. Kafka Connect is the service that runs and registers
+Debezium connectors. Change data capture (CDC) records committed changes from
+the tenant's SQL Server database. Debezium is the connector that reads those
+CDC records and publishes events to Kafka, a named stream of messages. The
+generator does not run Debezium or register a connector. It prepares the JSON
+request bodies that an operator later registers with Kafka Connect.
+
+A tenant manifest is a JSON array that maps each tenant identifier to its SQL
+Server database and routing choice. Give the generator and the onboarding
+runner the same manifest path. The tools do not enforce that pairing, so the
+operator owns keeping that one file as the source for both database setup and
+connector routing.
 
 ## Generate the files
 
-From the repository root, obtain the manifest path, Azure SQL server host name,
-and Kafka bootstrap address from the deployment outputs. Then run:
+From the repository root, ask the deployment operator for the tenant manifest
+used by onboarding, the SQL Server host for those tenant databases, and the
+Kafka bootstrap address for the active Kafka cluster. Create a new local output
+directory for this run. Do not reuse a directory that contains connector files
+from an earlier run.
+
+- `--manifest` is the tenant manifest JSON file.
+- `--sql-server-fqdn` is the SQL Server host that Debezium reads.
+- `--bootstrap-servers` is the Kafka address that Debezium uses to reach the
+  event stream.
+- `--output-dir` receives one connector configuration file for each tenant.
+
+Then run:
 
 ```text
 dotnet run --project connect/connectors/Lexfield.ConnectorGenerator/Lexfield.ConnectorGenerator.csproj -- \
@@ -18,12 +38,23 @@ dotnet run --project connect/connectors/Lexfield.ConnectorGenerator/Lexfield.Con
   --output-dir <output-directory>
 ```
 
-The command writes `tenant-<tenantId>-outbox.json` for each manifest entry.
+On success, the command names every tenant whose configuration it wrote. It
+also states its boundary: the files are ready for registration, but this local
+generation does not prove Kafka, Debezium, or Azure SQL behavior. The command
+writes `tenant-<tenantId>-outbox.json` for each manifest entry.
+
 The output directory must not contain files from an earlier generator run. The
 generator refuses to overwrite them, so a tenant removed from the manifest
-cannot survive as a stale connector file.
-Register each complete file as the request body for Kafka Connect's connector
-creation endpoint. Do not commit a deployment manifest or generated files.
+cannot survive as a stale connector file. Register each complete file as the
+request body for Kafka Connect's connector creation endpoint. Do not commit a
+deployment manifest or generated files.
+
+If the command cannot continue, it names the specific input or generation
+stage, explains the consequence, and gives the safe correction. For example,
+correct malformed manifest JSON, make an output directory writable, or remove
+only confirmed stale generated files before retrying. The command returns exit
+code 2 for every input, template, or file failure and does not print a raw
+exception stack trace.
 
 The primary configuration uses Entra authentication through
 `driver.authentication=ActiveDirectoryDefault`. It does not accept database
@@ -101,6 +132,14 @@ dotnet test connect/connectors/Lexfield.ConnectorGenerator.Tests/Lexfield.Connec
 ```
 
 The test generates all three build-scale configurations and compares their
-exact bytes with the committed snapshot. It separately proves that turning on
+exact bytes with the committed snapshot. It proves that file names, tenant
+routing, per-tenant signal topics, per-tenant consumer groups, and every
+connector property remain unchanged. It separately proves that turning on
 stream isolation changes only the outbox route target and that no database
 credential or custom re-key transform appears.
+
+The test also exercises contributor-visible failures: missing options,
+unreadable or malformed manifests, invalid or duplicate entries, an invalid
+template, and an unusable output path. It proves generator output and exit
+codes. It does not register a connector or prove a live Kafka, Debezium, or
+Azure SQL deployment.

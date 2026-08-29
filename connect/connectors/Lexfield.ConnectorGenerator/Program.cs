@@ -1,3 +1,3 @@
 using Lexfield.ConnectorGenerator;
 
-return ConnectorConfigGenerator.Run(args, Console.Error);
+return ConnectorConfigGenerator.Run(args, Console.Error, Console.Out);
