@@ -101,7 +101,15 @@ output are the authority. This README publishes no historical benchmark.
 
 ## Run the tool
 
-From the repository root, set a bearer token and start the tool:
+This repository does not currently provision the complete disposable endpoint,
+Entra client, permission grants, or tenant catalog needed for this command.
+Before running it, obtain the test endpoint, bearer token, and matching catalog
+entry from Hari as the owner of the disposable environment. The token must meet
+the claim and permission checks in Safety boundary above. If Hari has not
+supplied all three inputs for a test-only environment, stop. Do not substitute a
+production endpoint or token.
+
+From the repository root, set the supplied bearer token and start the tool:
 
 ```text
 export LEXFIELD_LOADGEN_TOKEN='<bearer token accepted by task-api>'
