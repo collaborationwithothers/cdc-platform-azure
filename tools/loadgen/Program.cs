@@ -217,9 +217,9 @@ public static class LoadgenCli
           tenants drawn:    {report.EventsPerTenant.Count} of {options.Distribution.Keys.Count}
         Derived values:
           observed rate:    {(report.Issued / report.Elapsed.TotalSeconds).ToString("0.##", CultureInfo.InvariantCulture)}/s
-        Generated tenant keys, task payloads, and transition actor values are synthetic.
-        Task IDs returned by task-api belong to this synthetic run. The task creation audit
-        actor comes from the bearer token subject and may be a real test identity.
+        Generated tenant keys and task payloads are synthetic.
+        Task IDs returned by task-api belong to this synthetic run. task-api derives each
+        audit actor from required bearer-token claims; the generator never sends an actor field.
         """;
 
     private static bool Invalid(

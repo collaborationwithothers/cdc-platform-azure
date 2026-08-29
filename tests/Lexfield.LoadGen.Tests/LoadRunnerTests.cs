@@ -20,10 +20,6 @@ public class LoadRunnerTests
             Assert.StartsWith("/tenants/synthetic-tenant-0001/", request.Path, StringComparison.Ordinal);
             Assert.Equal(LoadRunner.SyntheticActor, request.Body.GetProperty("assigneeId").GetString());
             Assert.Equal("synthetic-tenant-0001-team", request.Body.GetProperty("teamId").GetString());
-            if (request.Path.EndsWith("/transitions", StringComparison.Ordinal))
-            {
-                Assert.Equal(LoadRunner.SyntheticActor, request.Body.GetProperty("actor").GetString());
-            }
         });
         Assert.All(
             stageZero,
@@ -182,7 +178,7 @@ public class LoadRunnerTests
         Assert.Contains("observed rate:    3/s", output[derivedStart..], StringComparison.Ordinal);
         Assert.All(["task-api is the HTTP service", "A workflow transition moves a task", "change data capture (CDC) path", "These measurements matter"],
             phrase => Assert.Contains(phrase, output, StringComparison.Ordinal));
-        Assert.Contains("Generated tenant keys, task payloads, and transition actor values are synthetic.", output, StringComparison.Ordinal);
+        Assert.Contains("Generated tenant keys and task payloads are synthetic.", output, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -276,6 +272,17 @@ public class LoadRunnerTests
             [1, 2, 3, 4, 5],
             requests.Skip(1).Select(request =>
                 request.Body.GetProperty("expectedVersion").GetInt32()).ToArray());
+    }
+
+    [Fact]
+    public async Task Transition_requests_do_not_send_a_caller_supplied_actor()
+    {
+        var (report, requests, _, _) = await RunAsync("uniform", tenants: 1, events: 2);
+
+        Assert.Equal(2, report.Succeeded);
+        Assert.All(
+            requests.Skip(1),
+            request => Assert.False(request.Body.TryGetProperty("actor", out _)));
     }
 
     [Fact]

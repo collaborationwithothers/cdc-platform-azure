@@ -6,11 +6,10 @@ update real rows in whichever tenant database `task-api` selects, so synthetic
 describes the generated values, not the destination or the side effects. Use
 the tool only with a test-only endpoint, bearer token, and tenant catalog.
 
-Generated tenant IDs, team IDs, assignee IDs, and transition actor values are
-synthetic test data. Task creation actor resolution uses the caller's `name
-identifier` claim, then `sub`, then the literal `unknown`; the generator cannot
-set that field. Task IDs are returned by `task-api` and belong to this run, but
-the requests still change the selected database.
+Generated tenant IDs, team IDs, and assignee IDs are synthetic test data.
+`task-api` derives each audit actor from required bearer-token claims. The
+generator never sends an actor field. Task IDs are returned by `task-api` and
+belong to this run, but the requests still change the selected database.
 
 ## Safety boundary
 
@@ -172,9 +171,9 @@ Observed measurements:
   tenants drawn:    <tenant keys selected> of <configured tenant-key count>
 Derived values:
   observed rate:    <issued events divided by elapsed time>/s
-Generated tenant keys, task payloads, and transition actor values are synthetic.
-Task IDs returned by task-api belong to this synthetic run. The task creation audit
-actor comes from the bearer token subject and may be a real test identity.
+Generated tenant keys and task payloads are synthetic.
+Task IDs returned by task-api belong to this synthetic run. task-api derives each
+audit actor from required bearer-token claims; the generator never sends an actor field.
 ```
 
 The angle-bracket values describe the output shape, not measurements. The observed rate is derived from issued events and elapsed run time. It is not a benchmark claim.
