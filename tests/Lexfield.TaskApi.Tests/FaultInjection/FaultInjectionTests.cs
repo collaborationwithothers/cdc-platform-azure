@@ -28,7 +28,7 @@ public sealed class FaultInjectionTests(SqlServerFixture sql)
 
         var response = await client.PostAsJsonAsync(
             $"/tenants/tenant-a/tasks/{taskId}/transitions?suppressOutbox=true",
-            new { to = "Assigned", actor = "user:1", expectedVersion = 1 });
+            new { to = "Assigned", expectedVersion = 1 });
 
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
         await using var connection = new SqlConnection(context.ConnectionString);
@@ -46,7 +46,7 @@ public sealed class FaultInjectionTests(SqlServerFixture sql)
 
         var response = await client.PostAsJsonAsync(
             $"/tenants/tenant-a/tasks/{taskId}/transitions",
-            new { to = "Assigned", actor = "user:1", expectedVersion = 1 });
+            new { to = "Assigned", expectedVersion = 1 });
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         await using var connection = new SqlConnection(context.ConnectionString);
@@ -72,7 +72,7 @@ public sealed class FaultInjectionTests(SqlServerFixture sql)
             Console.SetOut(output);
             response = await client.PostAsJsonAsync(
                 $"/tenants/tenant-a/tasks/{taskId}/transitions?suppressOutbox=true",
-                new { to = "Assigned", actor = "user:1", expectedVersion = 1 });
+                new { to = "Assigned", expectedVersion = 1 });
         }
         finally
         {
@@ -123,7 +123,13 @@ public sealed class FaultInjectionTests(SqlServerFixture sql)
             new SymmetricSecurityKey(Encoding.UTF8.GetBytes(key)), SecurityAlgorithms.HmacSha256);
         return new JwtSecurityTokenHandler().WriteToken(new JwtSecurityToken(
             issuer: "https://issuer.test", audience: "lexfield-task-api",
-            claims: [new Claim("tenantId", "tenant-a"), new Claim(JwtRegisteredClaimNames.Sub, "user:1")],
+            claims:
+            [
+                new Claim("tenantId", "tenant-a"),
+                new Claim(JwtRegisteredClaimNames.Sub, "user:1"),
+                new Claim("tid", "entra-tenant"),
+                new Claim("oid", "user-object")
+            ],
             notBefore: DateTime.UtcNow.AddMinutes(-1), expires: DateTime.UtcNow.AddMinutes(5),
             signingCredentials: credentials));
     }

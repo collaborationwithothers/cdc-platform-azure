@@ -3,6 +3,7 @@ using System.Net;
 using System.Net.Http.Json;
 using System.Security.Claims;
 using System.Text;
+using System.Text.Json;
 using System.Diagnostics;
 using Dapper;
 using Lexfield.Contracts;
@@ -29,9 +30,10 @@ public sealed class TransitionEndpointTests(SqlServerFixture sql)
         await using var context = await CreateContextAsync();
         var taskId = await SeedTaskAsync(context.ConnectionString);
         using var client = context.Factory.CreateClient();
-        client.DefaultRequestHeaders.Authorization = new("Bearer", CreateToken(context.SigningKey));
+        client.DefaultRequestHeaders.Authorization = new("Bearer", CreateToken(
+            context.SigningKey, new Claim("idtyp", "app"), new Claim("azp", "transition-client")));
         var path = $"/tenants/tenant-a/tasks/{taskId}/transitions";
-        var body = new { to = "Assigned", actor = "user:transition", expectedVersion = 1, teamId = "team-a" };
+        var body = new { to = "Assigned", expectedVersion = 1, teamId = "team-a" };
 
         var responses = await Task.WhenAll(
             client.PostAsJsonAsync(path, body), client.PostAsJsonAsync(path, body));
@@ -43,10 +45,14 @@ public sealed class TransitionEndpointTests(SqlServerFixture sql)
             "SELECT State, Version, UpdatedBy FROM dbo.WorkflowTask WHERE Id = @taskId", new { taskId });
         var outbox = await connection.QuerySingleAsync<OutboxRow>(
             "SELECT AggregateId, Version, Payload FROM dbo.Outbox");
-        Assert.Equal(new TaskRow("Assigned", 2, "user:transition"), task);
+        Assert.Equal(new TaskRow("Assigned", 2, "workload:entra-tenant:user-object"), task);
         Assert.Equal($"tenant-a-{taskId}", outbox.AggregateId);
         Assert.Equal(2, outbox.Version);
-        Assert.Contains("\"actor\":\"user:transition\"", outbox.Payload);
+        var taskEvent = JsonSerializer.Deserialize<TransitionEvent>(outbox.Payload);
+        Assert.NotNull(taskEvent);
+        Assert.Equal(task.UpdatedBy, taskEvent.Actor);
+        Assert.Equal("transition-client", taskEvent.ClientApplicationId);
+        Assert.Equal("application", taskEvent.PermissionMode);
     }
 
     [Fact]
@@ -64,7 +70,7 @@ public sealed class TransitionEndpointTests(SqlServerFixture sql)
 
         var response = await client.PostAsJsonAsync(
             $"/tenants/tenant-a/tasks/{taskId}/transitions",
-            new { to = "Assigned", actor = "user:1", expectedVersion = 1 });
+            new { to = "Assigned", expectedVersion = 1 });
 
         Assert.Equal(HttpStatusCode.InternalServerError, response.StatusCode);
         await using var verify = new SqlConnection(context.ConnectionString);
@@ -83,9 +89,24 @@ public sealed class TransitionEndpointTests(SqlServerFixture sql)
 
         var response = await client.PostAsJsonAsync(
             $"/tenants/tenant-a/tasks/{taskId}/transitions",
-            new { to = "Delivered", actor = "user:1", expectedVersion = 1 });
+            new { to = "Delivered", expectedVersion = 1 });
 
         Assert.Equal(HttpStatusCode.UnprocessableEntity, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task TransitionRejectsACallerSuppliedActorField()
+    {
+        await using var context = await CreateContextAsync();
+        var taskId = await SeedTaskAsync(context.ConnectionString);
+        using var client = context.Factory.CreateClient();
+        client.DefaultRequestHeaders.Authorization = new("Bearer", CreateToken(context.SigningKey));
+
+        var response = await client.PostAsJsonAsync(
+            $"/tenants/tenant-a/tasks/{taskId}/transitions",
+            new { to = "Assigned", actor = "spoofed", expectedVersion = 1 });
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
     }
 
     [Fact]
@@ -99,13 +120,13 @@ public sealed class TransitionEndpointTests(SqlServerFixture sql)
         using var activity = new Activity("transition-test").Start();
         var traced = await client.PostAsJsonAsync(
             $"/tenants/tenant-a/tasks/{tracedTask}/transitions",
-            new { to = "Assigned", actor = "user:1", expectedVersion = 1 });
+            new { to = "Assigned", expectedVersion = 1 });
         var traceParent = traced.Headers.GetValues("X-Test-Activity").Single();
         activity.Stop();
         using var untracedRequest = new HttpRequestMessage(HttpMethod.Post,
             $"/tenants/tenant-a/tasks/{untracedTask}/transitions")
         {
-            Content = JsonContent.Create(new { to = "Assigned", actor = "user:1", expectedVersion = 1 })
+            Content = JsonContent.Create(new { to = "Assigned", expectedVersion = 1 })
         };
         untracedRequest.Headers.Add("X-Test-No-Activity", "true");
         var untraced = await client.SendAsync(untracedRequest);
@@ -143,13 +164,20 @@ public sealed class TransitionEndpointTests(SqlServerFixture sql)
             """);
     }
 
-    private static string CreateToken(string key)
+    private static string CreateToken(string key, params Claim[] additionalClaims)
     {
         var credentials = new SigningCredentials(
             new SymmetricSecurityKey(Encoding.UTF8.GetBytes(key)), SecurityAlgorithms.HmacSha256);
         return new JwtSecurityTokenHandler().WriteToken(new JwtSecurityToken(
             issuer: "https://issuer.test", audience: "lexfield-task-api",
-            claims: [new Claim("tenantId", "tenant-a"), new Claim(JwtRegisteredClaimNames.Sub, "user:1")],
+            claims:
+            [
+                new Claim("tenantId", "tenant-a"),
+                new Claim(JwtRegisteredClaimNames.Sub, "user:1"),
+                new Claim("tid", "entra-tenant"),
+                new Claim("oid", "user-object"),
+                .. additionalClaims
+            ],
             notBefore: DateTime.UtcNow.AddMinutes(-1), expires: DateTime.UtcNow.AddMinutes(5),
             signingCredentials: credentials));
     }

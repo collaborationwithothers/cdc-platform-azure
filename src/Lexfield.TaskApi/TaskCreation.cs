@@ -16,6 +16,8 @@ public sealed class TaskCreation(TenantCatalog catalog, ILogger<TaskCreation> lo
             From = null,
             To = TaskState.Created,
             Actor = command.Actor,
+            ClientApplicationId = command.ClientApplicationId,
+            PermissionMode = command.PermissionMode,
             At = at,
             Version = 1,
             TeamId = command.TeamId,
@@ -154,4 +156,5 @@ public sealed class TaskCreation(TenantCatalog catalog, ILogger<TaskCreation> lo
 }
 
 public sealed record TaskCreationCommand(
-    string TenantId, string Actor, string? TeamId, string? AssigneeId);
+    string TenantId, string Actor, string? ClientApplicationId, string PermissionMode,
+    string? TeamId, string? AssigneeId);

@@ -113,6 +113,8 @@ public sealed class TaskTransition(TenantCatalog catalog, ILogger<TaskTransition
                     From = from,
                     To = command.To,
                     Actor = command.Actor,
+                    ClientApplicationId = command.ClientApplicationId,
+                    PermissionMode = command.PermissionMode,
                     At = at,
                     Version = newVersion,
                     TeamId = command.TeamId,
@@ -204,7 +206,7 @@ public sealed class TaskTransition(TenantCatalog catalog, ILogger<TaskTransition
 }
 
 public sealed record TransitionCommand(
-    string TenantId, int TaskId, TaskState To, string Actor, int ExpectedVersion,
-    string? TeamId, string? AssigneeId);
+    string TenantId, int TaskId, TaskState To, string Actor, string? ClientApplicationId,
+    string PermissionMode, int ExpectedVersion, string? TeamId, string? AssigneeId);
 
 public enum TransitionOutcome { Success, NotFound, Conflict, Illegal }
