@@ -8,7 +8,6 @@ public static class TaskApiAuthentication
     {
         services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme).AddJwtBearer();
         services.AddSingleton<ActorContextResolver>();
-        services.AddSingleton<TaskWriteAuthorization>();
         services.AddOptions<JwtBearerOptions>(JwtBearerDefaults.AuthenticationScheme)
             .Configure<IConfiguration>((options, configuration) =>
             {
@@ -32,6 +31,25 @@ public static class TaskApiAuthentication
 }
 
 public sealed class TenantRouteRequirement : IAuthorizationRequirement;
+
+public static class TaskWriteAuthorization
+{
+    public static bool IsAuthorized(ClaimsPrincipal principal, ActorContext actorContext) =>
+        actorContext.PermissionMode == "application"
+            ? HasRole(principal, "Tasks.Write.All")
+            : HasScope(principal, "Tasks.Write");
+
+    private static bool HasScope(ClaimsPrincipal principal, string scope) =>
+        principal.FindAll("scp")
+            .Concat(principal.FindAll("http://schemas.microsoft.com/identity/claims/scope"))
+            .SelectMany(claim => claim.Value.Split(' ', StringSplitOptions.RemoveEmptyEntries))
+            .Contains(scope, StringComparer.Ordinal);
+
+    private static bool HasRole(ClaimsPrincipal principal, string role) =>
+        principal.FindAll("roles").Concat(principal.FindAll(ClaimTypes.Role))
+            .Any(claim => string.Equals(claim.Value, role, StringComparison.Ordinal));
+}
+
 public sealed class TenantRouteHandler : AuthorizationHandler<TenantRouteRequirement>
 {
     protected override Task HandleRequirementAsync(
