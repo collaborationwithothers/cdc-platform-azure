@@ -187,3 +187,6 @@ above them. Seeded from the sibling repo's repo-neutral rules.
 - 2026-08-28: When documentation describes a test, use the exact lifecycle
   operation the test performs, such as delete and register or stop. Matching
   observable states do not prove that those operations are equivalent.
+- 2026-08-28: Distinguish a committed literal environment identifier from a
+  Terraform expression that resolves the identifier during planning or apply.
+  Do not cite the no-identifiers rule as a reason to reject a computed reference.
