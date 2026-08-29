@@ -19,6 +19,13 @@ terraform {
       source  = "hashicorp/azuread"
       version = "~> 3.9"
     }
+    # hashicorp/azuread rejects include_user_token before it calls Graph. The
+    # Microsoft provider owns the task-api registration so the scope, role, and
+    # optional claim remain one application resource.
+    msgraph = {
+      source  = "microsoft/msgraph"
+      version = "~> 0.4.0"
+    }
   }
 
   # The state backend is declared empty on purpose. Terraform cannot create the

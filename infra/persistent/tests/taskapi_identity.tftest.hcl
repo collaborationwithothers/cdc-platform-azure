@@ -1,5 +1,5 @@
 # Plan-only assertions for the two permissions task-api's app registration
-# exposes. Both providers are mocked, so Terraform builds the plan without
+# exposes. All three providers are mocked, so Terraform builds the plan without
 # contacting Azure or Microsoft Graph, and creates nothing.
 #
 # What this proves and what it does not: the assertions read the planned
@@ -36,24 +36,30 @@ mock_provider "azuread" {
   source          = "./tests/mocks"
 }
 
+mock_provider "msgraph" {
+  override_during = plan
+}
+
 run "exposes_the_delegated_task_write_scope" {
   command = plan
 
-  # oauth2_permission_scope is a set, and a set cannot be indexed. one() returns
-  # the single element and fails loudly if a second scope is ever added without
-  # this test being updated.
   assert {
-    condition     = one(azuread_application.taskapi.api[0].oauth2_permission_scope).value == "Tasks.Write"
+    condition     = length(msgraph_resource.taskapi.body.api.oauth2PermissionScopes) == 1
+    error_message = "The task-api registration must expose exactly one delegated scope so another permission cannot be added without this contract being reviewed."
+  }
+
+  assert {
+    condition     = msgraph_resource.taskapi.body.api.oauth2PermissionScopes[0].value == "Tasks.Write"
     error_message = "A delegated caller carries this exact string in the token's scp claim, so the name is the contract task-api checks."
   }
 
   assert {
-    condition     = one(azuread_application.taskapi.api[0].oauth2_permission_scope).enabled
+    condition     = msgraph_resource.taskapi.body.api.oauth2PermissionScopes[0].isEnabled
     error_message = "A disabled scope cannot be requested, so no delegated caller could ever hold it."
   }
 
   assert {
-    condition     = azuread_application.taskapi.sign_in_audience == "AzureADMyOrg"
+    condition     = msgraph_resource.taskapi.body.signInAudience == "AzureADMyOrg"
     error_message = "The task-api registration must be single tenant."
   }
 }
@@ -62,25 +68,41 @@ run "exposes_the_app_only_role_to_applications_alone" {
   command = plan
 
   assert {
-    condition     = one(azuread_application.taskapi.app_role).value == "Tasks.Write.All"
+    condition     = length(msgraph_resource.taskapi.body.appRoles) == 1
+    error_message = "The task-api registration must expose exactly one app role so another permission cannot be added without this contract being reviewed."
+  }
+
+  assert {
+    condition     = msgraph_resource.taskapi.body.appRoles[0].value == "Tasks.Write.All"
     error_message = "An app-only caller carries this exact string in the token's roles claim, so the name is the contract task-api checks."
   }
 
   assert {
-    condition     = one(azuread_application.taskapi.app_role).allowed_member_types == toset(["Application"])
+    condition     = toset(msgraph_resource.taskapi.body.appRoles[0].allowedMemberTypes) == toset(["Application"])
     error_message = "Adding User here would let a user hold the app-only role, which is the caller confusion Microsoft warns against and the distinction task-api attributes writes by."
   }
 
   assert {
-    condition     = one(azuread_application.taskapi.app_role).enabled
+    condition     = msgraph_resource.taskapi.body.appRoles[0].isEnabled
     error_message = "A disabled app role cannot be assigned, so no daemon could ever hold it."
   }
 }
 
-# There is no run block for the `idtyp` optional claim, because the registration
-# does not set it. hashicorp/azuread 3.9.0, the newest release, validates
-# `additional_properties` against a fixed list that does not include
-# `include_user_token`, and rejects it before any Graph call. The comment at the
-# end of taskapi-identity.tf carries the exact error and what would unblock it.
-# Adding an assertion here that passed against something the registration does
-# not configure would be worse than the gap.
+run "emits_idtyp_for_user_tokens" {
+  command = plan
+
+  assert {
+    condition     = length(msgraph_resource.taskapi.body.optionalClaims.accessToken) == 1
+    error_message = "The task-api registration must manage exactly one access-token optional claim so another claim cannot be added without this contract being reviewed."
+  }
+
+  assert {
+    condition     = msgraph_resource.taskapi.body.optionalClaims.accessToken[0].name == "idtyp"
+    error_message = "task-api uses idtyp as its primary signal for distinguishing application-only and delegated access tokens."
+  }
+
+  assert {
+    condition     = toset(msgraph_resource.taskapi.body.optionalClaims.accessToken[0].additionalProperties) == toset(["include_user_token"])
+    error_message = "include_user_token is the Microsoft Graph property that makes Entra emit idtyp on user tokens as well as app-only tokens."
+  }
+}
