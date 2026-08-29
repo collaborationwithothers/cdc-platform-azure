@@ -194,6 +194,7 @@ public sealed class TaskApiTests(SqlServerFixture sql)
 
         var response = await client.PostAsJsonAsync("/tenants/tenant-a/tasks", new { });
 
+        // Misclassifying this user token as application would accept its role and return 201.
         Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
     }
 

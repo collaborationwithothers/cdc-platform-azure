@@ -111,6 +111,29 @@ public sealed class TransitionEndpointTests(SqlServerFixture sql)
     }
 
     [Fact]
+    public async Task DelegatedTransitionWritesTokenActorToTaskAndEvent()
+    {
+        await using var context = await CreateContextAsync();
+        var taskId = await SeedTaskAsync(context.ConnectionString);
+        using var client = context.Factory.CreateClient();
+        client.DefaultRequestHeaders.Authorization = new("Bearer", CreateToken(context.SigningKey));
+
+        var response = await client.PostAsJsonAsync(
+            $"/tenants/tenant-a/tasks/{taskId}/transitions",
+            new { to = "Assigned", expectedVersion = 1 });
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        await using var connection = new SqlConnection(context.ConnectionString);
+        var task = await connection.QuerySingleAsync<TaskRow>(
+            "SELECT State, Version, UpdatedBy FROM dbo.WorkflowTask WHERE Id = @taskId", new { taskId });
+        var payload = await connection.QuerySingleAsync<string>("SELECT Payload FROM dbo.Outbox");
+        var taskEvent = JsonSerializer.Deserialize<TransitionEvent>(payload);
+        Assert.Equal("user:entra-tenant:user-object", task.UpdatedBy);
+        Assert.NotNull(taskEvent);
+        Assert.Equal(task.UpdatedBy, taskEvent.Actor);
+    }
+
+    [Fact]
     public async Task TransitionRejectsAnApplicationTokenWithOnlyTheDelegatedScope()
     {
         await using var context = await CreateContextAsync();
