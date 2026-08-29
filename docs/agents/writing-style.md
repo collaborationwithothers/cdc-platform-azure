@@ -169,6 +169,8 @@ above them. Seeded from the sibling repo's repo-neutral rules.
   or use a Hari-approved exception instead.
 - 2026-08-27: A test proves only the path it exercises. Name that boundary in the
   write-up before stating any broader production-scale or design-scale risk.
+- 2026-08-29: When parser strictness rejects a whole class of input, document
+  that full class. Do not describe only the field that originally motivated it.
 - 2026-08-27: Make checkpoint prose start with one concrete failure timeline.
   Show when the Kafka signal is published, when `__consumer_offsets` commits
   the next command position, when OPEN and CLOSE rows commit in

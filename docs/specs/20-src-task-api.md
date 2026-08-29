@@ -286,7 +286,7 @@ here.
 | Token missing `tid` or `oid` | 401 (the actor cannot be established) |
 | Valid token lacking the required delegated scope or application role | 403 |
 | Valid, permitted token whose tenant claim fails the existing `TenantRoute` check | 403 |
-| A create or transition body supplies an `actor` field | 400 |
+| A create or transition body contains any property not declared by its request contract | 400 |
 
 Token validation, permission authorization, tenant authorization, and
 attribution are four separate checks. The business `tenantId` route policy is
@@ -296,17 +296,13 @@ tenant in the path. A missing `clientApplicationId` is not a 401: `tid` and `oid
 establish the actor, and the client id is best-effort, for the managed-identity
 reason below.
 
-The 400 on an `actor` body field applies to both write routes, create and
-transition, for the same reason: a body value must not be mistaken for trusted
-attribution. It is not automatic. Both requests are deserialized with
-System.Text.Json, which ignores an unknown JSON property by default, so each
-write endpoint must opt into rejection, for example
-`JsonSerializerOptions.UnmappedMemberHandling` set to `Disallow` or an explicit
-check for the field, so a supplied `actor` is refused rather than silently
-ignored. A silently ignored field is the "ignored input mistaken for trusted
-attribution" this contract exists to prevent. Existing create tests that post an
-`actor` and expect success are updated by the actor-resolution follow-up to
-expect 400.
+Both write requests use System.Text.Json's
+`JsonUnmappedMemberHandling.Disallow`. System.Text.Json otherwise ignores an
+unknown JSON property by default. With `Disallow`, any property not declared by
+the create or transition request record returns 400. This includes `actor`, the
+security-sensitive case that motivated strict handling, and also rejects every
+other unmapped property. Dedicated create and transition tests post `actor` and
+assert 400 so a caller cannot mistake ignored input for trusted attribution.
 
 **Managed-identity token claims need a live check.** The flow table lists managed
 identity as an application-only flow, but Microsoft Learn does not document the
