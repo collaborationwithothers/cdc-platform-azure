@@ -78,6 +78,15 @@ mock_provider "msgraph" {
 run "plans_a_secretless_delegated_capture_client" {
   command = plan
 
+  # Graph can assign the delegated creator as owner during application create.
+  # The provider mock cannot reproduce that tenant-side behavior, so this
+  # narrow source check prevents a second, non-idempotent owner POST from
+  # returning to the live-capture configuration.
+  assert {
+    condition     = !strcontains(file("${path.module}/taskapi-live-capture-identities.tf"), "owners/$ref")
+    error_message = "The delegated public-client create must not be followed by a duplicate owners/$ref POST."
+  }
+
   assert {
     condition     = msgraph_resource.taskapi_live_user_client.body.signInAudience == "AzureADMyOrg"
     error_message = "The token-capture client must accept accounts from this Entra tenant only."

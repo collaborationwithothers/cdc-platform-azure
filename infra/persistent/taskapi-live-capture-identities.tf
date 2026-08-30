@@ -55,12 +55,15 @@ resource "msgraph_resource" "taskapi_live_user_client_service_principal" {
   }
 }
 
-resource "msgraph_resource" "taskapi_live_user_client_owner" {
-  api_version = "v1.0"
-  url         = "applications/${msgraph_resource.taskapi_live_user_client.id}/owners/$ref"
+# A delegated Graph create can make the signed-in user an application owner.
+# The first live apply observed that relationship before this configuration's
+# separate owner POST, which Graph rejected as a duplicate. Stop managing the
+# redundant relationship without deleting it in any state where it succeeded.
+removed {
+  from = msgraph_resource.taskapi_live_user_client_owner
 
-  body = {
-    "@odata.id" = "https://graph.microsoft.com/v1.0/directoryObjects/${data.azuread_client_config.current.object_id}"
+  lifecycle {
+    destroy = false
   }
 }
 
