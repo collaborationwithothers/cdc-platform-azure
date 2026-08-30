@@ -63,6 +63,28 @@ application resource still owns every property of the registration. Terraform
 exports the application ID, Application ID URI, and service-principal object ID
 for later callers. None of those outputs is a credential.
 
+Two dedicated callers exist for the bounded live check of the tokens Entra
+issues for these permissions. The user caller is a single-tenant public client,
+which is an application that cannot safely keep a client secret. Device
+authorization lets the command-line client show a short code while the user
+signs in through a browser on another device. The client then requests
+`Tasks.Write` with the standard `profile` scope without presenting a client
+credential. Its tenant-wide delegated grant, the Entra record that lets it act
+for signed-in users, contains only `Tasks.Write`; `profile` is requested at
+capture time rather than added to that custom API grant. A dedicated
+user-assigned managed identity receives only the `Tasks.Write.All` app role.
+The identity has no Azure role assignment and neither caller receives task
+data, Kafka, Key Vault, or control-plane access.
+
+The callers are separate from Connect and every other operational identity.
+Token capture is a temporary diagnostic action with different permissions and
+a different lifecycle from a platform workload. A dedicated identity makes
+the permission removable without changing a production caller and makes a
+Graph readback distinguish the test grant from operational access. Terraform
+exports only their application, service-principal, client, principal, and Azure
+resource identifiers. These coordinates identify objects but cannot
+authenticate as them.
+
 `hashicorp/azuread` remains the default provider for the repository's other Entra
 resources. This is a narrow exception for a property that provider cannot
 express, not a repository-wide provider migration.
@@ -97,6 +119,14 @@ express, not a repository-wide provider migration.
 - Create the service principal from the application object ID: rejected because
   Microsoft Graph requires the application's `appId` when creating a service
   principal. The object ID identifies a different Entra object.
+- Reuse the Connect managed identity for the app-only capture: rejected because
+  it would give an operational Kafka Connect caller an unrelated task-api
+  permission. It would also make removing the live-check access a change to a
+  production identity rather than deletion of a diagnostic caller.
+- Use one confidential client for both captures: rejected because a client
+  credential would add a secret or certificate solely for a bounded live check.
+  Separate public-client and managed-identity paths exercise the two token
+  classes without introducing stored credentials.
 
 ## Consequences
 
@@ -104,8 +134,9 @@ express, not a repository-wide provider migration.
   Microsoft Graph property name and value. Provider-mocked tests therefore
   assert the exact scope, role, member type, and optional-claim body.
 - A Hari-owned live apply must still prove that Microsoft Graph accepts the
-  complete application body and materializes the service principal. Static
-  tests do not prove a live Graph response.
+  complete application bodies, delegated grant, app-role assignment, and
+  service principals. Static tests do not prove a live Graph response or token
+  claim shape.
 - Returning this application to AzureAD later requires a deliberate Terraform
   state migration. Recreating it instead would change its client ID and break
   grants made to the existing registration.
@@ -125,6 +156,10 @@ express, not a repository-wide provider migration.
 - [Microsoft Entra: Identifier URI restrictions](https://learn.microsoft.com/entra/identity-platform/identifier-uri-restrictions)
 - [Microsoft Entra: App management policies](https://learn.microsoft.com/entra/identity/enterprise-apps/configure-app-management-policies)
 - [Microsoft Graph: Create service principal](https://learn.microsoft.com/graph/api/serviceprincipal-post-serviceprincipals?view=graph-rest-1.0)
+- [Microsoft identity platform: OAuth 2.0 device authorization grant](https://learn.microsoft.com/entra/identity-platform/v2-oauth2-device-code)
+- [Microsoft Graph: Grant delegated permissions](https://learn.microsoft.com/graph/api/oauth2permissiongrant-post?view=graph-rest-1.0)
+- [Microsoft Graph: Grant an app role to a service principal](https://learn.microsoft.com/graph/api/serviceprincipal-post-approleassignedto?view=graph-rest-1.0)
+- [Microsoft Entra: Assign an app role to a managed identity](https://learn.microsoft.com/entra/identity/managed-identities-azure-resources/assign-app-role-managed-identity-azure-cli)
 - [Microsoft identity platform: Optional claims reference](https://learn.microsoft.com/entra/identity-platform/optional-claims-reference)
 - [Microsoft Graph: Terraform provider overview](https://learn.microsoft.com/graph/templates/terraform/overview-terraform-for-graph)
 - [Microsoft Graph Terraform provider: `msgraph_resource`](https://registry.terraform.io/providers/microsoft/msgraph/latest/docs/resources/resource)
