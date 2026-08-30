@@ -49,6 +49,13 @@ mock_provider "msgraph" {
       }
     }
   }
+
+  override_resource {
+    target = msgraph_resource.taskapi_service_principal
+    values = {
+      id = "00000000-0000-0000-0000-000000000003"
+    }
+  }
 }
 
 run "exposes_the_delegated_task_write_scope" {
@@ -152,7 +159,7 @@ run "makes_task_api_a_requestable_resource" {
   }
 
   assert {
-    condition     = output.taskapi_service_principal_object_id == "00000000-0000-0000-0000-000000000001"
+    condition     = output.taskapi_service_principal_object_id == "00000000-0000-0000-0000-000000000003"
     error_message = "Later callers must receive the tenant-local task-api service principal object ID."
   }
 }

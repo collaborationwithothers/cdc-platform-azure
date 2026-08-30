@@ -38,9 +38,23 @@ application property.
 
 The registration uses
 `api://<tenantId>/cdc-platform-task-api`, with `<tenantId>` read from the
-authenticated Terraform environment. Microsoft documents that as an allowed
-Application ID URI pattern. It avoids a checked-in tenant, application, or
-object identifier and gives a client a stable prefix for `Tasks.Write`.
+authenticated Terraform environment. Microsoft Entra lists that as a supported
+secure Application ID URI pattern. It satisfies normal secure-pattern
+enforcement for a newly added v1 application URI. It avoids a checked-in
+tenant, application, or object identifier and gives a client a stable prefix
+for `Tasks.Write`.
+
+A tenant can also enable `nonDefaultUriAddition`. The registration leaves
+`api.requestedAccessTokenVersion` unset. Microsoft Graph documents its null
+default as 1, so this create currently uses the v1 token format. Without an
+administrator-granted application or caller exemption, that stricter policy can
+reject `api://<tenantId>/<string>`. Its compatible alternative is
+`api://<tenantId>/<appId>`. Microsoft Entra assigns the read-only `appId` only
+when Graph creates the application, so using it in the same create body would
+cycle. A post-create update would split ownership of one application across two
+Terraform resources, which this ADR rejects. If the stricter policy rejects the
+create, `terraform apply` surfaces the Graph 4xx response. The post-apply
+readback runs only after a successful apply.
 
 The same provider creates one task-api service principal from the Graph-created
 application's exported `appId`. This is not split ownership of the application:
@@ -76,9 +90,10 @@ express, not a repository-wide provider migration.
 - Use `api://cdc-platform-task-api`: rejected because a bare string is not a
   documented safe pattern unless it is a verified or initial tenant domain.
   This repository neither establishes nor commits such a domain.
-- Use `api://<appId>`: rejected because Graph generates `appId` while creating
-  the application and the provider exposes it only after the response. Using it
-  in the same create body would introduce a dependency cycle.
+- Use `api://<tenantId>/<appId>`: rejected for this create because the stricter
+  policy-compatible URI needs the `appId` Graph assigns only after the create.
+  A post-create update would reintroduce the split application ownership this
+  ADR rejects.
 - Create the service principal from the application object ID: rejected because
   Microsoft Graph requires the application's `appId` when creating a service
   principal. The object ID identifies a different Entra object.
@@ -97,13 +112,20 @@ express, not a repository-wide provider migration.
 - Provider ownership is visible at the resource boundary: Microsoft Graph owns
   the task-api application, while AzureAD continues to own the other Entra
   objects in this layer.
+- `microsoft/msgraph` `~> 0.4.0` is public preview, so every provider upgrade
+  requires Terraform validation and plan plus state and live Graph-readback
+  inspection before this registration is relied on; this is a repository
+  control, not Microsoft provider guidance.
 
 ## References
 
 - [ADR-004: Delta events with version numbers over state snapshots](ADR-004-delta-events-with-version-numbers.md)
 - [Microsoft Graph: Create application](https://learn.microsoft.com/graph/api/application-post-applications?view=graph-rest-1.0)
+- [Microsoft Graph: apiApplication](https://learn.microsoft.com/graph/api/resources/apiapplication?view=graph-rest-1.0)
 - [Microsoft Entra: Identifier URI restrictions](https://learn.microsoft.com/entra/identity-platform/identifier-uri-restrictions)
+- [Microsoft Entra: App management policies](https://learn.microsoft.com/entra/identity/enterprise-apps/configure-app-management-policies)
 - [Microsoft Graph: Create service principal](https://learn.microsoft.com/graph/api/serviceprincipal-post-serviceprincipals?view=graph-rest-1.0)
 - [Microsoft identity platform: Optional claims reference](https://learn.microsoft.com/entra/identity-platform/optional-claims-reference)
+- [Microsoft Graph: Terraform provider overview](https://learn.microsoft.com/graph/templates/terraform/overview-terraform-for-graph)
 - [Microsoft Graph Terraform provider: `msgraph_resource`](https://registry.terraform.io/providers/microsoft/msgraph/latest/docs/resources/resource)
 - [Microsoft Graph Terraform provider: `msgraph_update_resource`](https://registry.terraform.io/providers/microsoft/msgraph/latest/docs/resources/update_resource)
