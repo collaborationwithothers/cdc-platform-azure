@@ -22,28 +22,26 @@
 
 provider "msgraph" {}
 
+locals {
+  # The tenant ID is read from the authenticated environment at plan time, so
+  # this public configuration names no tenant while using a documented
+  # Application ID URI pattern.
+  taskapi_application_id_uri = "api://${data.azuread_client_config.current.tenant_id}/cdc-platform-task-api"
+}
+
 resource "msgraph_resource" "taskapi" {
   api_version = "v1.0"
   url         = "applications"
+
+  response_export_values = {
+    app_id = "appId"
+  }
 
   body = {
     displayName    = "cdc-platform-task-api"
     description    = "Resource API registration for task-api. Exposes the delegated scope and the application role a caller needs to write a workflow task."
     signInAudience = "AzureADMyOrg"
-
-    # No identifierUris. This ticket defines the permissions but does not choose
-    # the Application ID URI a client will request or create task-api's tenant-
-    # local service principal. A later Graph resource can use the computed appId
-    # after this application exists, without committing a literal client ID.
-    #
-    # One unknown remains for the first live apply. Microsoft Graph documents
-    # identifierUris and oauth2PermissionScopes as separate properties but does
-    # not state whether a scope is accepted while identifierUris is empty. If
-    # Graph rejects the create request, the follow-up must select the URI before
-    # the application can be created.
-    #
-    # https://learn.microsoft.com/entra/identity-platform/identifier-uri-restrictions
-    # https://learn.microsoft.com/graph/api/resources/apiapplication?view=graph-rest-1.0
+    identifierUris = [local.taskapi_application_id_uri]
     api = {
       oauth2PermissionScopes = [
         {
@@ -99,6 +97,18 @@ resource "msgraph_resource" "taskapi" {
     }
   }
 
+}
+
+# An Entra application is the API definition. Its service principal is the
+# tenant-local instance that receives later grants. Graph requires the generated
+# application ID, not the application's object ID, to create the instance.
+resource "msgraph_resource" "taskapi_service_principal" {
+  api_version = "v1.0"
+  url         = "servicePrincipals"
+
+  body = {
+    appId = msgraph_resource.taskapi.output.app_id
+  }
 }
 
 # An application owner can recover and modify the registration independently of
