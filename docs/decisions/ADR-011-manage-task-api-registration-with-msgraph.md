@@ -85,6 +85,16 @@ exports only their application, service-principal, client, principal, and Azure
 resource identifiers. These coordinates identify objects but cannot
 authenticate as them.
 
+The public client has no separate Terraform owner relationship. During the
+first Hari-owned delegated apply, Graph created the application with the
+signed-in user already present as its owner. A second `owners/$ref` POST for
+that same user returned `400 Request_BadRequest` because the reference already
+existed. Terraform therefore stops managing that redundant relationship. A
+`removed` block preserves the remote owner if an earlier environment recorded
+the relationship in state. The task-api resource application keeps its
+separate owner resource because its live create did not exhibit this duplicate
+relationship behavior.
+
 `hashicorp/azuread` remains the default provider for the repository's other Entra
 resources. This is a narrow exception for a property that provider cannot
 express, not a repository-wide provider migration.
@@ -127,6 +137,10 @@ express, not a repository-wide provider migration.
   credential would add a secret or certificate solely for a bounded live check.
   Separate public-client and managed-identity paths exercise the two token
   classes without introducing stored credentials.
+- Add the authenticated user through a second public-client owner resource:
+  rejected because the delegated create already established that relationship
+  in the live tenant. Graph's relationship POST is not an upsert, so adding the
+  same owner again fails instead of converging.
 
 ## Consequences
 
@@ -164,3 +178,4 @@ express, not a repository-wide provider migration.
 - [Microsoft Graph: Terraform provider overview](https://learn.microsoft.com/graph/templates/terraform/overview-terraform-for-graph)
 - [Microsoft Graph Terraform provider: `msgraph_resource`](https://registry.terraform.io/providers/microsoft/msgraph/latest/docs/resources/resource)
 - [Microsoft Graph Terraform provider: `msgraph_update_resource`](https://registry.terraform.io/providers/microsoft/msgraph/latest/docs/resources/update_resource)
+- [Terraform: `removed` block reference](https://developer.hashicorp.com/terraform/language/block/removed)
