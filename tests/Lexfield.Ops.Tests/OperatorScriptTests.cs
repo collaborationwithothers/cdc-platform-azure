@@ -27,13 +27,15 @@ public static class OperatorScript
     public static async Task<Result> RunAsync(
         string script,
         IEnumerable<string>? arguments = null,
-        IDictionary<string, string>? environment = null)
+        IDictionary<string, string>? environment = null,
+        string? standardInput = null)
     {
         var startInfo = new ProcessStartInfo("/bin/bash")
         {
             WorkingDirectory = RepositoryRoot,
             RedirectStandardOutput = true,
             RedirectStandardError = true,
+            RedirectStandardInput = standardInput is not null,
         };
         startInfo.ArgumentList.Add(Path.Combine(RepositoryRoot, "scripts", "ops", script));
         foreach (var argument in arguments ?? [])
@@ -47,6 +49,12 @@ public static class OperatorScript
         }
 
         using var process = Process.Start(startInfo)!;
+        if (standardInput is not null)
+        {
+            await process.StandardInput.WriteAsync(standardInput);
+            process.StandardInput.Close();
+        }
+
         var standardOutput = process.StandardOutput.ReadToEndAsync();
         var standardError = process.StandardError.ReadToEndAsync();
         await process.WaitForExitAsync();
@@ -62,6 +70,144 @@ public static class OperatorScript
         }
 
         return directory?.FullName ?? throw new InvalidOperationException("Repository root not found.");
+    }
+}
+
+/// <summary>
+/// Drives the token inspector through its only input boundary, standard input,
+/// and judges the allowlisted summary an operator can post as live evidence.
+/// </summary>
+public sealed class TaskApiTokenInspectionTests
+{
+    [Fact]
+    public async Task Delegated_token_prints_only_the_allowlisted_summary()
+    {
+        var token = CreateJwt(new
+        {
+            ver = "2.0",
+            idtyp = "user",
+            tid = "tenant-secret-value",
+            oid = "user-secret-value",
+            sub = "pairwise-secret-value",
+            azp = "client-secret-value",
+            scp = "Tasks.Write profile",
+            aud = "audience-secret-value",
+            name = "person-secret-value",
+        });
+
+        var result = await OperatorScript.RunAsync(
+            "inspect-taskapi-token.sh",
+            standardInput: token + '\n');
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Equal(string.Join('\n',
+        [
+            "inspection: JWT payload decoded without signature validation",
+            "token_version: \"2.0\"",
+            "idtyp: \"user\"",
+            "tid_present: true",
+            "oid_present: true",
+            "azp_present: true",
+            "appid_present: false",
+            "scp: [\"Tasks.Write\", \"profile\"]",
+            "roles: []",
+            "sub_equals_oid: false",
+            "",
+        ]), result.StandardOutput);
+        Assert.Empty(result.StandardError);
+        Assert.DoesNotContain("tenant-secret-value", result.Output);
+        Assert.DoesNotContain("user-secret-value", result.Output);
+        Assert.DoesNotContain("pairwise-secret-value", result.Output);
+        Assert.DoesNotContain("client-secret-value", result.Output);
+        Assert.DoesNotContain("audience-secret-value", result.Output);
+        Assert.DoesNotContain("person-secret-value", result.Output);
+        Assert.DoesNotContain(token, result.Output);
+    }
+
+    [Fact]
+    public async Task Application_token_reports_role_and_matching_subject_without_identifiers()
+    {
+        var token = CreateJwt(new
+        {
+            ver = "2.0",
+            idtyp = "app",
+            tid = "application-tenant-secret",
+            oid = "workload-object-secret",
+            sub = "workload-object-secret",
+            appid = "workload-client-secret",
+            roles = new[] { "Tasks.Write.All" },
+        });
+
+        var result = await OperatorScript.RunAsync(
+            "inspect-taskapi-token.sh",
+            standardInput: token);
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Contains("idtyp: \"app\"", result.StandardOutput);
+        Assert.Contains("azp_present: false", result.StandardOutput);
+        Assert.Contains("appid_present: true", result.StandardOutput);
+        Assert.Contains("scp: []", result.StandardOutput);
+        Assert.Contains("roles: [\"Tasks.Write.All\"]", result.StandardOutput);
+        Assert.Contains("sub_equals_oid: true", result.StandardOutput);
+    }
+
+    [Fact]
+    public async Task Missing_optional_claims_have_explicit_empty_or_false_values()
+    {
+        var result = await OperatorScript.RunAsync(
+            "inspect-taskapi-token.sh",
+            standardInput: CreateJwt(new { }));
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Contains("idtyp: null", result.StandardOutput);
+        Assert.Contains("tid_present: false", result.StandardOutput);
+        Assert.Contains("oid_present: false", result.StandardOutput);
+        Assert.Contains("scp: []", result.StandardOutput);
+        Assert.Contains("roles: []", result.StandardOutput);
+        Assert.Contains("sub_equals_oid: false", result.StandardOutput);
+    }
+
+    [Fact]
+    public async Task Malformed_token_fails_before_printing_payload_fragments()
+    {
+        var malformed = CreateJwt("payload-fragment-that-must-not-print");
+
+        var result = await OperatorScript.RunAsync(
+            "inspect-taskapi-token.sh",
+            standardInput: malformed);
+
+        Assert.NotEqual(0, result.ExitCode);
+        Assert.Empty(result.StandardOutput);
+        Assert.StartsWith("FAIL:", result.StandardError);
+        Assert.DoesNotContain("payload-fragment-that-must-not-print", result.Output);
+        Assert.DoesNotContain(malformed, result.Output);
+    }
+
+    [Fact]
+    public async Task Token_in_a_command_argument_is_rejected_without_echoing_it()
+    {
+        var token = CreateJwt(new { tid = "argument-tenant-secret" });
+
+        var result = await OperatorScript.RunAsync(
+            "inspect-taskapi-token.sh",
+            arguments: [token],
+            standardInput: "ignored-standard-input");
+
+        Assert.NotEqual(0, result.ExitCode);
+        Assert.Empty(result.StandardOutput);
+        Assert.Contains("only through standard input", result.StandardError);
+        Assert.DoesNotContain(token, result.Output);
+        Assert.DoesNotContain("argument-tenant-secret", result.Output);
+    }
+
+    private static string CreateJwt(object payload)
+    {
+        static string Encode(object value) => Convert.ToBase64String(JsonSerializer.SerializeToUtf8Bytes(value))
+            .TrimEnd('=')
+            .Replace('+', '-')
+            .Replace('/', '_');
+
+        return $"{Encode(new { alg = "RS256", typ = "JWT" })}.{Encode(payload)}.synthetic-signature";
     }
 }
 
