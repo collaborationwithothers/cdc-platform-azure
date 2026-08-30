@@ -22,6 +22,12 @@ containers on one network. Onboarding creates databases `tenant-001` and
 tenant has one connector. Both connectors write business events to the shared
 `workflow-transitions` topic, but they read control commands from separate
 `connect-signals-lexfield-001` and `connect-signals-lexfield-002` topics.
+Their generated configurations also use separate `kafka-signal-lexfield-001`
+and `kafka-signal-lexfield-002` consumer groups. A consumer group stores a
+reader's committed next-record position in Kafka. Separate topics target a
+command to one tenant. Separate groups keep that tenant's command position
+independent, so Tenant B cannot advance the position where Tenant A resumes
+while Tenant A's connector is unavailable.
 
 During the snapshot, a watermark is an `OPEN` or `CLOSE` row in
 `dbo.DebeziumSignal` that marks the start or end of a snapshot chunk in the same
