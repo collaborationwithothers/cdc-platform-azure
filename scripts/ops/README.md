@@ -56,6 +56,7 @@ kubectl -n <namespace> port-forward svc/<connect-rest-service> 8083:8083
 | `notifier-control.sh` | `<retry\|skip> <partition> <offset> <reason>` | Writes one control message to the `notifier-control` topic. |
 | `inspect-taskapi-token.sh` | no arguments; token on standard input | Decodes one JWT payload and prints only allowlisted claim-shape evidence. |
 | `capture-taskapi-delegated-tokens.sh` | no arguments; exported coordinates | Runs two user sign-ins and prints only the inspector summaries. |
+| `capture-taskapi-workload-token.sh` | `prepare` or `capture`; exported coordinates | Prepares the silent container program or captures its token through the local inspector. Use only through runbook Section 3. |
 
 ### Capture the two task-api user tokens
 
@@ -76,6 +77,20 @@ The script's local allowlist accepts HTTPS on exactly `microsoft.com`,
 Other hosts, embedded credentials, and explicit ports are rejected before the
 sign-in code is displayed. This is a local safety policy, not a complete list
 of hosts permitted by the protocol.
+
+### Capture the task-api managed-identity token
+
+Run [Section 3 of the live procedure](../../docs/runbooks/verify-taskapi-token-claims.md#3-capture-the-managed-identity-summary-in-azure-container-instances)
+only after the live preconditions and both delegated captures pass. The block
+owns temporary-container creation and verified deletion. `prepare` emits public
+startup code. `capture` reads `resource_group`, `container_group`,
+`workload_client_id`, and `taskapi_resource` from the exported environment.
+It sends the last two through a pipe after the remote program disables terminal
+echo. Only reusable code is installed in the container; no coordinate or token
+is written to its file. The single-executable call avoids ACI's restriction on
+exec arguments. A failure suppresses command output and publishes no summary.
+The runbook prints the summary only after verified cleanup. Local tests use
+synthetic metadata replies and a terminal stream, not live Azure credentials.
 
 ### Inspect one task-api token
 

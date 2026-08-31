@@ -456,8 +456,224 @@ public sealed class TaskApiDelegatedCaptureTests
 }
 
 /// <summary>
-/// Checks that need no cluster: each command explains the component it controls
-/// when its arguments are missing, and notifier validation names the correction.
+/// Runs the documented ACI procedure with a synthetic Azure CLI. The installed
+/// program and inspector are real; metadata and Azure resource state are not.
+/// </summary>
+public sealed class TaskApiWorkloadCaptureTests
+{
+    [Fact]
+    public async Task Prepared_program_runs_in_the_documented_image_without_startup_logs()
+    {
+        var prepared = await OperatorScript.RunAsync("capture-taskapi-workload-token.sh", ["prepare"]);
+        Assert.Equal(0, prepared.ExitCode);
+        await using var container = new ContainerBuilder("mcr.microsoft.com/azure-cli:azurelinux3.0")
+            .WithEntrypoint("/bin/bash")
+            .WithCommand("-c", prepared.StandardOutput.Trim())
+            .WithWaitStrategy(Wait.ForUnixContainer().UntilFileExists("/tmp/taskapi-token",
+                DotNet.Testcontainers.Configurations.FileSystem.Container,
+                wait => wait.WithTimeout(TimeSpan.FromSeconds(30))))
+            .Build();
+        await container.StartAsync();
+        // Empty stdin stops before metadata HTTP. No Azure token is requested.
+        var result = await container.ExecAsync(["/bin/bash", "-c", "/tmp/taskapi-token </dev/null"]);
+        Assert.NotEqual(0, result.ExitCode);
+        Assert.Contains("READY", result.Stdout);
+        Assert.Contains("response suppressed", result.Stderr);
+        var logs = await container.GetLogsAsync();
+        Assert.Empty(logs.Stdout + logs.Stderr);
+    }
+
+    [Fact]
+    public async Task Runbook_captures_through_a_single_executable_and_verifies_cleanup()
+    {
+        var result = await RunAsync("success");
+        Assert.True(result.ExitCode == 0, result.Output);
+        Assert.Contains("roles: [\"Tasks.Write.All\"]", result.StandardOutput);
+        Assert.Contains("temporary ACI deletion readback=pass", result.Output);
+        Assert.DoesNotContain("private-", result.Output);
+    }
+
+    [Theory]
+    [InlineData("exec-failure")]
+    [InlineData("bad-ready")]
+    [InlineData("malformed-token")]
+    [InlineData("metadata-failure")]
+    [InlineData("logs")]
+    [InlineData("create-failure")]
+    public async Task Failed_capture_publishes_no_summary_and_still_deletes_the_group(string scenario)
+    {
+        var result = await RunAsync(scenario);
+        Assert.NotEqual(0, result.ExitCode);
+        Assert.Contains("FAIL:", result.StandardError);
+        Assert.DoesNotContain("inspection:", result.Output);
+        Assert.DoesNotContain("private-", result.Output);
+        Assert.Contains("temporary ACI deletion readback=pass", result.Output);
+    }
+
+    [Theory]
+    [InlineData("existing")]
+    [InlineData("delete-failure")]
+    public async Task Existing_group_or_failed_cleanup_never_publishes_completion(string scenario)
+    {
+        var result = await RunAsync(scenario);
+        Assert.NotEqual(0, result.ExitCode);
+        Assert.Contains("FAIL:", result.StandardError);
+        Assert.DoesNotContain("inspection:", result.Output);
+        Assert.DoesNotContain("deletion readback=pass", result.Output);
+        Assert.DoesNotContain("private-", result.Output);
+    }
+
+    private static async Task<OperatorScript.Result> RunAsync(string scenario)
+    {
+        var directory = Directory.CreateTempSubdirectory("taskapi-workload-").FullName;
+        try
+        {
+            // Replace only the metadata HTTP boundary, using synthetic claims.
+            await File.WriteAllTextAsync(Path.Combine(directory, "sitecustomize.py"), """
+                import base64, io, json, os, urllib.request
+                from urllib.parse import parse_qs, urlsplit
+                def metadata(self, request, **kwargs):
+                    url = urlsplit(request.full_url)
+                    assert url.hostname == '169.254.169.254'
+                    assert url.path == '/metadata/identity/oauth2/token'
+                    assert parse_qs(url.query) == {
+                        'resource': ['api://private-resource'],
+                        'client_id': ['11111111-1111-1111-1111-111111111111'],
+                        'api-version': ['2018-02-01']}
+                    assert request.get_header('Metadata') == 'true'
+                    if os.environ['SCENARIO'] == 'metadata-failure':
+                        raise ValueError('private-response-must-not-escape')
+                    payload = base64.urlsafe_b64encode(json.dumps({
+                        'idtyp': 'app', 'tid': 'private-tenant', 'oid': 'private-object',
+                        'roles': ['Tasks.Write.All']}).encode()).decode().rstrip('=')
+                    token = 'header.' + payload + '.signature'
+                    if os.environ['SCENARIO'] == 'malformed-token':
+                        token = 'private-invalid-token'
+                    return io.BytesIO(json.dumps({'access_token': token}).encode())
+                urllib.request.OpenerDirector.open = metadata
+                """);
+            var stub = Path.Combine(directory, "az");
+            await File.WriteAllTextAsync(stub, """
+                #!/usr/bin/env python3
+                import os, pathlib, pty, shlex, subprocess, sys, threading, time
+                root = pathlib.Path(__file__).parent
+                args = sys.argv[1:]
+                def value(flag):
+                    return args[args.index(flag) + 1]
+                state = root / 'created'
+                if os.environ['SCENARIO'] == 'existing':
+                    state.touch()
+                if args[:2] == ['identity', 'show']:
+                    print('synthetic-group' if value('--query') == 'resourceGroup' else 'uksouth')
+                elif args[:2] == ['container', 'list']:
+                    print(int(state.exists()))
+                elif args[:2] == ['container', 'create']:
+                    bootstrap = value('--command-line')
+                    assert 'private-' not in bootstrap
+                    assert '11111111-1111-1111-1111-111111111111' not in bootstrap
+                    # Run the actual startup program in a private synthetic container filesystem.
+                    bootstrap = bootstrap.replace('/tmp/taskapi-token', str(root / 'taskapi-token'))
+                    boot = subprocess.Popen(shlex.split(bootstrap), stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+                    try:
+                        for _ in range(100):
+                            if (root / 'taskapi-token').exists():
+                                break
+                            time.sleep(0.01)
+                    finally:
+                        boot.kill()
+                        out, err = boot.communicate()
+                    assert not out and not err
+                    assert (root / 'taskapi-token').exists()
+                    assert 'private-' not in (root / 'taskapi-token').read_text()
+                    state.touch()
+                    if os.environ['SCENARIO'] == 'create-failure':
+                        sys.exit('private-create-error')
+                elif args[:2] == ['container', 'show']:
+                    print('Running')
+                elif args[:2] == ['container', 'exec']:
+                    command = value('--exec-command')
+                    if len(command.split()) != 1:
+                        sys.exit('ACI exec does not support command arguments')
+                    if os.environ['SCENARIO'] == 'exec-failure':
+                        sys.exit('private-exec-error')
+                    if os.environ['SCENARIO'] == 'bad-ready':
+                        print('private-unexpected-output', flush=True)
+                        sys.exit(0)
+                    master, slave = pty.openpty()
+                    env = dict(os.environ, PYTHONPATH=str(root))
+                    child = subprocess.Popen([str(root / pathlib.Path(command).name)],
+                        stdin=slave, stdout=slave, stderr=slave, env=env)
+                    os.close(slave)
+                    def forward_input():
+                        line = sys.stdin.buffer.readline()
+                        if line:
+                            os.write(master, line)
+                    threading.Thread(target=forward_input, daemon=True).start()
+                    try:
+                        while True:
+                            chunk = os.read(master, 4096)
+                            if not chunk:
+                                break
+                            sys.stdout.buffer.write(chunk)
+                            sys.stdout.buffer.flush()
+                    except OSError:
+                        pass
+                    finally:
+                        os.close(master)
+                        child.wait(timeout=5)
+                    # ACI exec does not promise propagation of the remote exit code.
+                elif args[:2] == ['container', 'delete']:
+                    assert os.environ['SCENARIO'] != 'existing'
+                    if os.environ['SCENARIO'] == 'delete-failure':
+                        sys.exit('private-delete-error')
+                    state.unlink()
+                elif args[:2] == ['container', 'logs'] and os.environ['SCENARIO'] == 'logs':
+                    print('private-log-content')
+                elif args[:2] != ['container', 'logs']:
+                    sys.exit(99)
+                """);
+            if (!OperatingSystem.IsWindows())
+                File.SetUnixFileMode(stub, UnixFileMode.UserRead | UnixFileMode.UserExecute);
+            var runbook = await File.ReadAllTextAsync(Path.Combine(OperatorScript.RepositoryRoot,
+                "docs/runbooks/verify-taskapi-token-claims.md"));
+            var block = runbook.Split("## 3.")[1].Split("```bash\n")[1].Split("```")[0];
+            var start = new ProcessStartInfo("/bin/bash")
+            {
+                WorkingDirectory = OperatorScript.RepositoryRoot,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+            };
+            start.ArgumentList.Add("-c");
+            start.ArgumentList.Add("set -euo pipefail\nfail() { echo \"FAIL: $1\" >&2; exit 1; }\n"
+                + block + "\nprintf '%s\\n' \"${workload_summary:-}\"");
+            start.Environment["PATH"] = directory + Path.PathSeparator + start.Environment["PATH"];
+            start.Environment["delegated_summary"] = "synthetic delegated summary";
+            start.Environment["workload_resource_id"] = "synthetic-identity-resource";
+            start.Environment["workload_client_id"] = "11111111-1111-1111-1111-111111111111";
+            start.Environment["taskapi_resource"] = "api://private-resource";
+            start.Environment["SCENARIO"] = scenario;
+            using var process = Process.Start(start)!;
+            var stdout = process.StandardOutput.ReadToEndAsync();
+            var stderr = process.StandardError.ReadToEndAsync();
+            try { await process.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(30)); }
+            finally
+            {
+                if (!process.HasExited)
+                {
+                    process.Kill(entireProcessTree: true);
+                    await process.WaitForExitAsync();
+                }
+            }
+            Assert.Equal(scenario is "existing" or "delete-failure",
+                File.Exists(Path.Combine(directory, "created")));
+            return new(process.ExitCode, await stdout, await stderr);
+        }
+        finally { Directory.Delete(directory, recursive: true); }
+    }
+}
+
+/// <summary>
+/// Checks argument validation without a cluster.
 /// </summary>
 public sealed class OperatorScriptArgumentTests
 {

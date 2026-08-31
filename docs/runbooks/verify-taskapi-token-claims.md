@@ -138,13 +138,22 @@ difference, that a signature is valid, or that task-api accepts the token.
 
 ## 3. Capture the managed-identity summary in Azure Container Instances
 
-Azure Container Instances (ACI) runs one temporary Linux container group. The
-container's main process prints nothing. An exec stream requests the token from
-the link-local managed-identity endpoint and pipes it directly into the local
-inspector. The raw token is never a command argument or container log entry.
+Azure Container Instances (ACI) runs one temporary Linux container group. Its
+silent startup installs reusable program text, not identifiers or tokens.
+The helper executes that program by path only, waits for terminal echo to be
+disabled, then sends the resource and client coordinates through standard input.
+The returned token goes to the local inspector through a pipe. Neither the
+token nor the coordinates are written to the installed program or container logs.
+Do not run the helper alone: this complete block owns creation and cleanup.
 
 ```bash
+set +x
+set -euo pipefail
 : "${delegated_summary:?Complete both delegated captures before creating ACI}"
+: "${workload_resource_id:?Rerun the live preconditions}"
+: "${workload_client_id:?Rerun the live preconditions}"
+: "${taskapi_resource:?Rerun the live preconditions}"
+startup_command="$(/bin/bash scripts/ops/capture-taskapi-workload-token.sh prepare)"
 container_group="aci-taskapi-token-capture"
 resource_group="$(az identity show --ids "$workload_resource_id" --query resourceGroup --output tsv)"
 location="$(az identity show --ids "$workload_resource_id" --query location --output tsv)"
@@ -161,7 +170,8 @@ delete_aci() {
   [ "$count" = "0" ] && { aci_created=false; return 0; }
   [ "$count" = "1" ] || return 1
   az container delete --resource-group "$resource_group" \
-    --name "$container_group" --yes --only-show-errors >/dev/null
+    --name "$container_group" --yes --only-show-errors >/dev/null 2>&1 || {
+      echo "FAIL: temporary ACI deletion failed; verify cleanup in Azure" >&2; return 1; }
   for _ in $(seq 1 60); do
     count="$(az container list --resource-group "$resource_group" \
       --query "length([?name == '${container_group}'])" --output tsv)" || return 1
@@ -179,8 +189,9 @@ az container create --resource-group "$resource_group" --name "$container_group"
   --location "$location" --image mcr.microsoft.com/azure-cli:azurelinux3.0 \
   --os-type Linux --cpu 1 --memory 1 --restart-policy Never \
   --assign-identity "$workload_resource_id" \
-  --command-line "bash -lc 'while :; do read -r -t 3600 || true; done'" \
-  --only-show-errors --output none
+  --command-line "$startup_command" \
+  --only-show-errors --output none 2>/dev/null || \
+  fail "temporary ACI creation failed; cleanup will be attempted"
 
 for _ in $(seq 1 60); do
   [ "$(az container show --resource-group "$resource_group" --name "$container_group" \
@@ -190,22 +201,28 @@ done
 [ "$(az container show --resource-group "$resource_group" --name "$container_group" \
   --query instanceView.state --output tsv)" = "Running" ] || fail "temporary ACI did not start"
 
-metadata_command="bash -lc 'for tool in curl jq; do command -v \"\$tool\" >/dev/null || { echo \"required image tool unavailable: \$tool\" >&2; exit 127; }; done; curl --silent --show-error --fail --noproxy \"*\" --header \"Metadata:true\" --get \"http://169.254.169.254/metadata/identity/oauth2/token\" --data-urlencode \"api-version=2018-02-01\" --data-urlencode \"resource=${taskapi_resource}\" --data-urlencode \"client_id=${workload_client_id}\" | jq -er .access_token'"
-workload_summary="$(az container exec --resource-group "$resource_group" \
-  --name "$container_group" --exec-command "$metadata_command" --only-show-errors | \
-  scripts/ops/inspect-taskapi-token.sh)"
-unset metadata_command
+workload_summary="$(
+  export resource_group container_group workload_client_id taskapi_resource
+  /bin/bash scripts/ops/capture-taskapi-workload-token.sh capture
+)"
+unset startup_command
 [ -z "$(az container logs --resource-group "$resource_group" \
   --name "$container_group" --only-show-errors)" ] || fail "temporary ACI produced container logs"
 
 delete_aci
 trap - EXIT
+printf '%s\n' "$workload_summary"
 ```
 
 Microsoft documents the user-assigned identity and metadata request shape in
 [ACI managed identity](https://learn.microsoft.com/azure/container-instances/container-instances-managed-identity).
-Microsoft maintains the [Azure Linux 3.0 CLI image](https://learn.microsoft.com/cli/azure/run-azure-cli-docker)
-but does not document `curl` and `jq`, so the exec command checks both first.
+Microsoft maintains the [Azure Linux 3.0 CLI image](https://learn.microsoft.com/cli/azure/run-azure-cli-docker).
+The helper uses Python 3 in that image, not extra `curl` or `jq` packages.
+The [startup command](https://learn.microsoft.com/azure/container-instances/container-instances-start-command)
+accepts arguments; [container exec](https://learn.microsoft.com/azure/container-instances/container-instances-exec#restrictions)
+does not. Keep these two commands separate. Readiness and token return each
+have a 60-second local deadline; the metadata request has a 30-second timeout.
+Local tests do not prove the live exec stream or Entra claim emission.
 
 ## 4. Post only this evidence to issue 266
 
