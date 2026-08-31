@@ -35,7 +35,7 @@ capture has stopped when it may still be running. `pause-connector.sh` polls
 `GET /connectors/{name}/status` until the connector and every task report
 `PAUSED`, then prints what it saw.
 
-## Before you run anything
+## Before running connector or notifier controls
 
 Neither Kafka Connect's REST listener nor the Kafka broker has public ingress
 (blueprint section 9), so forward the port you need first. The service names come
@@ -55,6 +55,19 @@ kubectl -n <namespace> port-forward svc/<connect-rest-service> 8083:8083
 | `resume-connector.sh` | `<tenantId>` | Resumes the same connector and waits until it reports `RUNNING`. |
 | `notifier-control.sh` | `<retry\|skip> <partition> <offset> <reason>` | Writes one control message to the `notifier-control` topic. |
 | `inspect-taskapi-token.sh` | no arguments; token on standard input | Decodes one JWT payload and prints only allowlisted claim-shape evidence. |
+| `capture-taskapi-delegated-tokens.sh` | no arguments; exported coordinates | Runs two user sign-ins and prints only the inspector summaries. |
+
+### Capture the two task-api user tokens
+
+After the [live preconditions](../../docs/runbooks/verify-taskapi-token-claims.md#1-require-every-live-precondition)
+pass, run Section 2's complete block. It invokes Bash explicitly and exports
+`tenant_id`, `user_client_id`, and `taskapi_resource` to the capture process.
+The script requests `Tasks.Write openid profile` and `Tasks.Write openid`,
+keeping `openid` constant. Follow both sign-in prompts with the same account.
+Standard error contains temporary sign-in codes; never include it in reports.
+Standard output contains only the two labelled summaries, after both succeed.
+Tokens stay in memory and inspector pipes. Failure prints a bounded diagnostic
+and stops without creating Azure resources or publishing partial summaries.
 
 ### Inspect one task-api token
 
@@ -132,7 +145,7 @@ request: notifier consumer action 'skip' for Kafka partition 7 at offset 4102; w
 success: notifier control action 'skip' written to topic notifier-control for Kafka partition 7 at offset 4102.
 ```
 
-Called with no arguments, each script prints the arguments it needs and exits
+Called with no arguments, each connector or notifier control prints its required arguments and exits
 non-zero. Every failure prints a line beginning `FAIL:` on standard error and
 exits non-zero, so a runbook step can be checked by its exit code.
 
