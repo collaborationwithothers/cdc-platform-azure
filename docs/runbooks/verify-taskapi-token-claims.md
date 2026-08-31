@@ -8,21 +8,33 @@ payload of identity and permission claims. Decoding that payload is inspection;
 it does not validate the signature or prove that task-api would accept it.
 
 Hari runs this procedure after the persistent identity layer has been applied
-and read back. It keeps each raw token in a shell variable or pipe only. It
+and read back. Raw tokens stay in process memory and pipes only. It
 prints and posts only claim names, permission strings, presence booleans, and
 the `sub == oid` boolean. Do not run this procedure with shell tracing.
 
 ## 1. Require every live precondition
 
-Start at the repository root. The checks below require the selected Azure CLI
+Hari first reserves #266 as the only live ticket in progress across sessions.
+Start at the repository root with Azure CLI, Terraform, jq, curl, and Python 3
+available. Run this command alone, then wait for the new Bash prompt:
+
+```bash
+/bin/bash --noprofile --norc
+```
+
+Run every remaining block in that same Bash session. A `bash` label on a code
+block does not switch shells. If a failure exits Bash, stop and restart this
+section; unexported variables from another shell are not inherited.
+The checks below require the selected Azure CLI
 subscription, its budget alert, a zero-change persistent plan, the public
 client grant, and the managed-identity application-role assignment. They print
 no tenant, subscription, application, object, or resource identifier.
 
 ```bash
-cd "$(git rev-parse --show-toplevel)"
-set -euo pipefail
 set +x
+[ -n "${BASH_VERSION:-}" ] || { echo "FAIL: start Bash first" >&2; exit 1; }
+set -euo pipefail
+cd "$(git rev-parse --show-toplevel)"
 fail() { echo "FAIL: $1" >&2; exit 1; }
 require_one() { [ "$1" = "1" ] || fail "$2"; echo "$2=pass"; }
 
@@ -82,68 +94,47 @@ and [device authorization](https://learn.microsoft.com/entra/identity-platform/v
 
 ## 2. Capture the two delegated summaries
 
-The helper follows the server-provided polling interval. It prints the device
-sign-in message to standard error and returns only the access token through
-standard output. A declined, incorrect, expired, or unexpected response stops
-the procedure without printing the response body.
+After every precondition passes, run the complete block below. The capture
+script requests `Tasks.Write openid profile`, then `Tasks.Write openid`. OpenID
+Connect is the sign-in protocol whose `openid` scope requests an ID token;
+keeping it in both requests isolates the added `profile` scope. The script
+inspects only the API access token and discards any ID or refresh token.
+
+The block exports the three non-secret coordinates only to a child process and
+explicitly invokes Bash. No copied function definitions are needed. Complete
+both browser sign-ins with the same account. The terminal displays a temporary
+user code for each sign-in; do not copy those codes into reports or screenshots.
 
 ```bash
-get_device_token() {
-  local scope="$1" device_response device_code interval status
-  device_response="$(curl --silent --show-error --request POST \
-    "https://login.microsoftonline.com/${tenant_id}/oauth2/v2.0/devicecode" \
-    --header "Content-Type: application/x-www-form-urlencoded" \
-    --data-urlencode "client_id=${user_client_id}" \
-    --data-urlencode "scope=${scope}")"
-  printf '%s' "$device_response" | jq -r .message >&2
-  device_code="$(printf '%s' "$device_response" | jq -er .device_code)"
-  interval="$(printf '%s' "$device_response" | jq -er .interval)"
-  unset device_response
-
-  while :; do
-    sleep "$interval"
-    if curl --silent --show-error --request POST \
-      "https://login.microsoftonline.com/${tenant_id}/oauth2/v2.0/token" \
-      --header "Content-Type: application/x-www-form-urlencoded" \
-      --data-urlencode "grant_type=urn:ietf:params:oauth:grant-type:device_code" \
-      --data-urlencode "client_id=${user_client_id}" \
-      --data-urlencode "device_code=${device_code}" | python3 -c '
-import json
-import sys
-
-response = json.load(sys.stdin)
-if "access_token" in response:
-    print(response["access_token"])
-    raise SystemExit(0)
-error = response.get("error")
-if error == "authorization_pending":
-    raise SystemExit(10)
-if error in ("authorization_declined", "bad_verification_code", "expired_token"):
-    print("FAIL: device authorization stopped: " + error, file=sys.stderr)
-    raise SystemExit(11)
-print("FAIL: device authorization returned an unexpected error", file=sys.stderr)
-raise SystemExit(11)
-'; then
-      unset device_code
-      return
-    else
-      status="$?"
-      [ "$status" = "10" ] || return "$status"
-    fi
-  done
-}
-
-delegated_profile_summary="$(get_device_token \
-  "${taskapi_resource}/Tasks.Write profile" | scripts/ops/inspect-taskapi-token.sh)"
-
-delegated_plain_summary="$(get_device_token \
-  "${taskapi_resource}/Tasks.Write" | scripts/ops/inspect-taskapi-token.sh)"
+set +x
+if delegated_summary="$(
+  export tenant_id user_client_id taskapi_resource
+  /bin/bash scripts/ops/capture-taskapi-delegated-tokens.sh
+)"; then
+  printf '%s\n' "$delegated_summary"
+else
+  unset delegated_summary
+  echo "FAIL: delegated capture stopped; do not create ACI" >&2
+fi
 ```
 
-This comparison is observational. Microsoft documents `profile` as an OpenID
-Connect scope, but does not promise that adding it changes a custom API access
-token. Record what Entra emits. Do not infer that `profile` caused a difference
-or that no difference settles the runtime contract.
+Only after both captures succeed does standard output contain the two labelled
+inspector summaries. Missing inputs, malformed responses, transport failures,
+and terminal errors stop capture. Polling follows the returned interval and
+stops at the earlier of server expiry or the script's 900-second cap per sign-in.
+Errors expose only an allowlisted error name and numeric codes, never the full
+response. Do not redirect standard error to the evidence report.
+
+Historical evidence: on 2026-08-31 Hari observed error 70011 for the initial
+`Tasks.Write profile` request. `Tasks.Write` and `Tasks.Write openid profile`
+were accepted at the device-code step. That did not prove token issuance.
+The new `Tasks.Write openid` comparison still needs live verification.
+
+Microsoft documents the [profile pairing](https://learn.microsoft.com/entra/identity-platform/scopes-oidc#the-profile-scope),
+[device flow](https://learn.microsoft.com/entra/identity-platform/v2-oauth2-device-code), and
+[error fields](https://learn.microsoft.com/entra/identity-platform/reference-error-codes#handling-error-codes-in-your-application).
+Claim comparison remains observational, not proof that `profile` caused a
+difference, that a signature is valid, or that task-api accepts the token.
 
 ## 3. Capture the managed-identity summary in Azure Container Instances
 
@@ -153,6 +144,7 @@ the link-local managed-identity endpoint and pipes it directly into the local
 inspector. The raw token is never a command argument or container log entry.
 
 ```bash
+: "${delegated_summary:?Complete both delegated captures before creating ACI}"
 container_group="aci-taskapi-token-capture"
 resource_group="$(az identity show --ids "$workload_resource_id" --query resourceGroup --output tsv)"
 location="$(az identity show --ids "$workload_resource_id" --query location --output tsv)"
@@ -217,20 +209,19 @@ but does not document `curl` and `jq`, so the exec command checks both first.
 
 ## 4. Post only this evidence to issue 266
 
-The three variables below contain safe summaries, not tokens. Reread the text,
+The two summary variables below contain safe evidence, not tokens. Reread the text,
 then post exactly this shape. Do not add raw tokens, GUIDs, screenshots, command
 transcripts, or Terraform and Graph output.
 
 ```bash
 comment="$(printf '%s\n' \
   '**Current state:** Hari ran the bounded task-api token capture. JWT payload decoding is inspection only and did not validate any token signature.' \
-  '' '**Delegated Tasks.Write profile:**' '```text' "$delegated_profile_summary" '```' \
-  '' '**Delegated Tasks.Write without profile:**' '```text' "$delegated_plain_summary" '```' \
+  '' "$delegated_summary" \
   '' '**Managed identity Tasks.Write.All:**' '```text' "$workload_summary" '```' \
   '' '**Cleanup:** The temporary ACI container group was deleted, and the resource-group list no longer contained it.' \
   '' '**Unknowns:** These summaries show emitted claim shape only. They do not prove token signature validation, task-api acceptance, or a causal effect from the profile scope.')"
 gh issue comment 266 --body "$comment"
-unset comment delegated_profile_summary delegated_plain_summary workload_summary
+unset comment delegated_summary workload_summary
 unset tenant_id taskapi_app_id taskapi_resource taskapi_sp_id user_client_id user_sp_id
 unset workload_client_id workload_principal_id workload_resource_id resource_group location
 ```

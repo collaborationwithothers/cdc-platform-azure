@@ -212,6 +212,226 @@ public sealed class TaskApiTokenInspectionTests
 }
 
 /// <summary>
+/// Exercises delegated capture as an operator process with synthetic HTTP replies.
+/// </summary>
+public sealed class TaskApiDelegatedCaptureTests
+{
+    [Theory]
+    [InlineData("\"interval\":1", "\"interval\":null")]
+    [InlineData("\"interval\":1", "\"interval\":0")]
+    [InlineData("\"interval\":1", "\"interval\":\"5\"")]
+    [InlineData("https://microsoft.com/devicelogin", "https://[private-invalid")]
+    public async Task Invalid_field_in_otherwise_valid_device_response_never_reaches_polling(string field, string invalid)
+    {
+        using var protocol = new CaptureProtocol(DeviceReply() with { Body = DeviceReply().Body.Replace(field, invalid) });
+        var result = await protocol.RunAsync();
+        Assert.NotEqual(0, result.ExitCode);
+        Assert.Empty(result.StandardOutput);
+        Assert.StartsWith("FAIL:", result.StandardError);
+        Assert.DoesNotContain("Traceback", result.Output);
+        Assert.DoesNotContain("private-", result.Output);
+        Assert.Single(protocol.Requests());
+    }
+
+    [Fact]
+    public async Task Second_sign_in_failure_discards_the_first_summary()
+    {
+        using var protocol = new CaptureProtocol(DeviceReply(),
+            new Reply("""{"access_token":"e30.e30.synthetic-signature"}"""),
+            new Reply("""{"error":"invalid_scope"}""", 400));
+        var result = await protocol.RunAsync();
+        Assert.NotEqual(0, result.ExitCode);
+        Assert.Empty(result.StandardOutput);
+        Assert.Contains("invalid_scope", result.StandardError);
+        Assert.Equal(3, protocol.Requests().Length);
+    }
+
+    [Theory]
+    [InlineData("tenant_id")]
+    [InlineData("user_client_id")]
+    [InlineData("taskapi_resource")]
+    public async Task Missing_input_fails_before_any_request(string missing)
+    {
+        using var protocol = new CaptureProtocol();
+        protocol.Environment[missing] = "";
+        var result = await protocol.RunAsync();
+        Assert.NotEqual(0, result.ExitCode);
+        Assert.Contains(missing + " is missing", result.StandardError);
+        Assert.Empty(result.StandardOutput);
+        Assert.Empty(protocol.Requests());
+    }
+
+    [Theory]
+    [InlineData("{\"error\":\"authorization_declined\",\"error_description\":\"private-error\"}", 400, 0, false)]
+    [InlineData("{\"error\":\"expired_token\"}", 400, 0, false)]
+    [InlineData("{\"error\":\"bad_verification_code\"}", 400, 0, false)]
+    [InlineData("{\"error\":\"private-unknown-error\"}", 400, 0, false)]
+    [InlineData("<html>private-error</html>", 502, 0, false)]
+    [InlineData("{}", 200, 0, false)]
+    [InlineData("{\"access_token\":\"private-malformed-token\"}", 200, 0, false)]
+    [InlineData("{\"access_token\":\"\\ud800\"}", 200, 0, false)]
+    [InlineData("private-invalid-utf8", 200, 0, true)]
+    [InlineData("private-transport-output", 0, 28, false)]
+    public async Task Failed_poll_stops_before_second_capture_without_publishing_partial_evidence(
+        string body, int httpStatus, int exitCode, bool malformedUtf8)
+    {
+        using var protocol = new CaptureProtocol(DeviceReply(), new Reply(body, httpStatus, exitCode, malformedUtf8));
+        var result = await protocol.RunAsync();
+        Assert.NotEqual(0, result.ExitCode);
+        Assert.Empty(result.StandardOutput);
+        Assert.Contains("FAIL:", result.StandardError);
+        Assert.DoesNotContain("private-", result.Output);
+        Assert.DoesNotContain("Traceback", result.Output);
+        Assert.Equal(2, protocol.Requests().Length);
+    }
+
+    [Fact]
+    public async Task Expiry_before_next_poll_stops_instead_of_waiting_or_requesting_a_token()
+    {
+        using var protocol = new CaptureProtocol(DeviceReply() with
+        {
+            Body = DeviceReply().Body.Replace("\"expires_in\":30", "\"expires_in\":1"),
+        });
+        var result = await protocol.RunAsync();
+        Assert.NotEqual(0, result.ExitCode);
+        Assert.Contains("expired", result.StandardError);
+        Assert.Empty(result.StandardOutput);
+        Assert.Single(protocol.Requests());
+    }
+
+    [Fact]
+    public async Task Two_captures_keep_openid_constant_and_emit_only_inspector_summaries()
+    {
+        var payload = Convert.ToBase64String(Encoding.UTF8.GetBytes(
+            """{"ver":"2.0","idtyp":"user","tid":"private-tenant","oid":"private-user","scp":"Tasks.Write"}"""))
+            .TrimEnd('=').Replace('+', '-').Replace('/', '_');
+        var token = "e30." + payload + ".synthetic-signature";
+        var granted = new Reply(JsonSerializer.Serialize(new { access_token = token, id_token = "private-id-token" }));
+        using var protocol = new CaptureProtocol(DeviceReply(),
+            new Reply("""{"error":"authorization_pending"}""", 400), granted, DeviceReply(), granted);
+
+        var result = await protocol.RunAsync();
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Contains("**Delegated Tasks.Write openid profile:**", result.StandardOutput);
+        Assert.Contains("**Delegated Tasks.Write openid (without profile):**", result.StandardOutput);
+        Assert.Equal(2, result.StandardOutput.Split("inspection:").Length - 1);
+        Assert.Contains("scp: [\"Tasks.Write\"]", result.StandardOutput);
+        Assert.Contains("TESTCODE", result.StandardError);
+        Assert.DoesNotContain("private-", result.Output);
+        Assert.DoesNotContain(token, result.Output);
+        var requests = protocol.Requests();
+        Assert.Equal(5, requests.Length);
+        Assert.True(requests[1].GetProperty("at").GetDouble() - requests[0].GetProperty("at").GetDouble() >= 1);
+        Assert.True(requests[2].GetProperty("at").GetDouble() - requests[1].GetProperty("at").GetDouble() >= 1);
+        Assert.Equal("api://synthetic-task-api/Tasks.Write openid profile", requests[0].GetProperty("form").GetProperty("scope")[0].GetString());
+        Assert.Equal("api://synthetic-task-api/Tasks.Write openid", requests[3].GetProperty("form").GetProperty("scope")[0].GetString());
+        foreach (var request in new[] { requests[1], requests[2], requests[4] })
+        {
+            var form = request.GetProperty("form");
+            Assert.False(form.TryGetProperty("scope", out _));
+            Assert.Equal("urn:ietf:params:oauth:grant-type:device_code", form.GetProperty("grant_type")[0].GetString());
+            Assert.Equal("private-device", form.GetProperty("device_code")[0].GetString());
+            Assert.DoesNotContain("private-device", request.GetProperty("arguments").ToString());
+        }
+    }
+
+    private static Reply DeviceReply() => new(
+        """{"device_code":"private-device","user_code":"TESTCODE","verification_uri":"https://microsoft.com/devicelogin","interval":1,"expires_in":30}""");
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("null")]
+    [InlineData("[]")]
+    [InlineData("{\"device_code\":\"private-device\",\"interval\":null}")]
+    [InlineData("{\"device_code\":\"private-device\",\"interval\":0}")]
+    [InlineData("{\"device_code\":\"private-device\",\"interval\":\"5\"}")]
+    public async Task Invalid_device_response_stops_without_polling_or_printing_private_fields(string body)
+    {
+        using var protocol = new CaptureProtocol(new Reply(body));
+        var result = await protocol.RunAsync();
+
+        Assert.NotEqual(0, result.ExitCode);
+        Assert.Empty(result.StandardOutput);
+        Assert.StartsWith("FAIL:", result.StandardError);
+        Assert.DoesNotContain("private-device", result.Output);
+        Assert.DoesNotContain("Traceback", result.Output);
+        Assert.Single(protocol.Requests());
+    }
+
+    [Fact]
+    public async Task Invalid_scope_stops_before_polling_and_does_not_print_the_response_body()
+    {
+        using var protocol = new CaptureProtocol(new Reply(
+            """{"error":"invalid_scope","error_codes":[70011],"error_description":"private-diagnostic"}""", 400));
+
+        var result = await protocol.RunAsync();
+
+        Assert.NotEqual(0, result.ExitCode);
+        Assert.Empty(result.StandardOutput);
+        Assert.Contains("FAIL: device authorization error=invalid_scope error_codes=[70011]", result.StandardError);
+        Assert.DoesNotContain("private-diagnostic", result.Output);
+        Assert.DoesNotContain("Traceback", result.Output);
+        Assert.Single(protocol.Requests());
+    }
+
+    private sealed record Reply(string Body, int HttpStatus = 200, int ExitCode = 0, bool MalformedUtf8 = false);
+
+    // Only the external HTTP command is replaced. The capture process and
+    // inspector are real, and all protocol fixtures and identifiers are synthetic.
+    private sealed class CaptureProtocol : IDisposable
+    {
+        private readonly string _directory = Directory.CreateTempSubdirectory("taskapi-capture-").FullName;
+
+        public Dictionary<string, string> Environment { get; }
+
+        public CaptureProtocol(params Reply[] replies)
+        {
+            File.WriteAllText(Path.Combine(_directory, "responses.json"), JsonSerializer.Serialize(replies));
+            var stub = Path.Combine(_directory, "curl");
+            File.WriteAllText(stub, """
+                #!/usr/bin/env python3
+                import json, pathlib, sys, time
+                from urllib.parse import parse_qs
+                root = pathlib.Path(__file__).parent
+                log = root / "requests.json"
+                requests = json.loads(log.read_text()) if log.exists() else []
+                requests.append({"arguments": sys.argv[1:], "form": parse_qs(sys.stdin.read()), "at": time.monotonic()})
+                log.write_text(json.dumps(requests))
+                replies = json.loads((root / "responses.json").read_text())
+                if len(requests) > len(replies):
+                    sys.exit(99)
+                reply = replies[len(requests) - 1]
+                output = (reply["Body"] + "\n" + str(reply["HttpStatus"])).encode("utf-8")
+                sys.stdout.buffer.write(b"\xff" if reply["MalformedUtf8"] else output)
+                sys.exit(reply["ExitCode"])
+                """);
+            if (!OperatingSystem.IsWindows())
+            {
+                File.SetUnixFileMode(stub, UnixFileMode.UserRead | UnixFileMode.UserExecute);
+            }
+
+            Environment = new Dictionary<string, string>
+            {
+                ["PATH"] = _directory + Path.PathSeparator + System.Environment.GetEnvironmentVariable("PATH"),
+                ["tenant_id"] = "11111111-1111-1111-1111-111111111111",
+                ["user_client_id"] = "22222222-2222-2222-2222-222222222222",
+                ["taskapi_resource"] = "api://synthetic-task-api",
+            };
+        }
+
+        public Task<OperatorScript.Result> RunAsync() => OperatorScript.RunAsync(
+            "capture-taskapi-delegated-tokens.sh", environment: Environment);
+
+        public JsonElement[] Requests() => File.Exists(Path.Combine(_directory, "requests.json"))
+            ? JsonSerializer.Deserialize<JsonElement[]>(File.ReadAllText(Path.Combine(_directory, "requests.json")))!
+            : [];
+
+        public void Dispose() => Directory.Delete(_directory, recursive: true);
+    }
+}
+
+/// <summary>
 /// Checks that need no cluster: each command explains the component it controls
 /// when its arguments are missing, and notifier validation names the correction.
 /// </summary>
