@@ -63,7 +63,8 @@ def validate_device(response):
         uri = urlsplit(response["verification_uri"])
     except ValueError:
         fail("device authorization sign-in instructions are invalid")
-    if (uri.scheme != "https" or uri.netloc not in ("microsoft.com", "www.microsoft.com", "login.microsoftonline.com")
+    if (uri.scheme != "https" or uri.netloc not in (
+            "microsoft.com", "www.microsoft.com", "login.microsoftonline.com", "login.microsoft.com")
             or not re.fullmatch(r"[A-Z0-9-]{4,32}", response["user_code"])):
         fail("device authorization sign-in instructions are invalid")
 

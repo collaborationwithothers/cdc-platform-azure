@@ -69,6 +69,14 @@ Standard output contains only the two labelled summaries, after both succeed.
 Tokens stay in memory and inspector pipes. Failure prints a bounded diagnostic
 and stops without creating Azure resources or publishing partial summaries.
 
+The sign-in URL comes from the returned
+[`verification_uri`](https://learn.microsoft.com/entra/identity-platform/v2-oauth2-device-code#device-authorization-response).
+The script's local allowlist accepts HTTPS on exactly `microsoft.com`,
+`www.microsoft.com`, `login.microsoftonline.com`, or `login.microsoft.com`.
+Other hosts, embedded credentials, and explicit ports are rejected before the
+sign-in code is displayed. This is a local safety policy, not a complete list
+of hosts permitted by the protocol.
+
 ### Inspect one task-api token
 
 The caller must disable shell tracing before `$TOKEN` expands. The inspector also
