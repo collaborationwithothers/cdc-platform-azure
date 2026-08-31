@@ -20,6 +20,28 @@ namespace Lexfield.Notifier.Tests;
 [Collection(NotifierContainers.Name)]
 public sealed class NotifierHostTests(SqlServerFixture sql, KafkaFixture kafka)
 {
+    [Theory]
+    [MemberData(nameof(InvalidTenantHeaders))]
+    public async Task Invalid_or_blank_tenant_header_is_rejected_without_processing(
+        byte[] tenantHeader)
+    {
+        var sender = new RecordingSender();
+        await using var context = await StartHostAsync(sender);
+
+        await context.ProduceAsync(Event(1), tenantHeader: tenantHeader);
+        await context.WaitForStoppingAsync();
+
+        Assert.Equal(0, sender.Count);
+        Assert.Equal(0, await context.CountRowsAsync("SentNotifications"));
+        Assert.Equal(Offset.Unset, context.GetCommittedOffset());
+    }
+
+    public static IEnumerable<object[]> InvalidTenantHeaders() =>
+    [
+        [new byte[] { 0xC3, 0x28 }],
+        [Encoding.UTF8.GetBytes("  ")]
+    ];
+
     [Fact]
     public async Task One_transition_sends_once_and_records_before_committing()
     {
@@ -310,7 +332,10 @@ public sealed class NotifierHostTests(SqlServerFixture sql, KafkaFixture kafka)
             .Where(item => item.Name == name)
             .Sum(item => item.Value);
 
-        public async Task ProduceAsync(TransitionEvent taskEvent, string? targetTopic = null)
+        public async Task ProduceAsync(
+            TransitionEvent taskEvent,
+            string? targetTopic = null,
+            byte[]? tenantHeader = null)
         {
             using var producer = new ProducerBuilder<string, string>(new ProducerConfig
             {
@@ -323,7 +348,7 @@ public sealed class NotifierHostTests(SqlServerFixture sql, KafkaFixture kafka)
                 Headers = new Confluent.Kafka.Headers
                 {
                     new Header(Lexfield.Contracts.Headers.TenantId,
-                        Encoding.UTF8.GetBytes("lexfield-001"))
+                        tenantHeader ?? Encoding.UTF8.GetBytes("lexfield-001"))
                 }
             });
         }
@@ -340,6 +365,10 @@ public sealed class NotifierHostTests(SqlServerFixture sql, KafkaFixture kafka)
             () => Task.FromResult(CountOccurrences(
                 LogOutput, $"\"eventName\":\"{eventName}\"") >= expected),
             $"Notifier did not emit {eventName} {expected} time(s).");
+
+        public Task WaitForStoppingAsync() => WaitForAsync(
+            () => Task.FromResult(IsStopping),
+            "Notifier host did not stop after rejecting the message.");
 
         public Task WaitForGroupAssignmentAsync(params string[] topics) => WaitForAsync(
             async () =>
