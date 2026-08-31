@@ -37,6 +37,9 @@ public sealed class NotifierHostTests(SqlServerFixture sql, KafkaFixture kafka)
         await context.WaitForCommittedOffsetAsync(1);
 
         Assert.Equal(1, sender.Count);
+        Assert.Equal(
+            new SentNotificationRow("lexfield-001", 4711, 1),
+            await context.GetSentNotificationAsync());
         Assert.Equal(1, context.Measurement("notifier.sent"));
         Assert.Equal(0, context.Measurement("notifier.skipped_duplicate"));
         Assert.Equal(0, context.Measurement("notifier.record_conflict"));
@@ -74,6 +77,9 @@ public sealed class NotifierHostTests(SqlServerFixture sql, KafkaFixture kafka)
         Assert.Equal(1, context.Measurement("notifier.skipped_duplicate"));
         Assert.Equal(0, context.Measurement("notifier.record_conflict"));
         Assert.Equal(1, await context.CountRowsAsync("SentNotifications"));
+        Assert.Equal(
+            new SentNotificationRow("lexfield-001", 4711, 1),
+            await context.GetSentNotificationAsync());
         Assert.Equal(1, CountOccurrences(
             context.LogOutput, "\"eventName\":\"Notifier.NotificationSent\""));
         Assert.Equal(1, CountOccurrences(
@@ -91,10 +97,10 @@ public sealed class NotifierHostTests(SqlServerFixture sql, KafkaFixture kafka)
         var topicOne = $"workflow-transitions-issue-58-{Guid.NewGuid():N}";
         var topicTwo = $"workflow-transitions-issue-58-{Guid.NewGuid():N}";
         await using var first = await StartHostAsync(
-            sender, topics: [topicOne, topicTwo]);
+            sender, topics: [topicOne]);
         await using var second = await StartHostAsync(
             sender,
-            topics: [topicOne, topicTwo],
+            topics: [topicTwo],
             connectionString: first.ConnectionString,
             sharedOutput: first.Output,
             sharedListener: first.Listener,
@@ -103,9 +109,7 @@ public sealed class NotifierHostTests(SqlServerFixture sql, KafkaFixture kafka)
 
         try
         {
-            // Both group members must finish their initial assignment before
-            // either message can block one member inside the sender barrier.
-            await Task.Delay(TimeSpan.FromSeconds(3));
+            await first.WaitForGroupAssignmentAsync(topicOne, topicTwo);
             await first.ProduceAsync(Event(1));
             await second.ProduceAsync(Event(1), topicTwo);
             await sender.WaitForAllEnteredAsync();
@@ -119,6 +123,9 @@ public sealed class NotifierHostTests(SqlServerFixture sql, KafkaFixture kafka)
             await first.WaitForSignalCountAsync("Notifier.SendRecorded", 2);
 
             Assert.Equal(1, await first.CountRowsAsync("SentNotifications"));
+            Assert.Equal(
+                new SentNotificationRow("lexfield-001", 4711, 1),
+                await first.GetSentNotificationAsync());
             Assert.Equal(1, first.Measurement("notifier.record_conflict"));
             Assert.Equal(2, CountOccurrences(
                 first.LogOutput, "\"eventName\":\"Notifier.NotificationSent\""));
@@ -334,6 +341,50 @@ public sealed class NotifierHostTests(SqlServerFixture sql, KafkaFixture kafka)
                 LogOutput, $"\"eventName\":\"{eventName}\"") >= expected),
             $"Notifier did not emit {eventName} {expected} time(s).");
 
+        public Task WaitForGroupAssignmentAsync(params string[] topics) => WaitForAsync(
+            async () =>
+            {
+                using var admin = new AdminClientBuilder(new AdminClientConfig
+                {
+                    BootstrapServers = bootstrapServers
+                }).Build();
+                try
+                {
+                    var result = await admin.DescribeConsumerGroupsAsync(["notifier"]);
+                    var group = result.ConsumerGroupDescriptions.SingleOrDefault();
+                    if (group is null || group.Error.IsError ||
+                        group.State != ConsumerGroupState.Stable || group.Members.Count != 2)
+                    {
+                        return false;
+                    }
+
+                    var assignedTopics = group.Members
+                        .SelectMany(member => member.Assignment.TopicPartitions)
+                        .Select(partition => partition.Topic)
+                        .ToHashSet(StringComparer.Ordinal);
+                    return topics.All(assignedTopics.Contains);
+                }
+                catch (KafkaException)
+                {
+                    return false;
+                }
+            },
+            "Notifier consumer group did not reach a stable two-member assignment.");
+
+        public async Task<SentNotificationRow?> GetSentNotificationAsync()
+        {
+            await using var connection = new SqlConnection(connectionString);
+            await connection.OpenAsync();
+            await using var command = connection.CreateCommand();
+            command.CommandText =
+                "SELECT TOP (1) TenantId, TaskId, Version FROM dbo.SentNotifications;";
+            await using var reader = await command.ExecuteReaderAsync();
+            return await reader.ReadAsync()
+                ? new SentNotificationRow(
+                    reader.GetString(0), reader.GetInt32(1), reader.GetInt32(2))
+                : null;
+        }
+
         public Offset GetCommittedOffset()
         {
             using var consumer = new ConsumerBuilder<string, string>(new ConsumerConfig
@@ -416,6 +467,7 @@ public sealed class NotifierHostTests(SqlServerFixture sql, KafkaFixture kafka)
     }
 
     private sealed record SentCall(string TenantId, int TaskId, int Version);
+    private sealed record SentNotificationRow(string TenantId, int TaskId, int Version);
     private sealed record Measurement(string Name, long Value);
 }
 

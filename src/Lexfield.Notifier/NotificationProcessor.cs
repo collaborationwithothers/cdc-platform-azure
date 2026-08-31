@@ -86,6 +86,8 @@ internal sealed class NotificationProcessor(
             return;
         }
 
+        // ADR-008 deliberately sends before recording so a crash redelivers
+        // rather than dropping a notification that was never delivered.
         await sender.SendAsync(transition.TenantId, taskEvent, cancellationToken);
         _sentCounter.Add(1, Tags(transition.TenantId));
         Log(
@@ -148,6 +150,8 @@ internal sealed record DecodedTransition(
 
 internal static class TransitionMessageDecoder
 {
+    private static readonly UTF8Encoding StrictUtf8 = new(false, true);
+
     public static DecodedTransition Decode(Message<string, string> message)
     {
         var tenantId = RequiredHeader(message.Headers, ContractHeaders.TenantId);
@@ -159,9 +163,30 @@ internal static class TransitionMessageDecoder
         return new DecodedTransition(tenantId, taskEvent, parent);
     }
 
-    private static string RequiredHeader(KafkaHeaders headers, string name) =>
-        OptionalHeader(headers, name)
-        ?? throw new InvalidDataException($"The Kafka message is missing required header '{name}'.");
+    private static string RequiredHeader(KafkaHeaders headers, string name)
+    {
+        if (!headers.TryGetLastBytes(name, out var value) || value is not { Length: > 0 })
+        {
+            throw new InvalidDataException(
+                $"The Kafka message is missing required header '{name}'.");
+        }
+
+        string decoded;
+        try
+        {
+            decoded = StrictUtf8.GetString(value);
+        }
+        catch (DecoderFallbackException exception)
+        {
+            throw new InvalidDataException(
+                $"The Kafka message header '{name}' is not valid UTF-8.", exception);
+        }
+
+        return string.IsNullOrWhiteSpace(decoded)
+            ? throw new InvalidDataException(
+                $"The Kafka message header '{name}' must not be blank.")
+            : decoded;
+    }
 
     private static string? OptionalHeader(KafkaHeaders headers, string name) =>
         headers.TryGetLastBytes(name, out var value) && value is { Length: > 0 }

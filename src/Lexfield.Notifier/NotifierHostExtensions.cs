@@ -26,7 +26,6 @@ public static class NotifierHostExtensions
                 AutoOffsetReset = AutoOffsetReset.Earliest,
                 EnableAutoCommit = false,
                 EnableAutoOffsetStore = false,
-                PartitionAssignmentStrategy = PartitionAssignmentStrategy.RoundRobin
             }).Build());
         builder.Services.AddSingleton<NotificationProcessor>();
         builder.Services.AddHostedService<NotifierWorker>();

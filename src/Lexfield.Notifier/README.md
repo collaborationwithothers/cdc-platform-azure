@@ -19,7 +19,7 @@ Notifier:Topics:0=workflow-transitions
 Notifier:Topics:1=workflow-transitions-lexfield-003
 ```
 
-The host uses consumer group `notifier`, starts at the earliest offset when no group offset exists, and disables automatic offset commits. The topic list must contain at least one topic. The `tenantId` Kafka header is required. The message key is opaque and is not used as a fallback tenant identifier.
+A consumer group is a set of cooperating consumers that shares a subscription so each message is processed by one member. The host uses consumer group `notifier`, starts at the earliest offset when no group offset exists, and disables automatic offset commits. An offset is a message position within a topic partition; a committed offset is the next position from which the group resumes. The topic list must contain at least one topic. The `tenantId` Kafka header is required, nonblank, and strict UTF-8. The message key is opaque and is not used as a fallback tenant identifier.
 
 ## Signals
 

@@ -46,8 +46,15 @@ public sealed class SentNotificationStore(string connectionString)
         }
         catch (SqlException exception) when (exception.Number is 2601 or 2627)
         {
-            // A concurrent sender owns the same primary-key row. The row is
-            // present, so the send-then-record operation completed successfully.
+            // A concurrent sender may own the same primary-key row. Confirm the
+            // expected tuple before treating the send-then-record operation as done.
+            if (!await HasBeenSentAsync(tenantId, taskId, version, cancellationToken))
+            {
+                throw new InvalidOperationException(
+                    "A notification record conflict did not leave the expected tuple.",
+                    exception);
+            }
+
             return SentNotificationRecordResult.AlreadyRecorded;
         }
     }
