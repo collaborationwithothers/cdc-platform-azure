@@ -299,16 +299,18 @@ public sealed class TaskApiDelegatedCaptureTests
         Assert.Single(protocol.Requests());
     }
 
-    [Fact]
-    public async Task Two_captures_keep_openid_constant_and_emit_only_inspector_summaries()
+    [Theory]
+    [InlineData("https://microsoft.com/devicelogin")]
+    [InlineData("https://login.microsoft.com/device")]
+    public async Task Two_captures_keep_openid_constant_and_emit_only_inspector_summaries(string verificationUri)
     {
         var payload = Convert.ToBase64String(Encoding.UTF8.GetBytes(
             """{"ver":"2.0","idtyp":"user","tid":"private-tenant","oid":"private-user","scp":"Tasks.Write"}"""))
             .TrimEnd('=').Replace('+', '-').Replace('/', '_');
         var token = "e30." + payload + ".synthetic-signature";
         var granted = new Reply(JsonSerializer.Serialize(new { access_token = token, id_token = "private-id-token" }));
-        using var protocol = new CaptureProtocol(DeviceReply(),
-            new Reply("""{"error":"authorization_pending"}""", 400), granted, DeviceReply(), granted);
+        using var protocol = new CaptureProtocol(DeviceReply(verificationUri),
+            new Reply("""{"error":"authorization_pending"}""", 400), granted, DeviceReply(verificationUri), granted);
 
         var result = await protocol.RunAsync();
 
@@ -318,6 +320,7 @@ public sealed class TaskApiDelegatedCaptureTests
         Assert.Equal(2, result.StandardOutput.Split("inspection:").Length - 1);
         Assert.Contains("scp: [\"Tasks.Write\"]", result.StandardOutput);
         Assert.Contains("TESTCODE", result.StandardError);
+        Assert.Equal(2, result.StandardError.Split("open " + verificationUri + " and enter TESTCODE").Length - 1);
         Assert.DoesNotContain("private-", result.Output);
         Assert.DoesNotContain(token, result.Output);
         var requests = protocol.Requests();
@@ -336,8 +339,29 @@ public sealed class TaskApiDelegatedCaptureTests
         }
     }
 
-    private static Reply DeviceReply() => new(
-        """{"device_code":"private-device","user_code":"TESTCODE","verification_uri":"https://microsoft.com/devicelogin","interval":1,"expires_in":30}""");
+    private static Reply DeviceReply(string verificationUri = "https://microsoft.com/devicelogin") => new(
+        JsonSerializer.Serialize(new { device_code = "private-device", user_code = "TESTCODE", verification_uri = verificationUri, interval = 1, expires_in = 30 }));
+
+    [Theory]
+    [InlineData("http://login.microsoft.com/device")]
+    [InlineData("https://untrusted.example/device")]
+    [InlineData("https://login.microsoft.com.untrusted.example/device")]
+    [InlineData("https://login.microsoft.com@untrusted.example/device")]
+    [InlineData("https://untrusted.example@login.microsoft.com/device")]
+    [InlineData("https://login.microsoft.com:443/device")]
+    public async Task Unapproved_sign_in_url_stops_before_polling_or_displaying_codes(string verificationUri)
+    {
+        using var protocol = new CaptureProtocol(DeviceReply(verificationUri));
+        var result = await protocol.RunAsync();
+
+        Assert.NotEqual(0, result.ExitCode);
+        Assert.Empty(result.StandardOutput);
+        Assert.Equal("FAIL: device authorization sign-in instructions are invalid\n", result.StandardError);
+        Assert.DoesNotContain("TESTCODE", result.Output);
+        Assert.DoesNotContain("private-device", result.Output);
+        Assert.DoesNotContain(verificationUri, result.Output);
+        Assert.Single(protocol.Requests());
+    }
 
     [Theory]
     [InlineData("")]
