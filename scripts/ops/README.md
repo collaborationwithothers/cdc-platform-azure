@@ -1,9 +1,11 @@
 # Operator scripts
 
-These scripts give an operator two bounded controls over the change-capture
-platform. The connector scripts pause or resume one tenant's Debezium connector
-through Kafka Connect. The notifier script answers a paused notifier consumer
-for one Kafka message.
+These scripts give an operator bounded controls and inspections for the
+change-capture platform. The connector scripts pause or resume one tenant's
+Debezium connector through Kafka Connect. The notifier script answers a paused
+notifier consumer for one Kafka message. The task-api service owns workflow-task
+writes. Its token inspector decodes a JSON Web Token (JWT), a signed identity
+claim payload, and prints only the claim shape approved for live evidence.
 
 The scripts do not change tenant data. They do not read credentials from this
 repository. Each script names the request it sent, the state or message it
@@ -52,6 +54,25 @@ kubectl -n <namespace> port-forward svc/<connect-rest-service> 8083:8083
 | `pause-connector.sh` | `<tenantId>` | Pauses `tenant-<tenantId>-outbox` and waits until it and its tasks report `PAUSED`. |
 | `resume-connector.sh` | `<tenantId>` | Resumes the same connector and waits until it reports `RUNNING`. |
 | `notifier-control.sh` | `<retry\|skip> <partition> <offset> <reason>` | Writes one control message to the `notifier-control` topic. |
+| `inspect-taskapi-token.sh` | no arguments; token on standard input | Decodes one JWT payload and prints only allowlisted claim-shape evidence. |
+
+### Inspect one task-api token
+
+The caller must disable shell tracing before `$TOKEN` expands. The inspector also
+disables its own tracing, accepts a token only through standard input, never
+prints the raw token, and rejects malformed input before printing payload
+fragments. Its output contains the token version, literal `idtyp`,
+presence booleans for `tid`, `oid`, `azp`, and `appid`, permission names from
+`scp` and `roles`, and the `sub == oid` boolean. It never prints identifier
+values. Payload decoding is inspection, not token-signature validation.
+
+```text
+set +x
+printf '%s\n' "$TOKEN" | scripts/ops/inspect-taskapi-token.sh
+```
+
+Use the full bounded capture procedure in
+[verify-taskapi-token-claims.md](../../docs/runbooks/verify-taskapi-token-claims.md).
 
 ### Pause or resume one connector
 
