@@ -37,9 +37,10 @@ Stop rules 4 and 5, restated from AGENTS.md:
 - Only notes or disputed findings remain. Every open finding in round N is
   severity note or has been disputed by the implementer.
 - Dispute. The implementer marked a finding of any severity "won't fix" with a
-  reason. A disputed finding leaves the convergence set and goes to Hari; a
-  disputed blocking finding also ends the loop. A disputed non-blocking
-  finding reaches Hari through rule 4 without ending the loop.
+  reason. The implementer does not reconsider a disputed finding in another
+  round. The finding goes to Hari; a disputed blocking finding also ends the
+  loop. A disputed non-blocking finding reaches Hari through rule 4 without
+  ending the loop.
 - Implementer fix-round rule: Do not invoke a re-review when nothing was
   pushed since the last review.
 
