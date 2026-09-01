@@ -32,7 +32,6 @@ comments, the implementer records it in the per-finding reply (for example
 "F9: fixed in PR body") and does not invoke a re-review; the finding is left
 for Hari.
 Stop rules 4 and 5, restated from AGENTS.md:
-
 - Only notes or disputed findings remain. Every open finding in round N is
   severity note or has been disputed by the implementer.
 - Dispute. The implementer marked a finding of any severity "won't fix" with a
