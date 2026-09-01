@@ -317,21 +317,29 @@ Finish in this order:
    <pr-number>"`.
 4. The implementation session reads the posted review.
 5. The reviewer evaluates stop rules 1, 3, and 4.
-6. The implementation session evaluates stop rules 2, 5, and 6. Neither side
-   overrides the other's stop.
-7. If neither side stops, the implementation session applies the implementer
+6. The implementation session evaluates stop rule 2. Neither side overrides
+   the other's stop.
+7. If the reviewer or implementation session stops, the implementation session
+   continues at step 17.
+8. The implementation session applies the implementer
    fix-round rules to the cited findings.
-8. The implementation session commits the fixes.
-9. The implementation session pushes once for the round.
-10. The implementation session replies once per finding id.
-11. The implementation session waits for CI.
-12. When CI is green, the implementation session returns to step 3.
-13. When either side stops, the implementation session fills the PR's Review
-    loop section.
-14. The implementation session posts the loop summary comment.
-15. The implementation session requests review from Hari.
-16. The implementation session removes the in-progress label.
-17. The implementation session stops.
+9. The implementation session posts the required reply for each disputed
+   finding.
+10. The implementation session evaluates stop rule 5 from those replies.
+11. The implementation session evaluates stop rule 6 against the proposed
+    fix diff's Paths and measured PR size.
+12. If stop rule 5 or 6 applies, the implementation session continues at
+    step 17 without committing, pushing, or invoking another review.
+13. The implementation session commits the fixes.
+14. The implementation session pushes once for the round.
+15. The implementation session replies once per fixed finding id.
+16. When CI is green, the implementation session returns to step 3.
+17. The implementation session fills the PR's Review
+   loop section.
+18. The implementation session posts the loop summary comment.
+19. The implementation session requests review from Hari.
+20. The implementation session removes the in-progress label.
+21. The implementation session stops.
 
 Batch mode: the operator may authorise up to N tickets per session
 (default 1; Hari currently runs N=2). Each ticket is completed fully,
