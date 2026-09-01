@@ -73,6 +73,26 @@ Unverified boundary:
 here, or link the commit that recorded it. Governance review reads this
 instead of rerunning the review. An empty section is a REQUEST CHANGES. -->
 
+## Review loop
+
+<!-- Fill this section when the reviewer-implementer loop reaches a stop rule.
+Record each reviewed SHA, round, verdict, finding status, stop rule, and the
+final handoff to Hari. Use the loop-summary shape in
+docs/agents/github-comment-shapes.md. -->
+
+Review loop summary for PR #:
+
+Rounds:
+- Round , reviewed at :
+
+Stop rule:
+
+Remaining findings:
+
+CI:
+
+Handoff:
+
 ## PR size
 
 Independently verified behavior:

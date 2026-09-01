@@ -148,6 +148,84 @@ ticket. Preserve the previous session's useful evidence.
 **Unknowns:** **[Unresolved questions, or `None`].**
 ```
 
+## Review round
+
+Use this shape for the review posted to the pull request. This shape is exempt
+from the opening repository paragraph. Its first line identifies the exact
+commit reviewed.
+
+```markdown
+Reviewed at [current head SHA]
+
+Review round 1 for PR #[number].
+
+Verdict: [APPROVE or REQUEST CHANGES]
+
+Findings:
+- [F1] [blocking / should-fix / note]: [file:line, problem, and required change, or `None`]
+
+Claim verification:
+| Claim | Verdict | Source |
+| --- | --- | --- |
+| [claim, or `None`] | [VERIFIED / REFUTED / PARTIAL / UNVERIFIABLE] | [source] |
+
+For Hari to check by hand: [one or two highest-leverage checks, or `None`]
+
+[STOP: rule number and name, or CONTINUE]
+```
+
+Use this delta shape for rounds 2 and 3:
+
+```markdown
+Reviewed at [current head SHA]
+
+Review round [2 or 3] for PR #[number].
+
+Verdict: [APPROVE or REQUEST CHANGES]
+
+Baseline: [latest prior bot-review SHA]
+
+CLOSED:
+- [F1] [fixing hunk, or `None`]
+
+OPEN:
+- [F2] [file:line, evidence, and required change, or `None`]
+
+REOPENED:
+- [F3] [file:line, evidence, and required change, or `None`]
+
+new:
+- [F4] [file:line, problem, and required change, or `None`]
+
+For Hari to check by hand: [one or two highest-leverage checks, or `None`]
+
+[STOP: rule number and name, or CONTINUE]
+```
+
+Closed findings cite the fixing hunk without restating the original finding.
+Later rounds retain stable finding identifiers.
+
+## Loop summary
+
+Use this shape once the reviewer-implementer loop reaches a stop rule. This
+shape is exempt from the opening repository paragraph and opens with its
+one-line orientation.
+
+```markdown
+Review loop summary for PR #[number]: [one-line result and why the loop stopped].
+
+Rounds:
+- Round [number], reviewed at [SHA]: [verdict]; [CLOSED / OPEN / REOPENED / new summary]
+
+Stop rule: [rule number and reason]
+
+Remaining findings: [stable identifiers and owner, or `None`]
+
+CI: [green / pending / failed, with the exact check state]
+
+Handoff: Hari review requested. The implementation session did not approve or merge.
+```
+
 ## Historical rewrite
 
 Use this shape when replacing technically editable model-produced GitHub

@@ -23,7 +23,13 @@ size forecast, branch (claude/ prefix, worktree per
 docs/runbooks/development-environment.md), implement, verify by the ticket's
 declared method, open the PR with the template and agent:claude label, get CI
 green, paste the pre-PR code-review self-check into the PR template's
-Self-check section, complete the review summary, request review from Hari,
+Self-check section, and complete the review summary. Then invoke `claude -p
+"/governance-review <n>"` and read the posted review. Stop at the first reviewer
+stop under rule 1 (APPROVE), 3 (no convergence), or 4 (only notes), or the
+first implementer stop under rule 2 (round cap), 5 (dispute), or 6 (scope
+creep). If neither side stops, apply the implementer fix-round rules, push once,
+wait for CI, and invoke the next review. When the loop stops, fill the PR's
+Review loop section, post the loop summary comment, request review from Hari,
 remove the in-progress label, stop.
 
 Batch mode per AGENTS.md applies: default 1 ticket; if Hari's session message

@@ -15,10 +15,10 @@ rules are in context every session. Do not duplicate any AGENTS.md rule here.
 
 - Implementation tier: Sonnet (highest available, effort high). Implementation
   sessions and the pre-PR /code-review self-check run on this model.
-- Review tier: Opus (highest available, effort high). Governance review runs on
-  this model, in a separate session, with Hari, never by the session that
-  authored the change. If a governance review session is not on the review
-  model, say so before reviewing.
+- Review tier: Claude Opus 5 (pinned in the command front matter, effort high).
+  Governance review runs on this model in a separate session, never in the
+  session that authored the change. If a governance review session is not on
+  the review model, say so before reviewing.
 
 ### Agent identity
 
@@ -30,10 +30,11 @@ given a session id, ask for one before claiming any ticket.
 ### Commands
 
 - /work-frontier (.claude/commands/work-frontier.md, Sonnet): runs the parallel
-  frontier workflow defined in AGENTS.md as a claude session.
-- /governance-review (.claude/commands/governance-review.md, Opus): runs the
-  governance review workflow defined in AGENTS.md; output is for Hari and
-  exempt from the reader contract.
+  frontier workflow defined in AGENTS.md, including the headless review/fix
+  loop, as a Claude session.
+- /governance-review (.claude/commands/governance-review.md, Claude Opus 5):
+  posts one review per round under the governance workflow; it never approves
+  or merges and is exempt from the reader contract.
 - /teach (.claude/commands/teach.md, any model): Socratic walkthrough of a
   merged PR for Hari's learning; updates the learning ledger and the Obsidian
   architecture vault. Repo read-only apart from the ledger docs PR.
