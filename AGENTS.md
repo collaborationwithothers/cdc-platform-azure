@@ -320,7 +320,7 @@ Finish in this order:
 6. The implementation session evaluates stop rule 2. Neither side overrides
    the other's stop.
 7. If the reviewer or implementation session stops, the implementation session
-   continues at step 17.
+   continues at step 18.
 8. The implementation session applies the implementer
    fix-round rules to the cited findings.
 9. The implementation session posts the required reply for each disputed
@@ -333,8 +333,8 @@ Finish in this order:
 13. If the round changed files, the implementation session commits the fixes.
 14. If the round created a commit, the implementation session pushes once.
 15. The implementation session replies once per fixed finding id.
-16. If a disputed blocking finding triggers stop rule 5, the implementation session continues at step 18
-    without invoking another review.
+16. If a disputed blocking finding triggers stop rule 5, the implementation
+    session continues at step 18 without invoking another review.
 17. When CI is green, the implementation session returns to step 3.
 18. The implementation session fills the PR's Review
     loop section.

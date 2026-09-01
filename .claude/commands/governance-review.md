@@ -25,19 +25,21 @@ before posting. If it moved, discard the draft and restart at the new head.
 Put `Reviewed at <head sha>` first and `STOP: <rule number and name>` or
 `CONTINUE` last.
 
-A re-review requires a new head SHA. If the fix changes only the PR body or comments,
-the implementer records it in the per-finding reply (for example "F9: fixed in PR body")
-and does not invoke a re-review; the finding is left for Hari.
+A re-review requires a new head SHA. If the fix changes only the PR body or
+comments, the implementer records it in the per-finding reply (for example
+"F9: fixed in PR body") and does not invoke a re-review; the finding is left
+for Hari.
 
 Stop rules 4 and 5, restated from AGENTS.md (rule 5 is implementer-owned):
 
 - Only notes or disputed findings remain. Every open finding in round N is
   severity note or has been disputed by the implementer.
 - Dispute. The implementer marked a finding of any severity "won't fix" with a
-  reason. A disputed finding leaves the convergence set and goes to Hari; a disputed
-  blocking finding also ends the loop. A disputed non-blocking finding reaches Hari
-  through rule 4 without ending the loop.
-- Implementer fix-round rule: Do not invoke a re-review when nothing was pushed since the last review.
+  reason. A disputed finding leaves the convergence set and goes to Hari; a
+  disputed blocking finding also ends the loop. A disputed non-blocking
+  finding reaches Hari through rule 4 without ending the loop.
+- Implementer fix-round rule: Do not invoke a re-review when nothing was
+  pushed since the last review.
 
 When invoked with `-p`, print nothing to stdout except the posted review URL
 and the final `STOP: <rule number and name>` or `CONTINUE` line so the
