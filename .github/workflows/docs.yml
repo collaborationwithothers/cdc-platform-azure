@@ -4,6 +4,7 @@ on:
   pull_request:
     paths:
       - "docs/**"
+      - "scripts/dev/**"
       - "README.md"
       - "scripts/ci/check_ascii.py"
       - "scripts/ci/test_check_ascii.py"
@@ -32,8 +33,11 @@ jobs:
       - name: Test the documentation punctuation checker
         run: python3 -m unittest scripts/ci/test_check_ascii.py -v
 
-      - name: Check docs/ contains only ASCII punctuation
-        run: python3 scripts/ci/check_ascii.py docs
+      - name: Check docs/ and scripts/dev/ contain only ASCII punctuation
+        run: python3 scripts/ci/check_ascii.py docs scripts/dev
+
+      - name: Test the session metrics command
+        run: python3 -m unittest scripts/dev/test_session_metrics.py -v
 
   runbook-anchors:
     name: Check alert links to operator runbook steps
