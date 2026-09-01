@@ -156,10 +156,16 @@ its checklist did not declare, stop and say so on the issue.
 - Implementation and governance review are separate concerns run in separate
   sessions. The pre-PR code-review self-check is part of implementation and
   runs on the implementation tier.
-- Governance review decides whether a PR is approved. It runs in its own
-  session on the review tier, with Hari, and is NEVER performed by the session
-  that authored the change. An implementation session never approves or merges
-  its own PR; it requests review from Hari and stops.
+- Governance review decides whether a PR is approved. It runs on the review
+  tier in a session that did not author the change. The implementation
+  session may invoke it headlessly. The reviewer posts its findings to the
+  PR as a GitHub review in state REQUEST_CHANGES or COMMENT. It never
+  approves on GitHub and never merges. Hari merges.
+- The reviewer and implementer may exchange at most three review rounds on
+  one PR without Hari. The stop rules in the governance review workflow bind
+  both. A disputed finding goes to Hari, not to a further round. The loop
+  ends with one loop-summary comment on the PR; that comment is the request
+  for Hari's review.
 - Tier-to-model bindings live in each tool's own file (CLAUDE.md,
   .codex/config.toml). If a governance review session is not on the review
   tier's designated model, say so before reviewing.
