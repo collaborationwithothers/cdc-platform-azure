@@ -1,0 +1,14 @@
+// Bad reading: attribution mismatches appear or verification stops for a tenant.
+AppTraces
+| where TimeGenerated > ago(24h)
+| extend eventName = tostring(Properties.eventName),
+         tenantId = tostring(Properties.tenantId)
+| where eventName in ("Reconciler.AttributionVerified", "Reconciler.AttributionMismatch")
+| summarize
+    verified = countif(eventName == "Reconciler.AttributionVerified"),
+    mismatches = countif(eventName == "Reconciler.AttributionMismatch"),
+    lastCheck = max(TimeGenerated)
+    by tenantId, bin(TimeGenerated, 1h)
+| extend status = iff(mismatches > 0, "mismatch", "verified")
+| project TimeGenerated, tenantId, status, verified, mismatches, lastCheck
+| order by TimeGenerated asc, tenantId asc

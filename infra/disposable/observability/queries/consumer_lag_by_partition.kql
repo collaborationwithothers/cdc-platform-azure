@@ -1,0 +1,17 @@
+// Bad reading: a partition's lag or blocked offset grows while other partitions run.
+ContainerLogV2
+| where TimeGenerated > ago(1h)
+| extend logRecord = todynamic(LogMessage)
+| extend partition = tostring(logRecord.partition),
+         lag = todouble(logRecord.lag),
+         blockedOffset = tolong(logRecord.blockedOffset),
+         tenantId = tostring(logRecord.tenantId)
+| where isnotempty(partition) and (isnotnull(lag) or isnotnull(blockedOffset))
+| summarize
+    maxLag = max(lag),
+    latestBlockedOffset = max(blockedOffset),
+    blockingTenants = make_set(tenantId, 20)
+    by ContainerName, PodName, partition, bin(TimeGenerated, 5m)
+| project TimeGenerated, ContainerName, PodName, partition,
+          maxLag, latestBlockedOffset, blockingTenants
+| order by TimeGenerated asc, partition asc

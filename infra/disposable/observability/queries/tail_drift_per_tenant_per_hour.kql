@@ -1,0 +1,8 @@
+// Bad reading: confirmed reconciler drift keeps increasing for a tenant.
+AppMetrics
+| where TimeGenerated > ago(24h)
+| where Name == "reconciler.drift.confirmed"
+| extend tenantId = tostring(Properties.tenantId)
+| summarize confirmedDrift = sum(Sum) by tenantId, bin(TimeGenerated, 1h)
+| project TimeGenerated, tenantId, confirmedDrift
+| order by TimeGenerated asc, tenantId asc

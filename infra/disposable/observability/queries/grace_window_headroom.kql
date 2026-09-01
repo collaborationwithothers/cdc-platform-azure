@@ -1,0 +1,14 @@
+// Bad reading: confirmed drift grows while events remain within the grace window.
+AppMetrics
+| where TimeGenerated > ago(1h)
+| where Name in ("reconciler.drift.within_grace", "reconciler.drift.confirmed")
+| extend tenantId = tostring(Properties.tenantId)
+| summarize
+    withinGrace = sumif(Sum, Name == "reconciler.drift.within_grace"),
+    confirmed = sumif(Sum, Name == "reconciler.drift.confirmed")
+    by tenantId, bin(TimeGenerated, 5m)
+| extend confirmedShare = iff(withinGrace + confirmed == 0.0,
+                              0.0,
+                              confirmed / (withinGrace + confirmed))
+| project TimeGenerated, tenantId, withinGrace, confirmed, confirmedShare
+| order by TimeGenerated asc, tenantId asc
