@@ -17,6 +17,17 @@ Post every verdict with `gh pr review --comment` and carry `APPROVE` or
 Output is for Hari and is exempt from the first-time reader contract. Do not
 define terms or restate system context. Follow the read order, the
 merge-class gate, the five steps, and the output shape in AGENTS.md exactly.
+A re-review requires a new head SHA. If the fix changes only the PR body or
+comments, the implementer records it in the per-finding reply (for example
+"F9: fixed in PR body") and does not invoke a re-review; the finding is left
+for Hari.
+
+- 4. Only notes or disputed findings remain. Every open finding in round N is
+  severity note or has been disputed by the implementer.
+- 5. Dispute. The implementer marked a finding of any severity "won't fix"
+  with a reason. A disputed finding leaves the convergence set and goes to
+  Hari; a disputed blocking finding also ends the loop.
+- Do not invoke a re-review when nothing was pushed since the last review.
 Detect the review round and baseline first. Round 1 runs the five review steps
 on the whole pull request. Rounds 2 and 3 read only `git diff
 <prev-sha>..HEAD` plus the implementer's per-finding replies, then report the

@@ -32,6 +32,18 @@ implementer-owned stop rules and fix-round rules. When the loop stops, fill the
 PR's Review loop section. Post the loop summary comment. Request review from
 Hari. Remove the in-progress label. Stop.
 
+A re-review requires a new head SHA. If the fix changes only the PR body or
+comments, the implementer records it in the per-finding reply (for example
+"F9: fixed in PR body") and does not invoke a re-review; the finding is left
+for Hari.
+
+- 4. Only notes or disputed findings remain. Every open finding in round N is
+  severity note or has been disputed by the implementer.
+- 5. Dispute. The implementer marked a finding of any severity "won't fix"
+  with a reason. A disputed finding leaves the convergence set and goes to
+  Hari; a disputed blocking finding also ends the loop.
+- Do not invoke a re-review when nothing was pushed since the last review.
+
 Batch mode per AGENTS.md applies: default 1 ticket; if Hari's session message
 authorises more, complete each fully before the next claim and honour the
 unreviewed-PR rule. Do not merge (except the auto-merge-ok class). Do not
