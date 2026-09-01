@@ -68,17 +68,49 @@ def review_pr_number(text: str) -> str | None:
     return plain_command.group(1) if plain_command else None
 
 
-def is_review_verdict(text: str) -> bool:
+def is_full_review_body(text: str) -> bool:
     has_final_decision = re.search(r"(?m)^(?:STOP: .+|CONTINUE)\s*$", text)
     if not has_final_decision:
         return False
-    if "#pullrequestreview-" in text:
-        return True
     has_review_header = re.search(r"(?m)^Reviewed at [0-9a-f]+\s*$", text)
     has_verdict = re.search(
         r"(?m)^Verdict: (?:APPROVE|REQUEST CHANGES)\s*$", text
     )
     return bool(has_review_header and has_verdict)
+
+
+def is_review_completion(text: str) -> bool:
+    has_final_decision = re.search(r"(?m)^(?:STOP: .+|CONTINUE)\s*$", text)
+    return bool(
+        has_final_decision
+        and ("#pullrequestreview-" in text or is_full_review_body(text))
+    )
+
+
+def submitted_review_body(item: dict) -> str | None:
+    tool_input = item.get("input")
+    if not isinstance(tool_input, dict):
+        return None
+    if item.get("name") == "Write":
+        content = tool_input.get("content")
+        return content if isinstance(content, str) and is_full_review_body(content) else None
+    if item.get("name") != "Bash":
+        return None
+
+    command = tool_input.get("command")
+    if not isinstance(command, str):
+        return None
+    heredoc = re.search(
+        r"gh pr review\b[^\n]*<<-?\s*['\"]?"
+        r"(?P<delimiter>[A-Za-z0-9_]+)['\"]?\n"
+        r"(?P<body>.*?)\n(?P=delimiter)(?:\s|$)",
+        command,
+        re.S,
+    )
+    if not heredoc:
+        return None
+    body = heredoc.group("body")
+    return body if is_full_review_body(body) else None
 
 
 def elapsed_seconds(events: list[dict]) -> tuple[float, float]:
@@ -98,7 +130,7 @@ def elapsed_seconds(events: list[dict]) -> tuple[float, float]:
 
 def analyze_session(
     path: Path,
-    rounds: collections.defaultdict[str, list[tuple[str, int, int]]],
+    rounds: collections.defaultdict[str, list[tuple[str, int, int | None]]],
 ) -> int:
     events = load_events(path)
     if not events:
@@ -112,6 +144,7 @@ def analyze_session(
     models: set[str] = set()
     current_pr: str | None = None
     review_start: datetime | None = None
+    review_body: str | None = None
     usage_message_ids: set[str] = set()
     relays = 0
 
@@ -132,10 +165,13 @@ def analyze_session(
             for item in message.get("content", []) or []:
                 if isinstance(item, dict) and item.get("type") == "tool_use":
                     tools[item["name"]] += 1
+                    candidate_body = submitted_review_body(item)
+                    if candidate_body:
+                        review_body = candidate_body
                 if (
                     isinstance(item, dict)
                     and item.get("type") == "text"
-                    and is_review_verdict(item["text"])
+                    and is_review_completion(item["text"])
                     and current_pr
                     and review_start
                 ):
@@ -145,10 +181,14 @@ def analyze_session(
                         ).total_seconds()
                         / 60
                     )
-                    rounds[current_pr].append(
-                        (session_id, minutes, len(item["text"].split()))
+                    completed_body = (
+                        item["text"] if is_full_review_body(item["text"]) else review_body
                     )
+                    word_count = len(completed_body.split()) if completed_body else None
+                    rounds[current_pr].append((session_id, minutes, word_count))
                     current_pr = None
+                    review_start = None
+                    review_body = None
 
         if event.get("type") == "user":
             for text in content_texts(event["message"].get("content")):
@@ -156,6 +196,7 @@ def analyze_session(
                 if pr_number:
                     current_pr = pr_number
                     review_start = parse_timestamp(event["timestamp"])
+                    review_body = None
                 if re.match(r"\s*Finding \d", text):
                     relays += 1
 
@@ -170,7 +211,7 @@ def analyze_session(
 
 
 def main(arguments: list[str]) -> int:
-    rounds: collections.defaultdict[str, list[tuple[str, int, int]]] = (
+    rounds: collections.defaultdict[str, list[tuple[str, int, int | None]]] = (
         collections.defaultdict(list)
     )
     relays = 0
@@ -180,7 +221,12 @@ def main(arguments: list[str]) -> int:
 
     print()
     for pr in sorted(rounds, key=int):
-        metrics = [f"{result[1]}min/{result[2]}w" for result in rounds[pr]]
+        metrics = [
+            f"{result[1]}min/{result[2]}w"
+            if result[2] is not None
+            else f"{result[1]}min/unknown"
+            for result in rounds[pr]
+        ]
         print("PR", pr, len(rounds[pr]), "rounds", metrics)
     print(
         "rounds",

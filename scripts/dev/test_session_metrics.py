@@ -66,7 +66,23 @@ class SessionMetricsCommandTests(unittest.TestCase):
                             "output_tokens": 5,
                         },
                         "content": [
-                            {"type": "tool_use", "name": "Bash"},
+                            {
+                                "type": "tool_use",
+                                "name": "Bash",
+                                "input": {
+                                    "command": (
+                                        "gh pr review 316 --comment --body-file - "
+                                        "<<'EOF'\n"
+                                        "Reviewed at abc123\n"
+                                        "Verdict: REQUEST CHANGES\n"
+                                        "Finding F1\n"
+                                        "scripts/dev/a.py:1\n"
+                                        "Fix the count.\n"
+                                        "CONTINUE\n"
+                                        "EOF"
+                                    )
+                                },
+                            },
                             {"type": "text", "text": "Review still in progress"},
                         ],
                     },
@@ -109,7 +125,7 @@ class SessionMetricsCommandTests(unittest.TestCase):
             "tools={'Read': 1, 'Bash': 1}",
             result.stdout,
         )
-        self.assertIn("PR 316 1 rounds ['4min/2w']", result.stdout)
+        self.assertIn("PR 316 1 rounds ['4min/13w']", result.stdout)
         self.assertIn("rounds 1 PRs 1 hand-relayed findings 1", result.stdout)
 
     def test_accepts_expanded_governance_review_command(self):

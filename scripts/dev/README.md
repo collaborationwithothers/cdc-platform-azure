@@ -37,13 +37,16 @@ The combined summary reports:
 
 - the number of governance-review rounds associated with each pull request;
 - rounded minutes from the review command to the detected verdict;
-- the verdict's whitespace-delimited word count;
+- the submitted review body's whitespace-delimited word count;
 - user messages beginning with `Finding <number>` as hand-relayed findings.
 
 A round begins when a user event contains either the plain or expanded form of
 `/governance-review <PR number>`. It ends when assistant text contains the
 posted GitHub review URL and the final `STOP` or `CONTINUE` decision. The full
-review output shape, which starts with `Reviewed at`, is also accepted.
+review output shape, which starts with `Reviewed at`, is also accepted. The
+word count comes from the review body submitted through the recorded tool call.
+The report uses `unknown` when that body is unavailable instead of counting the
+short headless completion message.
 
 The command prints aggregates, not transcript text. The source `.jsonl` files
 can still contain sensitive local conversation data. Do not commit them.
