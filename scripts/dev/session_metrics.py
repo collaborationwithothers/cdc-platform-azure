@@ -130,7 +130,9 @@ def elapsed_seconds(events: list[dict]) -> tuple[float, float]:
 
 def analyze_session(
     path: Path,
-    rounds: collections.defaultdict[str, list[tuple[str, int, int | None]]],
+    rounds: collections.defaultdict[
+        str, list[tuple[str, int | None, int | None]]
+    ],
 ) -> int:
     events = load_events(path)
     if not events:
@@ -138,6 +140,8 @@ def analyze_session(
 
     session_id = path.stem[-8:]
     active_seconds, idle_seconds = elapsed_seconds(events)
+    input_tokens = 0
+    cache_creation_tokens = 0
     cache_read_tokens = 0
     output_tokens = 0
     tools: collections.Counter[str] = collections.Counter()
@@ -154,6 +158,8 @@ def analyze_session(
             message_id = message.get("id")
             if not isinstance(message_id, str) or message_id not in usage_message_ids:
                 usage = message.get("usage") or {}
+                input_tokens += usage.get("input_tokens", 0)
+                cache_creation_tokens += usage.get("cache_creation_input_tokens", 0)
                 cache_read_tokens += usage.get("cache_read_input_tokens", 0)
                 output_tokens += usage.get("output_tokens", 0)
                 if isinstance(message_id, str):
@@ -194,26 +200,32 @@ def analyze_session(
             for text in content_texts(event["message"].get("content")):
                 pr_number = review_pr_number(text)
                 if pr_number:
+                    if current_pr:
+                        rounds[current_pr].append((session_id, None, None))
                     current_pr = pr_number
                     review_start = parse_timestamp(event["timestamp"])
                     review_body = None
-                if re.match(r"\s*Finding \d", text):
+                if re.match(r"\s*(?:Finding \d+|F\d+:)", text):
                     relays += 1
+
+    if current_pr:
+        rounds[current_pr].append((session_id, None, None))
 
     print(
         f"{session_id} {events[0]['timestamp'][:16]} "
         f"active={active_seconds / 60:.0f}m "
         f"idle={idle_seconds / 60:.0f}m "
         f"models={sorted(models)} "
+        f"input={input_tokens} cache_create={cache_creation_tokens} "
         f"cache_read={cache_read_tokens} out={output_tokens} tools={dict(tools)}"
     )
     return relays
 
 
 def main(arguments: list[str]) -> int:
-    rounds: collections.defaultdict[str, list[tuple[str, int, int | None]]] = (
-        collections.defaultdict(list)
-    )
+    rounds: collections.defaultdict[
+        str, list[tuple[str, int | None, int | None]]
+    ] = collections.defaultdict(list)
     relays = 0
 
     for argument in arguments:
@@ -222,7 +234,9 @@ def main(arguments: list[str]) -> int:
     print()
     for pr in sorted(rounds, key=int):
         metrics = [
-            f"{result[1]}min/{result[2]}w"
+            "unfinished"
+            if result[1] is None
+            else f"{result[1]}min/{result[2]}w"
             if result[2] is not None
             else f"{result[1]}min/unknown"
             for result in rounds[pr]

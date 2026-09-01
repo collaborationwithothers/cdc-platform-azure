@@ -32,6 +32,10 @@ class SessionMetricsCommandTests(unittest.TestCase):
         )
 
     def test_reports_session_and_governance_round_metrics(self):
+        repeated_usage = {
+            "input_tokens": 3, "cache_creation_input_tokens": 4,
+            "cache_read_input_tokens": 10, "output_tokens": 5,
+        }
         self.write_events(
             [
                 {
@@ -45,10 +49,7 @@ class SessionMetricsCommandTests(unittest.TestCase):
                     "message": {
                         "id": "message-1",
                         "model": "claude-opus-5",
-                        "usage": {
-                            "cache_read_input_tokens": 10,
-                            "output_tokens": 5,
-                        },
+                        "usage": repeated_usage,
                         "content": [
                             {"type": "tool_use", "name": "Read"},
                             {"type": "text", "text": "Review in progress"},
@@ -61,10 +62,7 @@ class SessionMetricsCommandTests(unittest.TestCase):
                     "message": {
                         "id": "message-1",
                         "model": "claude-opus-5",
-                        "usage": {
-                            "cache_read_input_tokens": 10,
-                            "output_tokens": 5,
-                        },
+                        "usage": repeated_usage,
                         "content": [
                             {
                                 "type": "tool_use",
@@ -94,6 +92,8 @@ class SessionMetricsCommandTests(unittest.TestCase):
                         "id": "message-2",
                         "model": "claude-opus-5",
                         "usage": {
+                            "input_tokens": 6,
+                            "cache_creation_input_tokens": 8,
                             "cache_read_input_tokens": 20,
                             "output_tokens": 7,
                         },
@@ -111,24 +111,24 @@ class SessionMetricsCommandTests(unittest.TestCase):
                 {
                     "timestamp": "2026-09-01T12:16:40Z",
                     "type": "user",
-                    "message": {"content": "Finding 7 was relayed by hand"},
+                    "message": {"content": "F7: relayed by hand"},
                 },
             ]
         )
-
         result = self.run_command()
 
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn(
             "abcdefgh 2026-09-01T12:00 active=4m idle=13m "
-            "models=['claude-opus-5'] cache_read=30 out=12 "
+            "models=['claude-opus-5'] input=9 cache_create=12 "
+            "cache_read=30 out=12 "
             "tools={'Read': 1, 'Bash': 1}",
             result.stdout,
         )
         self.assertIn("PR 316 1 rounds ['4min/13w']", result.stdout)
         self.assertIn("rounds 1 PRs 1 hand-relayed findings 1", result.stdout)
 
-    def test_accepts_expanded_governance_review_command(self):
+    def test_accepts_expanded_command_and_reports_unfinished_round(self):
         self.write_events(
             [
                 {
@@ -160,6 +160,11 @@ class SessionMetricsCommandTests(unittest.TestCase):
                         ],
                     },
                 },
+                {
+                    "timestamp": "2026-09-01T12:02:00Z",
+                    "type": "user",
+                    "message": {"content": "/governance-review 317"},
+                },
             ]
         )
 
@@ -167,6 +172,7 @@ class SessionMetricsCommandTests(unittest.TestCase):
 
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("PR 316 1 rounds ['1min/8w']", result.stdout)
+        self.assertIn("PR 317 1 rounds ['unfinished']", result.stdout)
 
 
 if __name__ == "__main__":

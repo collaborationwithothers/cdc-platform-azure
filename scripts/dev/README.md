@@ -21,7 +21,7 @@ Run the command from the repository root. The wildcard includes the main
 checkout and the repository's isolated worktrees:
 
 ```console
-cd /Users/harisubramaniam/learning/azure-ai/cdc-platform-azure
+cd "$(git rev-parse --show-toplevel)"
 python3 scripts/dev/session_metrics.py ~/.claude/projects/*-azure-ai-cdc-*/*.jsonl
 ```
 
@@ -30,15 +30,17 @@ The session summary reports:
 - the final eight characters of the session file name;
 - active time from consecutive event gaps of 10 minutes or less;
 - idle time from consecutive event gaps greater than 10 minutes;
-- models, cache-read tokens, output tokens, and tool calls. Token usage is
-  counted once per Claude message even when its event fragments repeat usage.
+- models, input tokens, cache-creation input tokens, cache-read input tokens,
+  output tokens, and tool calls. Token usage is counted once per Claude message
+  even when its event fragments repeat usage.
 
 The combined summary reports:
 
-- the number of governance-review rounds associated with each pull request;
+- completed and unfinished governance-review rounds for each pull request;
 - rounded minutes from the review command to the detected verdict;
 - the submitted review body's whitespace-delimited word count;
-- user messages beginning with `Finding <number>` as hand-relayed findings.
+- user messages beginning with `Finding <number>` or `F<number>:` as
+  hand-relayed findings.
 
 A round begins when a user event contains either the plain or expanded form of
 `/governance-review <PR number>`. It ends when assistant text contains the
@@ -47,6 +49,9 @@ review output shape, which starts with `Reviewed at`, is also accepted. The
 word count comes from the review body submitted through the recorded tool call.
 The report uses `unknown` when that body is unavailable instead of counting the
 short headless completion message.
+
+If another review starts before the current review completes, or the session
+ends first, the current round is reported as `unfinished`.
 
 The command prints aggregates, not transcript text. The source `.jsonl` files
 can still contain sensitive local conversation data. Do not commit them.
