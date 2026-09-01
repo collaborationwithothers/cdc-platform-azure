@@ -10,9 +10,9 @@ Run the governance review workflow in AGENTS.md (PROJECT MECHANICS >
 The working tree is read-only. Post one review per round to the named pull
 request with `gh pr review`; never approve and never merge. Findings go to the
 implementer through that review, with Hari as the final authority.
-Use `gh pr review --request-changes` when the verdict has blocking or
-should-fix findings. Use `gh pr review --comment` when the content verdict is
-APPROVE. Never use `gh pr review --approve`.
+Post every verdict with `gh pr review --comment` and carry `APPROVE` or
+`REQUEST CHANGES` in the review body. Never use `gh pr review --approve` or
+`gh pr review --request-changes`.
 
 Output is for Hari and is exempt from the first-time reader contract. Do not
 define terms or restate system context. Follow the read order, the

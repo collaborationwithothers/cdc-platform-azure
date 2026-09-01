@@ -328,18 +328,20 @@ Finish in this order:
 10. The implementation session evaluates stop rule 5 from those replies.
 11. The implementation session evaluates stop rule 6 against the proposed
     fix diff's Paths and measured PR size.
-12. If stop rule 5 or 6 applies, the implementation session continues at
-    step 17 without committing, pushing, or invoking another review.
-13. The implementation session commits the fixes.
-14. The implementation session pushes once for the round.
+12. If stop rule 6 applies, the implementation session continues at step 18
+    without committing, pushing, or invoking another review.
+13. If the round changed files, the implementation session commits the fixes.
+14. If the round created a commit, the implementation session pushes once.
 15. The implementation session replies once per fixed finding id.
-16. When CI is green, the implementation session returns to step 3.
-17. The implementation session fills the PR's Review
-   loop section.
-18. The implementation session posts the loop summary comment.
-19. The implementation session requests review from Hari.
-20. The implementation session removes the in-progress label.
-21. The implementation session stops.
+16. If stop rule 5 applies, the implementation session continues at step 18
+    without invoking another review.
+17. When CI is green, the implementation session returns to step 3.
+18. The implementation session fills the PR's Review
+    loop section.
+19. The implementation session posts the loop summary comment.
+20. The implementation session requests review from Hari.
+21. The implementation session removes the in-progress label.
+22. The implementation session stops.
 
 Batch mode: the operator may authorise up to N tickets per session
 (default 1; Hari currently runs N=2). Each ticket is completed fully,

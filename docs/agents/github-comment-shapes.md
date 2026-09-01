@@ -157,8 +157,6 @@ commit reviewed.
 ```markdown
 Reviewed at [current head SHA]
 
-Review round 1 for PR #[number].
-
 Verdict: [APPROVE or REQUEST CHANGES]
 
 Findings:
@@ -182,8 +180,6 @@ Reviewed at [current head SHA]
 Review round [2 or 3] for PR #[number].
 
 Verdict: [APPROVE or REQUEST CHANGES]
-
-Baseline: [latest prior bot-review SHA]
 
 CLOSED:
 - [F1] [fixing hunk, or `None`]
@@ -213,16 +209,11 @@ one-line orientation.
 
 ```markdown
 Review loop summary for PR #[number]: [one-line result and why the loop stopped].
-
 Rounds:
 - Round [number], reviewed at [SHA]: [verdict]; [CLOSED / OPEN / REOPENED / new summary]
-
 Stop rule: [rule number and reason]
-
 Remaining findings: [stable identifiers and owner, or `None`]
-
 CI: [green / pending / failed, with the exact check state]
-
 Handoff: Hari review requested. The implementation session did not approve or merge.
 ```
 
