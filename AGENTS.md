@@ -320,7 +320,7 @@ Finish in this order:
 6. The implementation session evaluates stop rule 2. Neither side overrides
    the other's stop.
 7. If the reviewer or implementation session stops, the implementation session
-   continues at step 17.
+   continues at step 18.
 8. The implementation session applies the implementer
    fix-round rules to the cited findings.
 9. The implementation session posts the required reply for each disputed
@@ -333,8 +333,8 @@ Finish in this order:
 13. If the round changed files, the implementation session commits the fixes.
 14. If the round created a commit, the implementation session pushes once.
 15. The implementation session replies once per fixed finding id.
-16. If stop rule 5 applies, the implementation session continues at step 18
-    without invoking another review.
+16. If a disputed blocking finding triggers stop rule 5, the implementation
+    session continues at step 18 without invoking another review.
 17. When CI is green, the implementation session returns to step 3.
 18. The implementation session fills the PR's Review
     loop section.
@@ -378,9 +378,13 @@ The loop ends, and the PR goes to Hari, at the first of:
 2. Round cap. Three review rounds total (initial plus two re-reviews).
 3. No convergence. No blocking finding id from round N-1 was closed in
    round N.
-4. Only notes remain. Every open finding in round N is severity note.
-5. Dispute. The implementer marked any blocking finding "won't fix" with a
-   reason. Disputes go to Hari, never to a further round.
+4. Only notes or disputed findings remain. Every open finding in round N is
+   severity note or has been disputed by the implementer.
+5. Dispute. The implementer marked a finding of any severity "won't fix" with
+   a reason. The implementer does not reconsider a disputed finding in another
+   round. The finding goes to Hari; a disputed blocking finding also ends the
+   loop. A disputed non-blocking finding reaches Hari through rule 4 without
+   ending the loop.
 6. Scope creep. A fix round changed files outside the PR's declared Paths
    or grew the diff past the PR-size gate.
 
@@ -391,6 +395,10 @@ rules 2, 5 and 6. Neither overrides the other's stop.
 #### Re-review rules (rounds 2 and 3)
 
 - Every posted review begins "Reviewed at <head sha>".
+- A re-review requires a new head SHA. If the fix changes only the PR body or
+  comments, the implementer records it in the per-finding reply (for example
+  "F9: fixed in PR body") and does not invoke a re-review; the finding is left
+  for Hari.
 - A re-review takes the previous review's sha as baseline and reads only
   `git diff <prev-sha>..HEAD` plus the implementer's per-finding replies.
   It does not re-run steps 2 to 5 on the whole PR.
@@ -408,6 +416,7 @@ rules 2, 5 and 6. Neither overrides the other's stop.
 - Reply on the PR per finding id: "F3: fixed in <sha>" or
   "F3: won't fix - <reason>". Nothing else.
 - Fix or dispute once; never argue a finding across rounds.
+- Do not invoke a re-review when nothing was pushed since the last review.
 - Push once per round, then invoke the re-review. Never invoke it with
   uncommitted changes.
 
