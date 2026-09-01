@@ -23,12 +23,14 @@ public sealed class NotifierHostTests(SqlServerFixture sql, KafkaFixture kafka)
     [Theory]
     [MemberData(nameof(InvalidTenantHeaders))]
     public async Task Invalid_or_blank_tenant_header_is_rejected_without_processing(
-        byte[] tenantHeader)
+        byte[]? tenantHeader,
+        bool includeTenantHeader)
     {
         var sender = new RecordingSender();
         await using var context = await StartHostAsync(sender);
 
-        await context.ProduceAsync(Event(1), tenantHeader: tenantHeader);
+        await context.ProduceAsync(
+            Event(1), tenantHeader: tenantHeader, includeTenantHeader: includeTenantHeader);
         await context.WaitForStoppingAsync();
 
         Assert.Equal(0, sender.Count);
@@ -38,9 +40,28 @@ public sealed class NotifierHostTests(SqlServerFixture sql, KafkaFixture kafka)
 
     public static IEnumerable<object[]> InvalidTenantHeaders() =>
     [
-        [new byte[] { 0xC3, 0x28 }],
-        [Encoding.UTF8.GetBytes("  ")]
+        [null!, false],
+        [Array.Empty<byte>(), true],
+        [Encoding.UTF8.GetBytes("  \t\n"), true],
+        [new byte[] { 0xC3, 0x28 }, true]
     ];
+
+    [Fact]
+    public async Task Valid_nonblank_utf8_tenant_header_is_preserved()
+    {
+        var sender = new RecordingSender();
+        await using var context = await StartHostAsync(sender);
+        const string tenantId = "lexfield-ø";
+
+        await context.ProduceAsync(
+            Event(1), tenantHeader: Encoding.UTF8.GetBytes(tenantId));
+        await sender.WaitForCountAsync(1);
+        await context.WaitForSentRowsAsync(1);
+
+        Assert.Equal(
+            new SentNotificationRow(tenantId, 4711, 1),
+            await context.GetSentNotificationAsync());
+    }
 
     [Fact]
     public async Task One_transition_sends_once_and_records_before_committing()
@@ -335,21 +356,26 @@ public sealed class NotifierHostTests(SqlServerFixture sql, KafkaFixture kafka)
         public async Task ProduceAsync(
             TransitionEvent taskEvent,
             string? targetTopic = null,
-            byte[]? tenantHeader = null)
+            byte[]? tenantHeader = null,
+            bool includeTenantHeader = true)
         {
             using var producer = new ProducerBuilder<string, string>(new ProducerConfig
             {
                 BootstrapServers = bootstrapServers
             }).Build();
+            var headers = new Confluent.Kafka.Headers();
+            if (includeTenantHeader)
+            {
+                headers.Add(
+                    Lexfield.Contracts.Headers.TenantId,
+                    tenantHeader ?? Encoding.UTF8.GetBytes("lexfield-001"));
+            }
+
             await producer.ProduceAsync(targetTopic ?? topic, new Message<string, string>
             {
                 Key = $"lexfield-001-{taskEvent.TaskId}",
                 Value = JsonSerializer.Serialize(taskEvent),
-                Headers = new Confluent.Kafka.Headers
-                {
-                    new Header(Lexfield.Contracts.Headers.TenantId,
-                        tenantHeader ?? Encoding.UTF8.GetBytes("lexfield-001"))
-                }
+                Headers = headers
             });
         }
 

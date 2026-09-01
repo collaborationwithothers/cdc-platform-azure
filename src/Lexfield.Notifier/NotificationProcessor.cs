@@ -150,42 +150,16 @@ internal sealed record DecodedTransition(
 
 internal static class TransitionMessageDecoder
 {
-    private static readonly UTF8Encoding StrictUtf8 = new(false, true);
-
     public static DecodedTransition Decode(Message<string, string> message)
     {
-        var tenantId = RequiredHeader(message.Headers, ContractHeaders.TenantId);
+        message.Headers.TryGetLastBytes(ContractHeaders.TenantId, out var tenantHeader);
+        var tenantId = TenantHeader.Decode(tenantHeader);
         var taskEvent = JsonSerializer.Deserialize<TransitionEvent>(message.Value)
             ?? throw new JsonException("The transition event value was JSON null.");
         var traceParent = OptionalHeader(message.Headers, ContractHeaders.TraceParent);
         ActivityContext? parent = traceParent is not null &&
             ActivityContext.TryParse(traceParent, null, true, out var parsed) ? parsed : null;
         return new DecodedTransition(tenantId, taskEvent, parent);
-    }
-
-    private static string RequiredHeader(KafkaHeaders headers, string name)
-    {
-        if (!headers.TryGetLastBytes(name, out var value) || value is not { Length: > 0 })
-        {
-            throw new InvalidDataException(
-                $"The Kafka message is missing required header '{name}'.");
-        }
-
-        string decoded;
-        try
-        {
-            decoded = StrictUtf8.GetString(value);
-        }
-        catch (DecoderFallbackException exception)
-        {
-            throw new InvalidDataException(
-                $"The Kafka message header '{name}' is not valid UTF-8.", exception);
-        }
-
-        return string.IsNullOrWhiteSpace(decoded)
-            ? throw new InvalidDataException(
-                $"The Kafka message header '{name}' must not be blank.")
-            : decoded;
     }
 
     private static string? OptionalHeader(KafkaHeaders headers, string name) =>
