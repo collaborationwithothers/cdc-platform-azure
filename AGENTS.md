@@ -309,16 +309,29 @@ exactly, run the declared verification method locally where possible, open a
 PR referencing the issue using the template, apply the `agent:*` label, watch
 CI, and fix failures until green.
 
-Finish: complete the PR template's review summary, paste the pre-PR
-code-review self-check output into the template's Self-check section, tick
-only checklist items that are actually true, then invoke `claude -p
-"/governance-review <n>"`. Read the posted review and apply the implementer
-fix-round rules. The reviewer evaluates stop rules 1, 3, and 4. The implementer
-evaluates stop rules 2, 5, and 6. Neither overrides the other's stop. If neither
-side stops, fix or dispute each cited finding once, push once, wait for CI, and
-invoke the next review round. Repeat until either side stops. Fill the PR's
-Review loop section and post the loop summary comment, request review from
-Hari, remove the in-progress label, and stop.
+Finish in this order:
+1. The implementation session completes the PR template's review summary and
+   pastes the pre-PR code-review self-check into the Self-check section.
+2. The implementation session ticks only checklist items that are true.
+3. The implementation session invokes `claude -p "/governance-review
+   <pr-number>"`.
+4. The implementation session reads the posted review.
+5. The reviewer evaluates stop rules 1, 3, and 4.
+6. The implementation session evaluates stop rules 2, 5, and 6. Neither side
+   overrides the other's stop.
+7. If neither side stops, the implementation session applies the implementer
+   fix-round rules to the cited findings.
+8. The implementation session commits the fixes.
+9. The implementation session pushes once for the round.
+10. The implementation session replies once per finding id.
+11. The implementation session waits for CI.
+12. When CI is green, the implementation session returns to step 3.
+13. When either side stops, the implementation session fills the PR's Review
+    loop section.
+14. The implementation session posts the loop summary comment.
+15. The implementation session requests review from Hari.
+16. The implementation session removes the in-progress label.
+17. The implementation session stops.
 
 Batch mode: the operator may authorise up to N tickets per session
 (default 1; Hari currently runs N=2). Each ticket is completed fully,
