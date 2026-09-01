@@ -11,6 +11,7 @@ using Lexfield.QueueBuilder;
 using Lexfield.QueueStore;
 using Lexfield.TestSupport;
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 
 namespace Lexfield.QueueBuilder.Tests;
@@ -18,6 +19,46 @@ namespace Lexfield.QueueBuilder.Tests;
 [Collection(QueueBuilderContainers.Name)]
 public sealed class QueueBuilderHostTests(SqlServerFixture sql, KafkaFixture kafka)
 {
+    [Theory]
+    [MemberData(nameof(InvalidTenantHeaders))]
+    public async Task Invalid_or_blank_tenant_header_is_rejected_without_processing(
+        byte[]? tenantHeader,
+        bool includeTenantHeader)
+    {
+        await using var context = await StartHostAsync();
+
+        await context.ProduceAsync(
+            Event(1, TaskState.Created),
+            tenantHeader: tenantHeader,
+            includeTenantHeader: includeTenantHeader);
+        await context.WaitForStoppingAsync();
+
+        Assert.Null(await context.GetAsync());
+        Assert.Equal(Offset.Unset, context.GetCommittedOffset());
+    }
+
+    public static IEnumerable<object[]> InvalidTenantHeaders() =>
+    [
+        [null!, false],
+        [Array.Empty<byte>(), true],
+        [Encoding.UTF8.GetBytes("  \t\n"), true],
+        [new byte[] { 0xC3, 0x28 }, true]
+    ];
+
+    [Fact]
+    public async Task Valid_nonblank_utf8_tenant_header_is_preserved()
+    {
+        await using var context = await StartHostAsync();
+        const string tenantId = "lexfield-ø";
+
+        await context.ProduceAsync(
+            Event(1, TaskState.Created),
+            tenantHeader: Encoding.UTF8.GetBytes(tenantId));
+        var row = await context.WaitForVersionAsync(1, tenantId: tenantId);
+
+        Assert.Equal(tenantId, row.TenantId);
+    }
+
     [Fact]
     public async Task Versions_one_then_two_leave_the_queue_row_at_version_two()
     {
@@ -152,9 +193,16 @@ public sealed class QueueBuilderHostTests(SqlServerFixture sql, KafkaFixture kaf
         StringWriter output) : IAsyncDisposable
     {
         private readonly QueueStateStore _store = new(connectionString);
+        public bool IsStopping => host.Services
+            .GetRequiredService<IHostApplicationLifetime>()
+            .ApplicationStopping.IsCancellationRequested;
         public string LogOutput => output.ToString();
 
-        public async Task ProduceAsync(TransitionEvent taskEvent, string? traceParent = null)
+        public async Task ProduceAsync(
+            TransitionEvent taskEvent,
+            string? traceParent = null,
+            byte[]? tenantHeader = null,
+            bool includeTenantHeader = true)
         {
             using var producer = new ProducerBuilder<string, string>(new ProducerConfig
             {
@@ -164,16 +212,18 @@ public sealed class QueueBuilderHostTests(SqlServerFixture sql, KafkaFixture kaf
             {
                 Key = $"lexfield-001-{taskEvent.TaskId}",
                 Value = JsonSerializer.Serialize(taskEvent),
-                Headers = MessageHeaders(traceParent)
+                Headers = MessageHeaders(traceParent, tenantHeader, includeTenantHeader)
             });
         }
 
-        public Task<QueueStateRow?> GetAsync(int taskId = 4711) =>
-            _store.GetAsync("lexfield-001", taskId);
-        public Task<QueueStateRow> WaitForVersionAsync(int version, int taskId = 4711)
+        public Task<QueueStateRow?> GetAsync(
+            string tenantId = "lexfield-001", int taskId = 4711) =>
+            _store.GetAsync(tenantId, taskId);
+        public Task<QueueStateRow> WaitForVersionAsync(
+            int version, int taskId = 4711, string tenantId = "lexfield-001")
             => WaitForAsync(async () =>
             {
-                var row = await GetAsync(taskId);
+                var row = await GetAsync(tenantId, taskId);
                 return row?.Version == version ? row : null;
             }, $"QueueBuilder did not store task {taskId} at version {version}.");
         public Task<TraceObservation> WaitForTraceAsync(int taskId)
@@ -202,13 +252,35 @@ public sealed class QueueBuilderHostTests(SqlServerFixture sql, KafkaFixture kaf
             output.Dispose();
         }
 
-        private static Confluent.Kafka.Headers MessageHeaders(string? traceParent)
+        public async Task WaitForStoppingAsync()
         {
-            var headers = new Confluent.Kafka.Headers
+            await WaitForAsync(
+                () => Task.FromResult(IsStopping ? new object() : null),
+                "QueueBuilder host did not stop after rejecting the message.");
+        }
+
+        public Offset GetCommittedOffset()
+        {
+            using var consumer = new ConsumerBuilder<string, string>(new ConsumerConfig
             {
-                new Header(Lexfield.Contracts.Headers.TenantId,
-                    Encoding.UTF8.GetBytes("lexfield-001"))
-            };
+                BootstrapServers = bootstrapServers,
+                GroupId = "queue-builder",
+                EnableAutoCommit = false,
+                EnableAutoOffsetStore = false
+            }).Build();
+            return consumer.Committed(
+                [new TopicPartition(topic, new Partition(0))],
+                TimeSpan.FromSeconds(5))[0].Offset;
+        }
+
+        private static Confluent.Kafka.Headers MessageHeaders(
+            string? traceParent, byte[]? tenantHeader, bool includeTenantHeader)
+        {
+            var headers = new Confluent.Kafka.Headers();
+            if (includeTenantHeader)
+                headers.Add(
+                    Lexfield.Contracts.Headers.TenantId,
+                    tenantHeader ?? Encoding.UTF8.GetBytes("lexfield-001"));
             if (traceParent is not null)
                 headers.Add(Lexfield.Contracts.Headers.TraceParent,
                     Encoding.UTF8.GetBytes(traceParent));

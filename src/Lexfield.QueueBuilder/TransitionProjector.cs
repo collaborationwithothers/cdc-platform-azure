@@ -113,7 +113,8 @@ internal static class TransitionMessageDecoder
 {
     public static DecodedTransition Decode(Message<string, string> message)
     {
-        var tenantId = RequiredHeader(message.Headers, ContractHeaders.TenantId);
+        message.Headers.TryGetLastBytes(ContractHeaders.TenantId, out var tenantHeader);
+        var tenantId = TenantHeader.Decode(tenantHeader);
         var taskEvent = JsonSerializer.Deserialize<TransitionEvent>(message.Value)
             ?? throw new JsonException("The transition event value was JSON null.");
         var traceParent = OptionalHeader(message.Headers, ContractHeaders.TraceParent);
@@ -121,10 +122,6 @@ internal static class TransitionMessageDecoder
             ActivityContext.TryParse(traceParent, null, true, out var parsed) ? parsed : null;
         return new DecodedTransition(tenantId, taskEvent, parent);
     }
-
-    private static string RequiredHeader(KafkaHeaders headers, string name) =>
-        OptionalHeader(headers, name)
-        ?? throw new InvalidDataException($"The Kafka message is missing required header '{name}'.");
 
     private static string? OptionalHeader(KafkaHeaders headers, string name) =>
         headers.TryGetLastBytes(name, out var value) && value is { Length: > 0 }
