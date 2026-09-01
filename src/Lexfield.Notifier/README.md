@@ -21,6 +21,8 @@ Notifier:Topics:1=workflow-transitions-lexfield-003
 
 A consumer group is a set of cooperating consumers that shares a subscription so each message is processed by one member. The host uses consumer group `notifier`, starts at the earliest offset when no group offset exists, and disables automatic offset commits. An offset is a message position within a topic partition; a committed offset is the next position from which the group resumes. The topic list must contain at least one topic. The `tenantId` Kafka header is required, nonblank, and strict UTF-8. The message key is opaque and is not used as a fallback tenant identifier.
 
+Today, an invalid or unreadable `tenantId` header raises an uncaught processor error and stops the host before its offset is committed, so restarting the `notifier` group redelivers the same message and repeats the failure until later retry, partition-pause, and park handling is implemented.
+
 ## Signals
 
 Valid processing emits `Notifier.EventReceived`, `Notifier.NotificationSent`, and `Notifier.SendRecorded` as separate correlated events. A pre-existing row emits `Notifier.DuplicateSkipped` instead of the send and record events. The counters are `notifier.sent`, `notifier.skipped_duplicate`, and `notifier.record_conflict`.

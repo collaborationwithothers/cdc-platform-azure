@@ -169,7 +169,7 @@ public sealed class NotifierHostTests(SqlServerFixture sql, KafkaFixture kafka)
         string? topic = null,
         string[]? topics = null,
         string? connectionString = null,
-        StringWriter? sharedOutput = null,
+        TestLogSink? sharedOutput = null,
         MeterListener? sharedListener = null,
         ConcurrentQueue<Measurement>? sharedMeasurements = null,
         bool captureOutput = true)
@@ -196,11 +196,11 @@ public sealed class NotifierHostTests(SqlServerFixture sql, KafkaFixture kafka)
 
         connectionString ??= await sql.CreateQueueStoreDatabaseAsync(
             $"notifier_{Guid.NewGuid():N}");
-        var output = sharedOutput ?? new StringWriter();
+        var output = sharedOutput ?? new TestLogSink();
         var originalOutput = captureOutput ? Console.Out : null;
         if (captureOutput)
         {
-            Console.SetOut(output);
+            Console.SetOut(output.Writer);
         }
 
         var measurements = sharedMeasurements ?? new ConcurrentQueue<Measurement>();
@@ -315,18 +315,18 @@ public sealed class NotifierHostTests(SqlServerFixture sql, KafkaFixture kafka)
         MeterListener listener,
         ConcurrentQueue<Measurement> measurements,
         TextWriter? originalOutput,
-        StringWriter output,
+        TestLogSink output,
         bool ownsOutput,
         bool ownsListener) : IAsyncDisposable
     {
         public string ConnectionString => connectionString;
-        public StringWriter Output => output;
+        public TestLogSink Output => output;
         public MeterListener Listener => listener;
         public ConcurrentQueue<Measurement> Measurements => measurements;
         public bool IsStopping => host.Services
             .GetRequiredService<IHostApplicationLifetime>()
             .ApplicationStopping.IsCancellationRequested;
-        public string LogOutput => output.ToString();
+        public string LogOutput => output.Snapshot();
 
         public long Measurement(string name) => measurements
             .Where(item => item.Name == name)
@@ -454,6 +454,73 @@ public sealed class NotifierHostTests(SqlServerFixture sql, KafkaFixture kafka)
                 Console.SetOut(originalOutput!);
                 output.Dispose();
             }
+        }
+    }
+
+    private sealed class TestLogSink : IDisposable
+    {
+        private readonly StringWriter _buffer = new();
+        private readonly object _gate = new();
+
+        public TextWriter Writer { get; }
+
+        public TestLogSink()
+        {
+            Writer = new SynchronizedTextWriter(_buffer, _gate);
+        }
+
+        public string Snapshot()
+        {
+            lock (_gate)
+            {
+                return _buffer.ToString();
+            }
+        }
+
+        public void Dispose()
+        {
+            Writer.Dispose();
+            _buffer.Dispose();
+        }
+    }
+
+    private sealed class SynchronizedTextWriter(TextWriter inner, object gate) : TextWriter
+    {
+        public override Encoding Encoding => inner.Encoding;
+
+        public override void Flush()
+        {
+            lock (gate) inner.Flush();
+        }
+
+        public override void Write(char value)
+        {
+            lock (gate) inner.Write(value);
+        }
+
+        public override void Write(string? value)
+        {
+            lock (gate) inner.Write(value);
+        }
+
+        public override void Write(char[] buffer, int index, int count)
+        {
+            lock (gate) inner.Write(buffer, index, count);
+        }
+
+        public override void Write(ReadOnlySpan<char> buffer)
+        {
+            lock (gate) inner.Write(buffer);
+        }
+
+        public override void WriteLine()
+        {
+            lock (gate) inner.WriteLine();
+        }
+
+        public override void WriteLine(string? value)
+        {
+            lock (gate) inner.WriteLine(value);
         }
     }
 
