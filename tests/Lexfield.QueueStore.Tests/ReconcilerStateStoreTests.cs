@@ -134,6 +134,51 @@ public sealed class ReconcilerStateStoreTests(SqlServerFixture sql) : IAsyncLife
     }
 
     [Fact]
+    public async Task Empty_pass_one_returns_success_and_keeps_watermark_at_ten()
+    {
+        var store = new ReconcilerStateStore(_connectionString);
+        await SeedWatermarkAsync("tenant-a", 10);
+        var lease = await store.TryAcquireLeaseAsync(TimeSpan.FromSeconds(30));
+        Assert.NotNull(lease);
+
+        Assert.True(await store.CommitPassOneAsync(
+            lease,
+            "tenant-a",
+            10,
+            10,
+            [],
+            []));
+
+        Assert.Equal(10, await store.GetWatermarkAsync("tenant-a"));
+        Assert.Empty(await ReadObservationsAsync("tenant-a"));
+        Assert.True(await store.ReleaseLeaseAsync(lease));
+    }
+
+    [Fact]
+    public async Task Pass_one_persists_an_observation_with_no_queue_version()
+    {
+        var store = new ReconcilerStateStore(_connectionString);
+        await SeedWatermarkAsync("tenant-a", 10);
+        var lease = await store.TryAcquireLeaseAsync(TimeSpan.FromSeconds(30));
+        Assert.NotNull(lease);
+
+        Assert.True(await store.CommitPassOneAsync(
+            lease,
+            "tenant-a",
+            10,
+            11,
+            [new DriftObservation(4711, 11, null)],
+            []));
+
+        var observation = Assert.Single(await ReadObservationsAsync("tenant-a"));
+        Assert.Equal(4711, observation.TaskId);
+        Assert.Equal(11, observation.SourceVersion);
+        Assert.Null(observation.QueueVersion);
+        Assert.Equal(11, await store.GetWatermarkAsync("tenant-a"));
+        Assert.True(await store.ReleaseLeaseAsync(lease));
+    }
+
+    [Fact]
     public async Task Persistence_failure_rolls_back_observations_and_watermark()
     {
         var store = new ReconcilerStateStore(_connectionString);
