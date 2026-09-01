@@ -382,7 +382,9 @@ The loop ends, and the PR goes to Hari, at the first of:
    severity note or has been disputed by the implementer.
 5. Dispute. The implementer marked a finding of any severity "won't fix" with
    a reason. A disputed finding leaves the convergence set and goes to Hari; a
-   disputed blocking finding also ends the loop.
+   disputed blocking finding also ends the loop. A disputed non-blocking
+   finding leaves the convergence set and reaches Hari through rule 4 without
+   ending the loop.
 6. Scope creep. A fix round changed files outside the PR's declared Paths
    or grew the diff past the PR-size gate.
 
