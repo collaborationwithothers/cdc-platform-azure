@@ -333,7 +333,7 @@ Finish in this order:
 13. If the round changed files, the implementation session commits the fixes.
 14. If the round created a commit, the implementation session pushes once.
 15. The implementation session replies once per fixed finding id.
-16. If stop rule 5 applies, the implementation session continues at step 18
+16. If a disputed blocking finding triggers stop rule 5, the implementation session continues at step 18
     without invoking another review.
 17. When CI is green, the implementation session returns to step 3.
 18. The implementation session fills the PR's Review
