@@ -10,11 +10,19 @@ summary per session and a combined summary of governance-review activity. A
 governance review is the independent review that checks a pull request against
 its issue, repository rules, and verification evidence.
 
-Run the command from the repository root:
+Claude creates a separate project directory for the main checkout and each
+isolated worktree. List the matching directories before measuring them:
+
+```console
+find ~/.claude/projects -maxdepth 1 -type d -name '*-azure-ai-cdc-*' -print
+```
+
+Run the command from the repository root. The wildcard includes the main
+checkout and the repository's isolated worktrees:
 
 ```console
 cd /Users/harisubramaniam/learning/azure-ai/cdc-platform-azure
-python3 scripts/dev/session_metrics.py ~/.claude/projects/-Users-harisubramaniam-learning-azure-ai-cdc-platform-azure/*.jsonl
+python3 scripts/dev/session_metrics.py ~/.claude/projects/*-azure-ai-cdc-*/*.jsonl
 ```
 
 The session summary reports:
@@ -22,7 +30,8 @@ The session summary reports:
 - the final eight characters of the session file name;
 - active time from consecutive event gaps of 10 minutes or less;
 - idle time from consecutive event gaps greater than 10 minutes;
-- models, cache-read tokens, output tokens, and tool calls.
+- models, cache-read tokens, output tokens, and tool calls. Token usage is
+  counted once per Claude message even when its event fragments repeat usage.
 
 The combined summary reports:
 
@@ -31,9 +40,10 @@ The combined summary reports:
 - the verdict's whitespace-delimited word count;
 - user messages beginning with `Finding <number>` as hand-relayed findings.
 
-Verdict detection is a heuristic. A round begins when a user event contains a
-`/governance-review <PR number>` command and ends at the next assistant text
-block longer than 3,000 characters. Shorter verdicts are not counted.
+A round begins when a user event contains either the plain or expanded form of
+`/governance-review <PR number>`. It ends when assistant text contains the
+posted GitHub review URL and the final `STOP` or `CONTINUE` decision. The full
+review output shape, which starts with `Reviewed at`, is also accepted.
 
 The command prints aggregates, not transcript text. The source `.jsonl` files
 can still contain sensitive local conversation data. Do not commit them.

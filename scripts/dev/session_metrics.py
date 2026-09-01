@@ -19,7 +19,6 @@ from datetime import datetime
 from pathlib import Path
 
 
-VERDICT_TEXT_MINIMUM_LENGTH = 3_000
 ACTIVE_GAP_MAXIMUM_SECONDS = 600
 
 
@@ -46,11 +45,40 @@ def content_texts(content: object) -> list[str]:
         return [content]
     if not isinstance(content, list):
         return []
-    return [
-        item.get("text", "")
-        for item in content
-        if isinstance(item, dict) and item.get("type") == "text"
-    ]
+    texts: list[str] = []
+    for item in content:
+        if isinstance(item, str):
+            texts.append(item)
+        elif isinstance(item, dict) and item.get("type") == "text":
+            texts.append(item.get("text", ""))
+    return texts
+
+
+def review_pr_number(text: str) -> str | None:
+    expanded_command = re.search(
+        r"<command-name>/governance-review</command-name>"
+        r".*?<command-args>(\d+)",
+        text,
+        re.S,
+    )
+    if expanded_command:
+        return expanded_command.group(1)
+
+    plain_command = re.search(r"(?:^|\s)/governance-review\s+(\d+)(?:\s|$)", text)
+    return plain_command.group(1) if plain_command else None
+
+
+def is_review_verdict(text: str) -> bool:
+    has_final_decision = re.search(r"(?m)^(?:STOP: .+|CONTINUE)\s*$", text)
+    if not has_final_decision:
+        return False
+    if "#pullrequestreview-" in text:
+        return True
+    has_review_header = re.search(r"(?m)^Reviewed at [0-9a-f]+\s*$", text)
+    has_verdict = re.search(
+        r"(?m)^Verdict: (?:APPROVE|REQUEST CHANGES)\s*$", text
+    )
+    return bool(has_review_header and has_verdict)
 
 
 def elapsed_seconds(events: list[dict]) -> tuple[float, float]:
@@ -84,14 +112,19 @@ def analyze_session(
     models: set[str] = set()
     current_pr: str | None = None
     review_start: datetime | None = None
+    usage_message_ids: set[str] = set()
     relays = 0
 
     for event in events:
         if event.get("type") == "assistant":
             message = event["message"]
-            usage = message.get("usage") or {}
-            cache_read_tokens += usage.get("cache_read_input_tokens", 0)
-            output_tokens += usage.get("output_tokens", 0)
+            message_id = message.get("id")
+            if not isinstance(message_id, str) or message_id not in usage_message_ids:
+                usage = message.get("usage") or {}
+                cache_read_tokens += usage.get("cache_read_input_tokens", 0)
+                output_tokens += usage.get("output_tokens", 0)
+                if isinstance(message_id, str):
+                    usage_message_ids.add(message_id)
             model = message.get("model")
             if isinstance(model, str):
                 models.add(model)
@@ -102,7 +135,7 @@ def analyze_session(
                 if (
                     isinstance(item, dict)
                     and item.get("type") == "text"
-                    and len(item["text"]) > VERDICT_TEXT_MINIMUM_LENGTH
+                    and is_review_verdict(item["text"])
                     and current_pr
                     and review_start
                 ):
@@ -119,14 +152,9 @@ def analyze_session(
 
         if event.get("type") == "user":
             for text in content_texts(event["message"].get("content")):
-                command = re.search(
-                    r"<command-name>/governance-review</command-name>"
-                    r".*?<command-args>(\d+)",
-                    text,
-                    re.S,
-                )
-                if command:
-                    current_pr = command.group(1)
+                pr_number = review_pr_number(text)
+                if pr_number:
+                    current_pr = pr_number
                     review_start = parse_timestamp(event["timestamp"])
                 if re.match(r"\s*Finding \d", text):
                     relays += 1
