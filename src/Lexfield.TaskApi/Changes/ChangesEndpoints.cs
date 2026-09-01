@@ -18,7 +18,7 @@ public static class ChangesEndpoints
                 ChangesFeedStatus.Unavailable => Results.StatusCode(StatusCodes.Status503ServiceUnavailable),
                 _ => throw new InvalidOperationException($"Unknown changes feed status {result.Status}.")
             };
-        }).RequireAuthorization("TenantRoute");
+        }).RequireAuthorization(TaskApiAuthentication.TenantRoutePolicy);
         return endpoints;
     }
 }

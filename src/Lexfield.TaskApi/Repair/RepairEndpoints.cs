@@ -15,7 +15,7 @@ public static class RepairEndpoints
             if (snapshot is null) return Results.NotFound();
             Log(logger, tenantId, taskId, snapshot.Version);
             return Results.Ok(snapshot);
-        }).RequireAuthorization("TenantRoute");
+        }).RequireAuthorization(TaskApiAuthentication.TenantRoutePolicy);
         return endpoints;
     }
 

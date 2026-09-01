@@ -10,12 +10,11 @@ public static class TaskEndpoints
     {
         endpoints.MapPost("/tenants/{tenantId}/tasks", async (
             HttpContext http, string tenantId, CreateTaskRequest? request,
-            ActorContextResolver actorContexts, TaskCreation creation,
+            TaskCreation creation,
             CancellationToken cancellationToken) =>
         {
-            var actorContext = actorContexts.Resolve(http.User);
-            if (actorContext is null) return Results.Unauthorized();
-            if (!TaskWriteAuthorization.IsAuthorized(http.User, actorContext)) return Results.Forbid();
+            if (!http.Items.TryGetValue(TaskApiAuthorizationState.ActorContext, out var actorValue)
+                || actorValue is not ActorContext actorContext) return Results.Unauthorized();
             var taskId = await creation.CreateAsync(
                 new TaskCreationCommand(
                     tenantId, actorContext.Actor, actorContext.ClientApplicationId,
@@ -25,7 +24,7 @@ public static class TaskEndpoints
                 ? Results.NotFound()
                 : Results.Created($"/tenants/{tenantId}/tasks/{taskId}",
                     new CreateTaskResponse(taskId.Value, 1));
-        }).RequireAuthorization("TenantRoute");
+        }).RequireAuthorization(TaskApiAuthentication.TaskWritePolicy);
         endpoints.MapTransitionEndpoints();
         endpoints.MapChangesEndpoints();
         endpoints.MapRepairEndpoints();

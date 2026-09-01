@@ -9,7 +9,7 @@ public static class TenantInfoEndpoints
         {
             var claim = await new TenantInfoRead(catalog).ReadAsync(tenantId, cancellationToken);
             return claim is null ? Results.NotFound() : Results.Ok(claim);
-        }).RequireAuthorization("TenantRoute");
+        }).RequireAuthorization(TaskApiAuthentication.TenantRoutePolicy);
         return endpoints;
     }
 }

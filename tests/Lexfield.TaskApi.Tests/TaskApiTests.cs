@@ -8,12 +8,16 @@ using Dapper;
 using Lexfield.Contracts;
 using Lexfield.TestSupport;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Hosting;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc.Testing;
+using Microsoft.AspNetCore.Routing;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.Data.SqlClient;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.Tokens;
 
 namespace Lexfield.TaskApi.Tests;
@@ -240,6 +244,36 @@ public sealed class TaskApiTests(SqlServerFixture sql)
 
         var missingClaims = await client.PostAsJsonAsync("/tenants/tenant-a/tasks", new { });
         Assert.Equal(HttpStatusCode.Unauthorized, missingClaims.StatusCode);
+        Assert.Empty(missingClaims.Headers.WwwAuthenticate);
+    }
+
+    [Fact]
+    public async Task CreateTaskWithAnotherTenantAndMissingActorClaimsReturns403()
+    {
+        await using var context = await CreateContextAsync();
+        using var client = context.Factory.CreateClient();
+        client.DefaultRequestHeaders.Authorization = new("Bearer", CreateTokenWithoutIdentityType(
+            "tenant-a", context.SigningKey));
+
+        var response = await client.PostAsJsonAsync("/tenants/tenant-b/tasks", new { });
+
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task TransitionTaskRejectsMissingRequiredActorClaims()
+    {
+        await using var context = await CreateContextAsync();
+        using var client = context.Factory.CreateClient();
+        client.DefaultRequestHeaders.Authorization = new("Bearer", CreateTokenWithoutRequiredActorClaims(
+            "tenant-a", context.SigningKey));
+
+        var response = await client.PostAsJsonAsync(
+            "/tenants/tenant-a/tasks/1/transitions",
+            new { to = "Assigned", expectedVersion = 1 });
+
+        Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+        Assert.Empty(response.Headers.WwwAuthenticate);
     }
 
     [Fact]
@@ -257,7 +291,7 @@ public sealed class TaskApiTests(SqlServerFixture sql)
     }
 
     [Fact]
-    public async Task CreateTaskRejectsTokensWithoutTheirModeSpecificWritePermission()
+    public async Task TaskWriteRoutesRejectTokensWithoutTheirModeSpecificWritePermission()
     {
         await using var context = await CreateContextAsync();
         using var client = context.Factory.CreateClient();
@@ -277,6 +311,85 @@ public sealed class TaskApiTests(SqlServerFixture sql)
             new Claim("idtyp", "app"), new Claim("scp", "Tasks.Write")));
         var applicationWithDelegatedScope = await client.PostAsJsonAsync("/tenants/tenant-a/tasks", new { });
         Assert.Equal(HttpStatusCode.Forbidden, applicationWithDelegatedScope.StatusCode);
+
+        await using var connection = new SqlConnection(context.TenantA);
+        var taskId = await connection.ExecuteScalarAsync<int>("""
+            INSERT dbo.WorkflowTask (State, Version, CreatedAt, UpdatedAt, UpdatedBy)
+            VALUES ('Created', 1, SYSUTCDATETIME(), SYSUTCDATETIME(), 'seed');
+            SELECT CONVERT(int, SCOPE_IDENTITY());
+            """);
+        client.DefaultRequestHeaders.Authorization = new("Bearer", CreateTokenWithoutPermission(
+            "tenant-a", context.SigningKey));
+        var delegatedTransition = await client.PostAsJsonAsync(
+            $"/tenants/tenant-a/tasks/{taskId}/transitions",
+            new { to = "Assigned", expectedVersion = 1 });
+        Assert.Equal(HttpStatusCode.Forbidden, delegatedTransition.StatusCode);
+
+        client.DefaultRequestHeaders.Authorization = new("Bearer", CreateTokenWithoutPermission(
+            "tenant-a", context.SigningKey, new Claim("idtyp", "app")));
+        var applicationTransition = await client.PostAsJsonAsync(
+            $"/tenants/tenant-a/tasks/{taskId}/transitions",
+            new { to = "Assigned", expectedVersion = 1 });
+        Assert.Equal(HttpStatusCode.Forbidden, applicationTransition.StatusCode);
+
+        client.DefaultRequestHeaders.Authorization = new("Bearer", CreateTokenWithoutPermission(
+            "tenant-a", context.SigningKey,
+            new Claim("idtyp", "app"), new Claim("scp", "Tasks.Write")));
+        var applicationWithDelegatedScopeTransition = await client.PostAsJsonAsync(
+            $"/tenants/tenant-a/tasks/{taskId}/transitions",
+            new { to = "Assigned", expectedVersion = 1 });
+        Assert.Equal(HttpStatusCode.Forbidden, applicationWithDelegatedScopeTransition.StatusCode);
+    }
+
+    [Fact]
+    public async Task TransitionTaskWithApplicationWriteRolePassesAuthorization()
+    {
+        await using var context = await CreateContextAsync();
+        await using var connection = new SqlConnection(context.TenantA);
+        var taskId = await connection.ExecuteScalarAsync<int>("""
+            INSERT dbo.WorkflowTask (State, Version, CreatedAt, UpdatedAt, UpdatedBy)
+            VALUES ('Created', 1, SYSUTCDATETIME(), SYSUTCDATETIME(), 'seed');
+            SELECT CONVERT(int, SCOPE_IDENTITY());
+            """);
+
+        using var client = context.Factory.CreateClient();
+        client.DefaultRequestHeaders.Authorization = new("Bearer", CreateTokenWithoutPermission(
+            "tenant-a", context.SigningKey,
+            new Claim("idtyp", "app"), new Claim("roles", "Tasks.Write.All")));
+        var response = await client.PostAsJsonAsync(
+            $"/tenants/tenant-a/tasks/{taskId}/transitions",
+            new { to = "Assigned", expectedVersion = 1 });
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task EveryTaskWritePostRouteUsesTheSharedWriteAuthorizationPolicy()
+    {
+        await using var context = await CreateContextAsync();
+        var endpoints = context.Factory.Services.GetRequiredService<EndpointDataSource>().Endpoints
+            .OfType<RouteEndpoint>()
+            .Where(endpoint => endpoint.Metadata.GetMetadata<HttpMethodMetadata>()?.HttpMethods.Contains(
+                HttpMethods.Post, StringComparer.OrdinalIgnoreCase) == true
+                && endpoint.RoutePattern.RawText?.Contains("/tasks", StringComparison.Ordinal) == true)
+            .ToArray();
+
+        Assert.NotEmpty(endpoints);
+        Assert.All(endpoints, endpoint =>
+            Assert.Contains(endpoint.Metadata.GetOrderedMetadata<IAuthorizeData>(),
+                authorization => authorization.Policy == TaskApiAuthentication.TaskWritePolicy));
+    }
+
+    [Fact]
+    public async Task SharedWritePolicyRequiresTenantAndModeSpecificAuthorization()
+    {
+        await using var context = await CreateContextAsync();
+        var options = context.Factory.Services.GetRequiredService<IOptions<AuthorizationOptions>>().Value;
+        var policy = options.GetPolicy(TaskApiAuthentication.TaskWritePolicy);
+
+        Assert.NotNull(policy);
+        Assert.Contains(policy!.Requirements, requirement => requirement is TenantRouteRequirement);
+        Assert.Contains(policy.Requirements, requirement => requirement is TaskWritePermissionRequirement);
     }
 
     [Fact]
