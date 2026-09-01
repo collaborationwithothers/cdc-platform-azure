@@ -35,22 +35,17 @@ Hari. Remove the in-progress label. Stop.
 A re-review requires a new head SHA. If the fix changes only the PR body or
 comments, the implementer records it in the per-finding reply (for example
 "F9: fixed in PR body") and does not invoke a re-review; the finding is left
-for Hari. Do not invoke a re-review when nothing was pushed since the last
-review.
-
+for Hari.
 Stop rules 4 and 5, restated from AGENTS.md:
 
 - Only notes or disputed findings remain. Every open finding in round N is
   severity note or has been disputed by the implementer.
 - Dispute. The implementer marked a finding of any severity "won't fix" with a
   reason. A disputed finding leaves the convergence set and goes to Hari; a
-  disputed blocking finding also ends the loop. A disputed non-blocking
-  finding leaves the convergence set and reaches Hari through rule 4 without
-  ending the loop.
-
-Implementer fix-round rule, restated from AGENTS.md:
-
-- Do not invoke a re-review when nothing was pushed since the last review.
+  disputed blocking finding also ends the loop. A disputed non-blocking finding
+  reaches Hari through rule 4 without ending the loop.
+- Implementer fix-round rule: Do not invoke a re-review when nothing was pushed
+  since the last review.
 
 Batch mode per AGENTS.md applies: default 1 ticket; if Hari's session message
 authorises more, complete each fully before the next claim and honour the
