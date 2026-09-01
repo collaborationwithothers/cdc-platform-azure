@@ -1,5 +1,5 @@
 ---
-description: Work the frontier: claim the next claimable v1 issue, implement it, open a PR, stop.
+description: Work the frontier: implement a claimable v1 issue and finish its governance loop.
 model: sonnet
 disable-model-invocation: true
 ---
@@ -12,9 +12,10 @@ If Hari has not provided one, ask and stop. Never infer or reuse another
 session's ID.
 
 Read docs/agents/reader-contract.md before writing an issue body or comment, PR
-description or comment, review, status, pickup, blocker, or completion message.
-Apply it to each artifact. Its context requirement overrides the customary
-comment line budget.
+description or comment, status, pickup, blocker, or completion message. Apply
+it to each artifact. Governance review output is exempt under AGENTS.md Style
+precedence. The contract's context requirement overrides the customary comment
+line budget.
 
 Then follow AGENTS.md exactly: frontier selection (ready-for-agent, all
 blockers closed, no in-progress:* label), the claim protocol including the
@@ -23,8 +24,13 @@ size forecast, branch (claude/ prefix, worktree per
 docs/runbooks/development-environment.md), implement, verify by the ticket's
 declared method, open the PR with the template and agent:claude label, get CI
 green, paste the pre-PR code-review self-check into the PR template's
-Self-check section, complete the review summary, request review from Hari,
-remove the in-progress label, stop.
+Self-check section, and complete the review summary.
+
+Finish with the ordered loop in AGENTS.md. Invoke each review as `claude -p
+"/governance-review <pr-number>"`. The posted review is the input to the
+implementer-owned stop rules and fix-round rules. When the loop stops, fill the
+PR's Review loop section. Post the loop summary comment. Request review from
+Hari. Remove the in-progress label. Stop.
 
 Batch mode per AGENTS.md applies: default 1 ticket; if Hari's session message
 authorises more, complete each fully before the next claim and honour the

@@ -26,9 +26,9 @@ link to reconstruct the point.
 
 This contract applies to new output and to technically editable
 model-produced history authored by `haripraghash-bot`. It does not apply to
-governance review output delivered in chat; see Style precedence. It does not
-rewrite existing commit messages or chat history, and it does not change
-content authored by `haripraghash`. Keep `Current state`, `Historical
+governance review output posted to a pull request; see Style precedence. It
+does not rewrite existing commit messages or chat history, and it does not
+change content authored by `haripraghash`. Keep `Current state`, `Historical
 evidence`, and `Unknowns` separate whenever more than one applies. Read
 docs/agents/reader-contract.md for the output-specific examples and final
 self-review.
@@ -306,13 +306,42 @@ review, measure again and record it in the PR template.
 Then: branch from up-to-date main (or from the parent branch for a stacked
 child), implement honouring the acceptance checklist and out-of-scope list
 exactly, run the declared verification method locally where possible, open a
-PR referencing the issue using the template, apply the agent:* label, watch CI
-and fix failures until green.
+PR referencing the issue using the template, apply the `agent:*` label, watch
+CI, and fix failures until green.
 
-Finish: complete the PR template's review summary, paste the pre-PR
-code-review self-check output into the template's Self-check section, tick
-only checklist items that are actually true, request review from Hari, remove
-the in-progress label, and stop.
+Finish in this order:
+1. The implementation session completes the PR template's review summary and
+   pastes the pre-PR code-review self-check into the Self-check section.
+2. The implementation session ticks only checklist items that are true.
+3. The implementation session invokes `claude -p "/governance-review
+   <pr-number>"`.
+4. The implementation session reads the posted review.
+5. The reviewer evaluates stop rules 1, 3, and 4.
+6. The implementation session evaluates stop rule 2. Neither side overrides
+   the other's stop.
+7. If the reviewer or implementation session stops, the implementation session
+   continues at step 17.
+8. The implementation session applies the implementer
+   fix-round rules to the cited findings.
+9. The implementation session posts the required reply for each disputed
+   finding.
+10. The implementation session evaluates stop rule 5 from those replies.
+11. The implementation session evaluates stop rule 6 against the proposed
+    fix diff's Paths and measured PR size.
+12. If stop rule 6 applies, the implementation session continues at step 18
+    without committing, pushing, or invoking another review.
+13. If the round changed files, the implementation session commits the fixes.
+14. If the round created a commit, the implementation session pushes once.
+15. The implementation session replies once per fixed finding id.
+16. If stop rule 5 applies, the implementation session continues at step 18
+    without invoking another review.
+17. When CI is green, the implementation session returns to step 3.
+18. The implementation session fills the PR's Review
+    loop section.
+19. The implementation session posts the loop summary comment.
+20. The implementation session requests review from Hari.
+21. The implementation session removes the in-progress label.
+22. The implementation session stops.
 
 Batch mode: the operator may authorise up to N tickets per session
 (default 1; Hari currently runs N=2). Each ticket is completed fully,
@@ -332,10 +361,67 @@ Hard stops:
 
 ### Governance review workflow
 
-Executed by the review-tier session only. The reviewing session is read-only:
-it does not modify files, merge, approve on GitHub, or post to GitHub;
-findings are for Hari, who acts on them himself. Output is for Hari and is
+Executed by the review-tier session only. The reviewing session is read-only on
+the working tree. It posts one GitHub pull request review per round through
+`gh pr review`; it never approves and never merges. Output is for Hari and is
 exempt from the first-time reader contract (see Style precedence).
+
+Round detection: a review is round 1 if no prior review by the bot exists on
+the pull request. Otherwise the review is round N+1, and the baseline is the
+SHA in the latest prior review.
+
+#### Stop rules (the diminishing-returns gate)
+
+The loop ends, and the PR goes to Hari, at the first of:
+
+1. APPROVE. Round N verdict has zero blocking and zero should-fix findings.
+2. Round cap. Three review rounds total (initial plus two re-reviews).
+3. No convergence. No blocking finding id from round N-1 was closed in
+   round N.
+4. Only notes remain. Every open finding in round N is severity note.
+5. Dispute. The implementer marked any blocking finding "won't fix" with a
+   reason. Disputes go to Hari, never to a further round.
+6. Scope creep. A fix round changed files outside the PR's declared Paths
+   or grew the diff past the PR-size gate.
+
+The reviewer evaluates rules 1, 3 and 4 and ends its posted review with
+"STOP: <rule number and name>" or "CONTINUE". The implementer evaluates
+rules 2, 5 and 6. Neither overrides the other's stop.
+
+#### Re-review rules (rounds 2 and 3)
+
+- Every posted review begins "Reviewed at <head sha>".
+- A re-review takes the previous review's sha as baseline and reads only
+  `git diff <prev-sha>..HEAD` plus the implementer's per-finding replies.
+  It does not re-run steps 2 to 5 on the whole PR.
+- If HEAD moves between the reviewer starting and posting, the reviewer
+  discards its draft and restarts on the new head.
+- Each prior finding is reported as CLOSED (cite the fixing hunk), OPEN, or
+  REOPENED (the fix introduced a new problem at the same id). New findings
+  get new ids and are allowed only if caused by the fix diff; a finding on
+  code untouched since round 1 is labelled "missed in round 1".
+- Re-review output is the delta only. Closed findings are not restated.
+
+#### Implementer fix-round rules
+
+- Fix only the cited findings, in the cited files.
+- Reply on the PR per finding id: "F3: fixed in <sha>" or
+  "F3: won't fix - <reason>". Nothing else.
+- Fix or dispute once; never argue a finding across rounds.
+- Push once per round, then invoke the re-review. Never invoke it with
+  uncommitted changes.
+
+Loop summary shape:
+
+```text
+Review loop summary for PR #<n>: <one-line result and why the loop stopped>.
+Rounds:
+- Round <n>, reviewed at <sha>: <verdict>; <CLOSED / OPEN / REOPENED / new summary>
+Stop rule: <rule number and reason>
+Remaining findings: <stable identifiers and owner, or None>
+CI: <green / pending / failed, with the exact check state>
+Handoff: Hari review requested. The implementation session did not approve or merge.
+```
 
 Read order: the issue in full, the spec sections it links, the PR body, CI
 status checks, the full diff. Do not re-read AGENTS.md or the writing style
@@ -376,14 +462,25 @@ Steps:
    (evidence present). Apply docs/agents/pr-size.md's rules on inherited
    parent changes and displaced tests or docs.
 
-Output, in this order and nothing else:
+Output for round 1, in this order and nothing else:
+- `Reviewed at <sha>` as the first line.
 - Verdict: APPROVE or REQUEST CHANGES, one line.
-- Findings, numbered, ordered by severity (blocking, then should-fix, then
-  note). Each finding is three lines maximum: file:line; the problem in one
-  sentence; the required change in one sentence. No term definitions, no
-  system context, no restating what the PR does.
+- Findings with stable identifiers, ordered by severity (blocking, then
+  should-fix, then note). Each finding is three lines maximum: file:line; the
+  problem in one sentence; the required change in one sentence. No term
+  definitions, no system context, no restating what the PR does.
 - Claim verification table from step 2 (claim, verdict, source).
 - For Hari to check by hand: the one or two highest-leverage manual checks.
+- `STOP: <rule number and name>` or `CONTINUE` as the last line.
+
+Output for round 2 and later, in this order and nothing else:
+- `Reviewed at <sha>` as the first line.
+- Verdict: APPROVE or REQUEST CHANGES, one line.
+- Delta findings by stable identifier under `CLOSED`, `OPEN`, `REOPENED`, and
+  `new`. Cite the fixing hunk for `CLOSED` without restating the finding. Give
+  file:line, evidence, and the required change for every other status.
+- For Hari to check by hand: the one or two highest-leverage manual checks.
+- `STOP: <rule number and name>` or `CONTINUE` as the last line.
 
 ### Learning loop
 

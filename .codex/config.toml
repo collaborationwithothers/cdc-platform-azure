@@ -70,7 +70,8 @@ args = ["--with", "mcp[cli]==1.29.0", "drawio-mcp==1.0.2"]
 #   - implement posture = the top-level defaults above, plus the loop shim's
 #     explicit flags (.codex/loop.sh);
 #   - review posture is not a Codex concern at all: governance review is
-#     Claude/Opus-only for every bot PR and does not fail over to Codex
+#     Claude Opus 5 invoked headlessly from either tool and does not fail over
+#     to Codex
 #     (AGENTS.md, "Governance review workflow").
 # An operator who wants a distinct implement/review model or reasoning effort for
 # interactive Codex use can create the corresponding $CODEX_HOME/*.config.toml

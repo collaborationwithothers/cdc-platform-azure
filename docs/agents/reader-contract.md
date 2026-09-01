@@ -4,7 +4,7 @@ Every human-facing output from this repository must stand alone. The reader is
 an Azure engineer who has never seen this repository and is new to event-driven
 architecture, distributed systems, Kafka, Kafka Connect, and Debezium. The
 reader must be able to understand the result without an earlier chat turn or a
-required link. Governance review output delivered in chat is exempt: its
+required link. Governance review output posted to a pull request is exempt: its
 reader is Hari, who knows the repo; see AGENTS.md Style precedence.
 
 ## The four things every output supplies

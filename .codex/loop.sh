@@ -21,7 +21,8 @@
 # built-in default (the latest frontier coding model). This is deliberate: Codex
 # model slugs churn (governance truth rules), so an unpinned loop auto-tracks the
 # best available coding model with no rot to maintain, and Codex's only automated
-# role is this implementation loop (governance review is Claude/Opus-only). An
+# role is this implementation loop. Governance review is Claude Opus 5 invoked
+# headlessly from either tool and does not fail over to Codex. An
 # operator who wants a fixed model can add `-m <slug>` to the exec line below or
 # set `model` in ~/.codex/config.toml. See COMPATIBILITY.md (Codex/Claude interop
 # freshness) for the quarterly re-verify.
