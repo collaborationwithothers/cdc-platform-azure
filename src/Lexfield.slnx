@@ -5,11 +5,13 @@
   <Project Path="../tools/loadgen/Lexfield.LoadGen.csproj" />
   <Project Path="Lexfield.Contracts/Lexfield.Contracts.csproj" />
   <Project Path="Lexfield.Observability/Lexfield.Observability.csproj" />
+  <Project Path="Lexfield.Notifier/Lexfield.Notifier.csproj" />
   <Project Path="Lexfield.QueueBuilder/Lexfield.QueueBuilder.csproj" />
   <Project Path="Lexfield.QueueStore/Lexfield.QueueStore.csproj" />
   <Project Path="Lexfield.TaskApi/Lexfield.TaskApi.csproj" />
   <Project Path="../tests/Lexfield.Connect.Tests/Lexfield.Connect.Tests.csproj" />
   <Project Path="../tests/Lexfield.Observability.Tests/Lexfield.Observability.Tests.csproj" />
+  <Project Path="../tests/Lexfield.Notifier.Tests/Lexfield.Notifier.Tests.csproj" />
   <Project Path="../tests/Lexfield.QueueBuilder.Tests/Lexfield.QueueBuilder.Tests.csproj" />
   <Project Path="../tests/Lexfield.QueueStore.Tests/Lexfield.QueueStore.Tests.csproj" />
   <Project Path="../tests/Lexfield.TaskApi.Tests/Lexfield.TaskApi.Tests.csproj" />
