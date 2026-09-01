@@ -462,6 +462,33 @@ re-keys. The rest of this entry is retained as the historical evidence behind th
 
 ## V12. Whether the guarded upsert is safe under concurrent writers
 
+### Current state
+
+Issue [#45](https://github.com/collaborationwithothers/cdc-platform-azure/issues/45)
+and its merged [PR #188](https://github.com/collaborationwithothers/cdc-platform-azure/pull/188)
+settled the QueueStore write shape. QueueStore is the shared SQL Server module
+that stores the current task row for live queue events and repair. The write
+matches only the tenant and task key, and its `WHEN MATCHED` condition accepts
+an incoming row only when its version is newer.
+
+Microsoft documents `HOLDLOCK` as equivalent to `SERIALIZABLE` for the target
+table and says that `HOLDLOCK` can prevent unique-key violations in some
+`MERGE` scenarios where unique keys are inserted and updated. See [MERGE
+concurrency considerations](https://learn.microsoft.com/sql/t-sql/statements/merge-transact-sql?view=sql-server-ver17#concurrency-considerations-for-merge)
+and [table-hint semantics](https://learn.microsoft.com/sql/t-sql/queries/hints-transact-sql-table?view=sql-server-ver17#arguments).
+This documents the uniqueness protection used by #45. It does not document
+deadlock freedom for this exact version-aware statement, and it does not make a
+platform-scale guarantee; Microsoft also says that `MERGE` can introduce
+complicated concurrency issues at scale and should be tested before production.
+
+The final exact-head SQL Server container result recorded by #45 is [PR #188's
+build and test run](https://github.com/collaborationwithothers/cdc-platform-azure/actions/runs/33031230165).
+That repeated same-key race left one row with the higher version and no
+duplicate or deadlock in the tested container boundary. It is not an Azure
+production-scale result.
+
+### Historical evidence
+
 - Flag: not tagged in the blueprint. Added because the guarded upsert is the
   only path that writes `QueueState`, the blueprint's write invariant rests
   entirely on it, and the statement shape currently specified is one with a
