@@ -22,7 +22,7 @@ public sealed class NotifierHostTests(SqlServerFixture sql, KafkaFixture kafka)
 {
     [Theory]
     [MemberData(nameof(InvalidTenantHeaders))]
-    public async Task Invalid_or_blank_tenant_header_is_rejected_without_processing(
+    public async Task Invalid_or_blank_tenant_header_pauses_without_processing(
         byte[]? tenantHeader,
         bool includeTenantHeader)
     {
@@ -31,7 +31,7 @@ public sealed class NotifierHostTests(SqlServerFixture sql, KafkaFixture kafka)
 
         await context.ProduceAsync(
             Event(1), tenantHeader: tenantHeader, includeTenantHeader: includeTenantHeader);
-        await context.WaitForStoppingAsync();
+        await context.WaitForSignalAsync("Notifier.PartitionPaused");
 
         Assert.Equal(0, sender.Count);
         Assert.Equal(0, await context.CountRowsAsync("SentNotifications"));
@@ -231,6 +231,7 @@ public sealed class NotifierHostTests(SqlServerFixture sql, KafkaFixture kafka)
         {
             ["ConnectionStrings:QueueStore"] = connectionString,
             ["Notifier:BootstrapServers"] = kafka.BootstrapAddress,
+            ["Notifier:RetryBaseDelay"] = "00:00:00",
             ["Lexfield:Observability:Port"] = ReservePort().ToString()
         };
         for (var index = 0; index < configuredTopics.Length; index++)
