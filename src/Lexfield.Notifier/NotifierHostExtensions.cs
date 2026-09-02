@@ -36,7 +36,9 @@ public static class NotifierHostExtensions
 internal sealed record NotifierSettings(
     string BootstrapServers,
     string QueueStoreConnectionString,
-    string[] Topics)
+    string[] Topics,
+    TimeSpan RetryBaseDelay,
+    TimeSpan PauseDuration)
 {
     public static NotifierSettings From(IConfiguration configuration)
     {
@@ -59,7 +61,25 @@ internal sealed record NotifierSettings(
                 "Notifier cannot start because 'Notifier:Topics' contains no Kafka topics.");
         }
 
-        return new NotifierSettings(bootstrapServers, connectionString, topics);
+        return new NotifierSettings(
+            bootstrapServers,
+            connectionString,
+            topics,
+            Duration(configuration, "Notifier:RetryBaseDelay", TimeSpan.FromSeconds(1)),
+            Duration(configuration, "Notifier:PauseDuration", TimeSpan.FromMinutes(15)));
+    }
+
+    private static TimeSpan Duration(
+        IConfiguration configuration,
+        string key,
+        TimeSpan defaultValue)
+    {
+        var value = configuration[key];
+        if (string.IsNullOrWhiteSpace(value)) return defaultValue;
+        if (TimeSpan.TryParse(value, out var duration) && duration >= TimeSpan.Zero)
+            return duration;
+        throw new InvalidOperationException(
+            $"Notifier cannot start because '{key}' is not a non-negative duration.");
     }
 
     private static string Required(string? value, string message) =>

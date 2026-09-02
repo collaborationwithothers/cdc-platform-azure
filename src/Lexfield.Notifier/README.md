@@ -17,11 +17,13 @@ Notifier:BootstrapServers=localhost:9093
 ConnectionStrings:QueueStore=<QueueState SQL connection string>
 Notifier:Topics:0=workflow-transitions
 Notifier:Topics:1=workflow-transitions-lexfield-003
+Notifier:RetryBaseDelay=00:00:01
+Notifier:PauseDuration=00:15:00
 ```
 
 A consumer group is a set of cooperating consumers that shares a subscription so each message is processed by one member. The host uses consumer group `notifier`, starts at the earliest offset when no group offset exists, and disables automatic offset commits. An offset is a message position within a topic partition; a committed offset is the next position from which the group resumes. The topic list must contain at least one topic. The `tenantId` Kafka header is required, nonblank, and strict UTF-8. The message key is opaque and is not used as a fallback tenant identifier.
 
-Today, an invalid or unreadable `tenantId` header raises an uncaught processor error and stops the host before its offset is committed, so restarting the `notifier` group redelivers the same message and repeats the failure until later retry, partition-pause, and park handling is implemented.
+Processing is attempted at most five times. Retry delays grow exponentially from `RetryBaseDelay` and are capped at 30 seconds. When all attempts fail, only the affected Kafka partition is paused and a structured `Notifier.PartitionPaused` warning is emitted. The failed offset stays uncommitted. `PauseDuration` defaults to 15 minutes; when it expires, the partition resumes from that same offset so the message is retried.
 
 ## Signals
 
@@ -35,4 +37,4 @@ The notifier tests start the real generic host in process, produce to Testcontai
 dotnet test tests/Lexfield.Notifier.Tests/Lexfield.Notifier.Tests.csproj --configuration Release
 ```
 
-Retry, partition pause, parking, notifier-control messages, crash-window tests, and real email delivery are later work. This service does not write `QueueState` or call task-api.
+Parking and notifier-control messages remain later work. This service does not write `QueueState` or call task-api.
