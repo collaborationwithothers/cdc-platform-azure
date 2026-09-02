@@ -54,7 +54,7 @@ A 200 response does not prove that SQL Server, Kafka, Connect, or a consumer is 
 
 During process shutdown, repeated stop and dispose calls are safe. Tests cover this endpoint lifecycle as current in-process behavior.
 
-**Current implementation/test evidence:** TaskApi implements these event names: `TransitionCommitted`, `OutboxWritten`, `RepairRead`, and `ChangesFeedRead`.
+**Current implementation/test evidence:** TaskApi implements these event names: `TransitionCommitted`, `OutboxWritten`, `RepairRead`, `ChangesFeedRead`, and `WriteIdentityRejected`.
 
 It also implements `ChangesFeedUnavailable` and `FaultInjected`. `ChangesFeedUnavailable` is diagnostic context, not an alert by itself. QueueBuilder implements `EventReceived`, `EventApplied`, `DuplicateSkipped`, `GapDetected`, and `HeadLossDetected`. Notifier implements `EventReceived`, `DuplicateSkipped`, `NotificationSent`, and `SendRecorded`, with `notifier.sent`, `notifier.skipped_duplicate`, and `notifier.record_conflict` counters. The last two QueueBuilder names are warning logs and counters emitted when the stored version shows that one task's workflow-transition sequence is missing messages.
 
@@ -70,7 +70,7 @@ A poison event is a message that a consumer cannot parse or apply. The design pa
 
 Argo CD reconciles committed Kubernetes configuration into the cluster. Istio routes ingress traffic, cert-manager renews certificates, and external-dns publishes gateway names.
 
-The table is a 25-row catalogue. Its thresholds and severities are design
+The table is a 27-row catalogue. Its thresholds and severities are design
 decisions, not measurements. The two budget rows have committed Terraform and
 plan-test evidence; the other rows have no committed alert rule.
 
@@ -80,6 +80,7 @@ plan-test evidence; the other rows have no committed alert rule.
 | Partial fleet outage | 5 or more tenants' connectors stopped within 5 min (worker loss; blueprint FM11) | sustained past measured rebalance p99 | 1 | Fleet | recover-connect |
 | Reconciler dead | sweep age: now minus last Reconciler.SweepCompleted | above 2 sweep intervals | 1 | Correctness | recover-reconciler |
 | task-api down | task-api health probe failing (write path AND detect-and-heal spine offline) | sustained 5 min | 1 | Consumers | recover-task-api |
+| Task API write identity rejection | TaskApi.WriteIdentityRejected, with the missing claim name in the message | more than 5 events in each 5 min window for 10 min (design threshold; not measured) | 1 | Consumers | recover-task-api |
 | Internal topic loss | connector startup failures citing offsets/schema-history | any | 1 | Fleet | recover-internal-topics |
 | QueueState store down | queue-builder/notifier SQL failures | sustained 5 min | 1 | Consumers | recover-queuestate |
 | Attribution mismatch | Reconciler.AttributionMismatch | any single event | 1 | Correctness | attribution-breach (step 1: pause connector) |
@@ -111,6 +112,15 @@ The 4 h, 80 percent, 5 per hour, 15 min, 2 sweep intervals, and 5-tenant default
 Check fleet scope first. One connector with auth errors and repeated schema-history recovery is a doomed reconnect loop. Fleet-wide schema-history startup failure is internal topic loss and needs a different recovery path.
 
 Suppression is design only. The intended teardown flow suppresses stream alerts before recreation and restores them after connectors report RUNNING.
+
+The write identity rejection alert is Sev1 because a shared token-claim configuration
+failure can reject task creation and transition for every affected caller while
+the process health probes still return 200. The alert groups the event by its
+missing claim and requires more than five events in each five-minute window for
+ten minutes. An isolated invalid-client request stays below that sustained rate;
+repeated failures point to a token-issuance or optional-claim configuration
+outage. The threshold is a design choice, not measured production evidence.
+No live Azure Monitor alert or ingestion result is claimed.
 
 No suppression rule or teardown integration exists. Deliberate node loss is not a current signal and has no rehearsal.
 

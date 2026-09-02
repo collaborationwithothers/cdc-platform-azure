@@ -276,6 +276,53 @@ public sealed class TaskApiTests(SqlServerFixture sql)
         Assert.Empty(response.Headers.WwwAuthenticate);
     }
 
+    [Theory]
+    [InlineData("tid")]
+    [InlineData("oid")]
+    [InlineData("idtyp")]
+    public async Task WriteWithMissingIdentityClaimEmitsOnlyTheMissingClaim(string missingClaim)
+    {
+        await using var context = await CreateContextAsync();
+        using var client = context.Factory.CreateClient();
+        client.DefaultRequestHeaders.Authorization = new("Bearer", CreateTokenMissingClaim(
+            "tenant-a", context.SigningKey, missingClaim));
+
+        var output = new StringWriter();
+        var originalOutput = Console.Out;
+        HttpResponseMessage createResponse;
+        HttpResponseMessage transitionResponse;
+        try
+        {
+            Console.SetOut(output);
+            createResponse = await client.PostAsJsonAsync("/tenants/tenant-a/tasks", new { });
+            transitionResponse = await client.PostAsJsonAsync(
+                "/tenants/tenant-a/tasks/1/transitions",
+                new { to = "Assigned", expectedVersion = 1 });
+        }
+        finally
+        {
+            Console.SetOut(originalOutput);
+        }
+
+        Assert.Equal(HttpStatusCode.Unauthorized, createResponse.StatusCode);
+        Assert.Equal(HttpStatusCode.Unauthorized, transitionResponse.StatusCode);
+        var eventLines = output.ToString()
+            .Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Where(line => line.Contains(
+                "\"eventName\":\"TaskApi.WriteIdentityRejected\"", StringComparison.Ordinal))
+            .ToArray();
+        Assert.Equal(2, eventLines.Length);
+        foreach (var eventLine in eventLines)
+        {
+            using var eventDocument = JsonDocument.Parse(eventLine);
+            var eventJson = eventDocument.RootElement;
+            Assert.Equal("Warning", eventJson.GetProperty("level").GetString());
+            Assert.Contains(missingClaim, eventJson.GetProperty("message").GetString(), StringComparison.Ordinal);
+            Assert.DoesNotContain("entra-tenant", eventLine, StringComparison.Ordinal);
+            Assert.DoesNotContain("user-object", eventLine, StringComparison.Ordinal);
+        }
+    }
+
     [Fact]
     public async Task CreateTaskRejectsACallerSuppliedActorField()
     {
@@ -480,6 +527,32 @@ public sealed class TaskApiTests(SqlServerFixture sql)
             issuer: "https://issuer.test",
             audience: "lexfield-task-api",
             claims: [new Claim("tenantId", tenantId), new Claim(JwtRegisteredClaimNames.Sub, "user:1")],
+            notBefore: DateTime.UtcNow.AddMinutes(-1),
+            expires: DateTime.UtcNow.AddMinutes(5),
+            signingCredentials: credentials);
+        return new JwtSecurityTokenHandler().WriteToken(token);
+    }
+
+    private static string CreateTokenMissingClaim(string tenantId, string key, string missingClaim)
+    {
+        var credentials = new SigningCredentials(
+            new SymmetricSecurityKey(Encoding.UTF8.GetBytes(key)), SecurityAlgorithms.HmacSha256);
+        var claims = new List<Claim>
+        {
+            new("tenantId", tenantId),
+            new(JwtRegisteredClaimNames.Sub, "user:1"),
+            new("scp", "Tasks.Write")
+        };
+        if (!string.Equals(missingClaim, "tid", StringComparison.Ordinal))
+            claims.Add(new Claim("tid", "entra-tenant"));
+        if (!string.Equals(missingClaim, "oid", StringComparison.Ordinal))
+            claims.Add(new Claim("oid", "user-object"));
+        if (!string.Equals(missingClaim, "idtyp", StringComparison.Ordinal))
+            claims.Add(new Claim("idtyp", "user"));
+        var token = new JwtSecurityToken(
+            issuer: "https://issuer.test",
+            audience: "lexfield-task-api",
+            claims: claims,
             notBefore: DateTime.UtcNow.AddMinutes(-1),
             expires: DateTime.UtcNow.AddMinutes(5),
             signingCredentials: credentials);
