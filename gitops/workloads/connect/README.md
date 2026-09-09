@@ -28,14 +28,14 @@ this chart because onboarding owns those REST API calls.
 
 The two worker settings make separate behavior explicit:
 
-- `connect.protocol: sessioned` selects Kafka Connect's `sessioned`
-  compatibility mode. The [Apache worker reference](https://kafka.apache.org/43/generated/connect_config.html#connectconfigs_connect.protocol)
-  confirms the value but does not describe its connector-assignment behavior.
-  V6 therefore leaves the incremental cooperative assignment claim unverified.
+- `connect.protocol: sessioned` pins a value accepted by the
+  [Apache worker reference](https://kafka.apache.org/43/configuration/kafka-connect-configs/#connectconfigs_connect.protocol).
+  The reference does not describe connector-assignment behavior, so V6 leaves
+  incremental cooperative assignment unverified.
 - `scheduled.rebalance.max.delay.ms: 300000` lets the group leader wait for up
   to 5 minutes after a worker departs before reassigning that worker's
   connectors and tasks. Those connectors and tasks remain unassigned during
-  the wait, as defined by the [Apache worker reference](https://kafka.apache.org/43/generated/connect_config.html#connectconfigs_scheduled.rebalance.max.delay.ms).
+  the wait, as defined by the [Apache worker reference](https://kafka.apache.org/43/configuration/kafka-connect-configs/#connectconfigs_scheduled.rebalance.max.delay.ms).
 
 [V6 in the verification register](../../../docs/specs/02-verification-register.md#v6-connect-rebalance-protocol-default)
 did not establish relying on the protocol default as a documentation-backed

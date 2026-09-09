@@ -75,6 +75,24 @@ jobs:
             --set-string image="$CONNECT_CI_IMAGE" \
             --set-string identityClientId="$CONNECT_CI_IDENTITY_CLIENT_ID" \
             > "$RUNNER_TEMP/connect-rendered.yaml"
+          expect_render_failure() {
+            label="$1"
+            expected="$2"
+            shift 2
+            if output="$(helm template "$@" 2>&1)"; then
+              echo "::error::$label unexpectedly rendered."
+              exit 1
+            fi
+            printf '%s\n' "$output" | grep -F "$expected"
+          }
+          expect_render_failure "Connect chart without image" "Missing input: image" \
+            connect gitops/workloads/connect --namespace kafka --set-string identityClientId="$CONNECT_CI_IDENTITY_CLIENT_ID"
+          expect_render_failure "Connect chart without identity" "Missing input: identityClientId" \
+            connect gitops/workloads/connect --namespace kafka --set-string image="$CONNECT_CI_IMAGE"
+          expect_render_failure "Workloads chart without Connect image" "Missing input: connect.image" \
+            workloads gitops/workloads --set connect.enabled=true --set-string connect.identityClientId="$CONNECT_CI_IDENTITY_CLIENT_ID"
+          expect_render_failure "Workloads chart without Connect identity" "Missing input: connect.identityClientId" \
+            workloads gitops/workloads --set connect.enabled=true --set-string connect.image="$CONNECT_CI_IMAGE"
           python3 infra/disposable/kafka/validate.py \
             --crds "$RUNNER_TEMP/strimzi-crds-1.2.0.yaml" \
             "$RUNNER_TEMP/connect-rendered.yaml"
