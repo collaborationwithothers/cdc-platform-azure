@@ -59,6 +59,8 @@ run "plans_the_build_scale_cluster" {
     values = {
       outputs = {
         acr_id                     = "/subscriptions/mock/resourceGroups/rg-cdc-platform-persistent/providers/Microsoft.ContainerRegistry/registries/cdcplatformmock"
+        acr_login_server           = "cdcplatformmock.azurecr.io"
+        connect_identity_client_id = "mock-connect-client-id"
         connect_identity_id        = "/subscriptions/mock/resourceGroups/rg-cdc-platform-persistent/providers/Microsoft.ManagedIdentity/userAssignedIdentities/id-connect"
         eso_identity_client_id     = "mock-eso-client-id"
         eso_identity_id            = "/subscriptions/mock/resourceGroups/rg-cdc-platform-persistent/providers/Microsoft.ManagedIdentity/userAssignedIdentities/id-external-secrets"
@@ -154,8 +156,15 @@ run "plans_the_build_scale_cluster" {
   }
 
   assert {
-    condition     = azurerm_federated_identity_credential.connect.subject == "system:serviceaccount:connect:connect-connect"
+    condition     = azurerm_federated_identity_credential.connect.subject == "system:serviceaccount:kafka:connect-connect"
     error_message = "The Connect trust must name the Strimzi service account."
+  }
+
+  assert {
+    condition = (yamldecode(helm_release.argocd_root.values[0]).connect.enabled &&
+      yamldecode(helm_release.argocd_root.values[0]).connect.image == "cdcplatformmock.azurecr.io/cdc-connect@sha256:879a8c5d6702894a2ce57e7bc0aacde6d43684cf7e1338dca92472a86d3ad4b9" &&
+    yamldecode(helm_release.argocd_root.values[0]).connect.identityClientId == "mock-connect-client-id")
+    error_message = "The root Application must receive the immutable Connect image and workload identity client ID."
   }
 
   assert {

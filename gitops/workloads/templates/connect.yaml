@@ -1,0 +1,38 @@
+{{- $delivery := .Values.delivery | default dict -}}
+{{- $repoURL := get $delivery "repoURL" | default "https://github.com/collaborationwithothers/cdc-platform-azure.git" -}}
+{{- $targetRevision := get $delivery "targetRevision" | default "main" -}}
+{{- $connect := .Values.connect | default dict -}}
+{{- if get $connect "enabled" -}}
+{{- $imageError := "Workloads chart rendering failed. Missing input: connect.image while Connect is enabled. The disposable Terraform bootstrap must supply the published digest-pinned cdc-connect image; the kind workflow supplies its local test image. Consequence: Argo CD cannot create the Connect child Application or its two workers. Safe correction: set connect.image to the verified registry/repository@sha256:digest reference, or to the locally built image only in kind CI." -}}
+{{- $identityError := "Workloads chart rendering failed. Missing input: connect.identityClientId while Connect is enabled. The disposable Terraform bootstrap must supply the existing Connect managed identity client ID; the kind workflow supplies a synthetic test ID. Consequence: Argo CD cannot create the Connect child Application or annotate its worker service account. Safe correction: set connect.identityClientId to the non-secret persistent Terraform output, or to a synthetic ID only in kind CI." -}}
+{{- $image := required $imageError (get $connect "image") -}}
+{{- $identityClientId := required $identityError (get $connect "identityClientId") -}}
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: connect
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "4"
+spec:
+  project: default
+  source:
+    repoURL: {{ $repoURL | quote }}
+    targetRevision: {{ $targetRevision | quote }}
+    path: gitops/workloads/connect
+    helm:
+      releaseName: connect
+      valuesObject:
+        image: {{ $image | quote }}
+        identityClientId: {{ $identityClientId | quote }}
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: kafka
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+{{- end }}

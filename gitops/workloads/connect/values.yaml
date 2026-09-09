@@ -1,0 +1,4 @@
+# Environment-specific, non-secret inputs. The parent Argo CD Application
+# supplies both values. Rendering stops if either value is absent.
+image: ""
+identityClientId: ""

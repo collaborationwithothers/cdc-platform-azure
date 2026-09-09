@@ -1,9 +1,11 @@
 # Workload Applications
 
 Terraform installs Argo CD and one Application named `root`. The `root`
-Application creates `workloads`, and `workloads` creates `strimzi`. The
-`strimzi` Application installs the operator and the Kafka resources. Each
-Application therefore hands one smaller part of the cluster to the next.
+Application creates `workloads`, and `workloads` creates `strimzi` and
+`connect`. The `strimzi` Application installs the operator and the Kafka
+resources. The `connect` Application then asks that operator to run the Kafka
+Connect workers. Each Application therefore hands one smaller part of the
+cluster to the next.
 
 ## Strimzi
 
@@ -23,5 +25,16 @@ owner. Terraform installs Argo CD and the root Application only. The directory
 stays where #34 first shipped it so this migration does not mix a delivery
 change with a file move.
 
-Wave 4 remains reserved for Kafka Connect and platform services. Those
-Applications are future work.
+## Kafka Connect
+
+The `connect` Application runs in wave 4 after the wave 3 `strimzi`
+Application. It renders `gitops/workloads/connect`, which creates two Kafka
+Connect workers in the `kafka` namespace. The parent passes the immutable
+custom image reference and the existing managed identity client ID as
+non-secret Helm values.
+
+Connect is disabled when those environment-specific values are absent. The
+Terraform bootstrap enables it for the disposable Azure environment, while
+the kind workflow supplies a local image and synthetic client ID. The kind
+values prove Kubernetes reconciliation only; they do not prove Azure identity
+or an Azure Container Registry pull.

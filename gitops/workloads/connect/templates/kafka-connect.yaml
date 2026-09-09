@@ -1,0 +1,42 @@
+{{- $imageError := "Kafka Connect chart rendering failed. Missing input: image. The parent workloads Application must supply the published digest-pinned cdc-connect image. Consequence: the KafkaConnect resource and its two worker pods cannot be created. Safe correction: set image to the verified registry/repository@sha256:digest reference; do not use a guessed tag." -}}
+{{- $identityError := "Kafka Connect chart rendering failed. Missing input: identityClientId. The parent workloads Application must supply the existing Connect managed identity client ID from persistent Terraform state. Consequence: the worker service account cannot select its Azure identity, so the KafkaConnect resource is not rendered. Safe correction: set identityClientId to that non-secret persistent output; do not commit a client secret." -}}
+{{- $image := required $imageError .Values.image -}}
+{{- $identityClientId := required $identityError .Values.identityClientId -}}
+apiVersion: kafka.strimzi.io/v1
+kind: KafkaConnect
+metadata:
+  name: connect
+  namespace: kafka
+spec:
+  version: "4.3.1"
+  replicas: 2
+  image: {{ $image | quote }}
+  bootstrapServers: cdc-platform-kafka-bootstrap:9093
+  groupId: connect-cluster
+  configStorageTopic: connect-configs
+  offsetStorageTopic: connect-offsets
+  statusStorageTopic: connect-status
+  tls:
+    trustedCertificates:
+      - secretName: cdc-platform-cluster-ca-cert
+        pattern: "*.crt"
+  authentication:
+    type: tls
+    certificateAndKey:
+      secretName: connect
+      certificate: user.crt
+      key: user.key
+  config:
+    # V6 did not establish the default as a sufficient doc-backed contract, so
+    # pin it explicitly: docs/specs/02-verification-register.md#v6-connect-rebalance-protocol-default
+    "connect.protocol": sessioned
+    "scheduled.rebalance.max.delay.ms": 300000
+  template:
+    pod:
+      metadata:
+        labels:
+          azure.workload.identity/use: "true"
+    serviceAccount:
+      metadata:
+        annotations:
+          azure.workload.identity/client-id: {{ $identityClientId | quote }}

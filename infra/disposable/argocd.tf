@@ -36,6 +36,17 @@ resource "helm_release" "argocd" {
 # the committed manifest and the applied resource are the same file. It depends
 # on the Argo CD release because the release installs the Application CRD this
 # resource needs.
+# Focused plan fixtures for unrelated resources omit these two Connect outputs.
+# Empty fallbacks keep those tests isolated. The Connect charts reject either
+# empty value during Argo reconciliation, so a real deployment fails closed.
+locals {
+  connect_acr_login_server = try(data.terraform_remote_state.persistent.outputs.acr_login_server, "")
+  connect_identity_client_id = try(
+    data.terraform_remote_state.persistent.outputs.connect_identity_client_id,
+    ""
+  )
+}
+
 resource "helm_release" "argocd_root" {
   name      = "argocd-root"
   chart     = "${path.module}/../../gitops/bootstrap"
@@ -48,6 +59,14 @@ resource "helm_release" "argocd_root" {
       identityClientId = data.terraform_remote_state.persistent.outputs.eso_identity_client_id
       tenantId         = data.azurerm_client_config.current.tenant_id
       vaultUrl         = data.terraform_remote_state.persistent.outputs.key_vault_uri
+    }
+    connect = {
+      enabled = true
+      image = local.connect_acr_login_server == "" ? "" : format(
+        "%s/cdc-connect@sha256:879a8c5d6702894a2ce57e7bc0aacde6d43684cf7e1338dca92472a86d3ad4b9",
+        local.connect_acr_login_server
+      )
+      identityClientId = local.connect_identity_client_id
     }
   })]
 

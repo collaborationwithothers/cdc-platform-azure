@@ -23,6 +23,10 @@ spec:
           identityClientId: {{ .Values.externalSecrets.identityClientId | quote }}
           tenantId: {{ .Values.externalSecrets.tenantId | quote }}
           vaultUrl: {{ .Values.externalSecrets.vaultUrl | quote }}
+        connect:
+          enabled: {{ .Values.connect.enabled }}
+          image: {{ .Values.connect.image | quote }}
+          identityClientId: {{ .Values.connect.identityClientId | quote }}
   destination:
     server: https://kubernetes.default.svc
     namespace: {{ .Values.argocdNamespace | quote }}

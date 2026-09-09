@@ -11,6 +11,7 @@ on:
       - "gitops/**"
       - "infra/disposable/argocd.tf"
       - "infra/disposable/kafka/**"
+      - "connect/image/**"
       - ".github/workflows/gitops-kind.yml"
       - ".github/fixtures/eso/**"
   push:
@@ -19,6 +20,7 @@ on:
       - "gitops/**"
       - "infra/disposable/argocd.tf"
       - "infra/disposable/kafka/**"
+      - "connect/image/**"
       - ".github/workflows/gitops-kind.yml"
       - ".github/fixtures/eso/**"
   workflow_dispatch: {}
@@ -35,6 +37,9 @@ jobs:
     name: gitops applications reconcile on kind
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    env:
+      CONNECT_CI_IMAGE: cdc-connect:kind-ci
+      CONNECT_CI_IDENTITY_CLIENT_ID: "00000000-0000-0000-0000-000000000000"
     steps:
       - uses: actions/checkout@v4
 
@@ -56,6 +61,70 @@ jobs:
 
       - uses: azure/setup-helm@v4
 
+      - name: render and schema-validate the Connect resource
+        run: |
+          python3 -m pip install --disable-pip-version-check \
+            PyYAML==6.0.3 jsonschema==4.26.0
+          curl --fail --location --silent --show-error \
+            --output "$RUNNER_TEMP/strimzi-crds-1.2.0.yaml" \
+            https://github.com/strimzi/strimzi-kafka-operator/releases/download/1.2.0/strimzi-crds-1.2.0.yaml
+          echo "6f300e77128dc0963b8a6153c520a0f11b6f8999486a9b8e361c06aaa17860a3  $RUNNER_TEMP/strimzi-crds-1.2.0.yaml" \
+            | sha256sum --check --strict
+          helm template connect gitops/workloads/connect \
+            --namespace kafka \
+            --set-string image="$CONNECT_CI_IMAGE" \
+            --set-string identityClientId="$CONNECT_CI_IDENTITY_CLIENT_ID" \
+            > "$RUNNER_TEMP/connect-rendered.yaml"
+          python3 infra/disposable/kafka/validate.py \
+            --crds "$RUNNER_TEMP/strimzi-crds-1.2.0.yaml" \
+            "$RUNNER_TEMP/connect-rendered.yaml"
+          python3 - "$RUNNER_TEMP/connect-rendered.yaml" <<'PY'
+          import os
+          import sys
+          import yaml
+
+          with open(sys.argv[1], encoding="utf-8") as stream:
+              resources = [item for item in yaml.safe_load_all(stream) if item]
+
+          if len(resources) != 1 or resources[0].get("kind") != "KafkaConnect":
+              raise SystemExit("Connect chart must render exactly one KafkaConnect resource.")
+
+          resource = resources[0]
+          spec = resource["spec"]
+          expected = {
+              "version": "4.3.1",
+              "replicas": 2,
+              "image": os.environ["CONNECT_CI_IMAGE"],
+              "bootstrapServers": "cdc-platform-kafka-bootstrap:9093",
+              "groupId": "connect-cluster",
+              "configStorageTopic": "connect-configs",
+              "offsetStorageTopic": "connect-offsets",
+              "statusStorageTopic": "connect-status",
+          }
+          for key, value in expected.items():
+              if spec.get(key) != value:
+                  raise SystemExit(f"KafkaConnect {key} did not match the approved contract.")
+
+          if spec["config"].get("connect.protocol") != "sessioned":
+              raise SystemExit("KafkaConnect must pin connect.protocol to sessioned.")
+          if spec["config"].get("scheduled.rebalance.max.delay.ms") != 300000:
+              raise SystemExit("KafkaConnect must pin the scheduled rebalance delay.")
+          if resource["metadata"].get("namespace") != "kafka":
+              raise SystemExit("KafkaConnect must share the kafka namespace with its TLS secrets.")
+          if spec["template"]["pod"]["metadata"]["labels"].get("azure.workload.identity/use") != "true":
+              raise SystemExit("KafkaConnect pods must opt in to Azure workload identity.")
+          if spec["template"]["serviceAccount"]["metadata"]["annotations"].get("azure.workload.identity/client-id") != os.environ["CONNECT_CI_IDENTITY_CLIENT_ID"]:
+              raise SystemExit("KafkaConnect service account must carry the supplied client ID.")
+          PY
+
+      - name: build and load the Connect image into kind
+        run: |
+          docker build --file connect/image/Dockerfile \
+            --tag "$CONNECT_CI_IMAGE" connect/image
+          kind_cluster="$(kind get clusters | head -n 1)"
+          test -n "$kind_cluster"
+          kind load docker-image "$CONNECT_CI_IMAGE" --name "$kind_cluster"
+
       # The same chart and version the disposable layer pins in argocd.tf.
       - name: install argo cd
         run: |
@@ -75,6 +144,9 @@ jobs:
           helm template argocd-root gitops/bootstrap \
             --set repoURL=https://github.com/${{ github.repository }}.git \
             --set targetRevision="$ARGO_TARGET_REVISION" \
+            --set connect.enabled=true \
+            --set-string connect.image="$CONNECT_CI_IMAGE" \
+            --set-string connect.identityClientId="$CONNECT_CI_IDENTITY_CLIENT_ID" \
             | kubectl apply --namespace argocd -f -
 
       # With automated sync the root Application reconciles on its own. The
@@ -131,7 +203,7 @@ jobs:
             exit 1
           fi
 
-      - name: wait for the Strimzi Application at the branch under test
+      - name: wait for the Strimzi and Connect Applications at the branch under test
         env:
           ARGO_TARGET_REVISION: ${{ github.head_ref || github.ref_name }}
         run: |
@@ -141,10 +213,19 @@ jobs:
           kubectl wait --namespace argocd \
             --for=jsonpath='{.status.sync.status}'=Synced \
             application/strimzi --timeout=600s
+          kubectl wait --namespace argocd \
+            --for=jsonpath='{.status.sync.status}'=Synced \
+            application/connect --timeout=600s
           actual_revision="$(kubectl get application/strimzi --namespace argocd \
             -o jsonpath='{.spec.sources[1].targetRevision}')"
           if [ "$actual_revision" != "$ARGO_TARGET_REVISION" ]; then
             echo "::error::Strimzi reconciled $actual_revision instead of $ARGO_TARGET_REVISION."
+            exit 1
+          fi
+          actual_connect_revision="$(kubectl get application/connect --namespace argocd \
+            -o jsonpath='{.spec.source.targetRevision}')"
+          if [ "$actual_connect_revision" != "$ARGO_TARGET_REVISION" ]; then
+            echo "::error::Connect reconciled $actual_connect_revision instead of $ARGO_TARGET_REVISION."
             exit 1
           fi
 
@@ -202,6 +283,46 @@ jobs:
               .resource == {type: "topic", name: "connect-signals-", patternType: "prefix"}
               and (.operations | sort) == ["Describe", "Write"])'
 
+      - name: wait for two Connect workers
+        run: |
+          kubectl wait --namespace kafka --for=condition=Ready \
+            kafkaconnect/connect --timeout=600s
+          kubectl wait --namespace kafka --for=condition=Ready \
+            pod --selector=strimzi.io/name=connect-connect --timeout=300s
+          kubectl get kafkaconnect/connect --namespace kafka -o json | jq -e '
+            .status.replicas == 2 and
+            any(.status.conditions[]; .type == "Ready" and .status == "True")'
+          kubectl get pods --namespace kafka \
+            --selector=strimzi.io/name=connect-connect -o json | jq -e '
+            (.items | length) == 2 and
+            all(.items[];
+              .status.phase == "Running" and
+              ([.status.containerStatuses[]?.ready] | length) > 0 and
+              all(.status.containerStatuses[]; .ready))'
+
+      - name: verify Connect configuration and workload identity declarations
+        run: |
+          kubectl get kafkaconnect/connect --namespace kafka -o json | jq -e \
+            --arg client_id "$CONNECT_CI_IDENTITY_CLIENT_ID" '
+            .spec.replicas == 2 and
+            .spec.config["connect.protocol"] == "sessioned" and
+            .spec.config["scheduled.rebalance.max.delay.ms"] == 300000 and
+            .spec.template.pod.metadata.labels["azure.workload.identity/use"] == "true" and
+            .spec.template.serviceAccount.metadata.annotations["azure.workload.identity/client-id"] == $client_id'
+          kubectl get serviceaccount/connect-connect --namespace kafka -o json | jq -e \
+            --arg client_id "$CONNECT_CI_IDENTITY_CLIENT_ID" '
+            .metadata.annotations["azure.workload.identity/client-id"] == $client_id'
+          kubectl get pods --namespace kafka \
+            --selector=strimzi.io/name=connect-connect -o json | jq -e '
+            (.items | length) == 2 and
+            all(.items[]; .metadata.labels["azure.workload.identity/use"] == "true")'
+          {
+            echo "### Verified Kafka Connect on kind"
+            echo
+            echo "Two Kafka Connect workers became ready with the approved worker configuration and declared workload identity metadata."
+            echo "This kind run does not exercise Azure federation, Azure Container Registry authentication, or SQL Server-to-Kafka delivery."
+          } >> "$GITHUB_STEP_SUMMARY"
+
       - name: dump argo state on failure
         if: failure()
         run: |
@@ -228,4 +349,13 @@ jobs:
           kubectl --namespace argocd describe application strimzi || true
           kubectl --namespace kafka get pods,kafka,kafkanodepools,kafkatopics,kafkausers -o wide || true
           kubectl --namespace kafka describe kafka cdc-platform || true
+          kubectl --namespace kafka get events --sort-by=.lastTimestamp || true
+
+      - name: dump Connect state on failure
+        if: failure()
+        run: |
+          kubectl --namespace argocd describe application connect || true
+          kubectl --namespace kafka get kafkaconnect,deployments,pods,serviceaccounts -o wide || true
+          kubectl --namespace kafka describe kafkaconnect connect || true
+          kubectl --namespace kafka logs deployment/connect-connect --all-containers --tail=200 || true
           kubectl --namespace kafka get events --sort-by=.lastTimestamp || true
