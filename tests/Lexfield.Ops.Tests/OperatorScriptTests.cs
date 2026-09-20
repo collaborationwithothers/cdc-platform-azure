@@ -51,8 +51,16 @@ public static class OperatorScript
         using var process = Process.Start(startInfo)!;
         if (standardInput is not null)
         {
-            await process.StandardInput.WriteAsync(standardInput);
-            process.StandardInput.Close();
+            try
+            {
+                await process.StandardInput.WriteAsync(standardInput);
+                process.StandardInput.Close();
+            }
+            catch (IOException)
+            {
+                // The child may reject its arguments and close the pipe before
+                // consuming standard input. Its exit and output are still the result.
+            }
         }
 
         var standardOutput = process.StandardOutput.ReadToEndAsync();
@@ -191,7 +199,7 @@ public sealed class TaskApiTokenInspectionTests
         var result = await OperatorScript.RunAsync(
             "inspect-taskapi-token.sh",
             arguments: [token],
-            standardInput: "ignored-standard-input");
+            standardInput: new string('x', 1024 * 1024));
 
         Assert.NotEqual(0, result.ExitCode);
         Assert.Empty(result.StandardOutput);
