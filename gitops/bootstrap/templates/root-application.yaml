@@ -1,3 +1,4 @@
+{{- $connect := .Values.connect | default dict -}}
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
@@ -23,6 +24,10 @@ spec:
           identityClientId: {{ .Values.externalSecrets.identityClientId | quote }}
           tenantId: {{ .Values.externalSecrets.tenantId | quote }}
           vaultUrl: {{ .Values.externalSecrets.vaultUrl | quote }}
+        connect:
+          enabled: {{ get $connect "enabled" | default false }}
+          image: {{ get $connect "image" | default "" | quote }}
+          identityClientId: {{ get $connect "identityClientId" | default "" | quote }}
   destination:
     server: https://kubernetes.default.svc
     namespace: {{ .Values.argocdNamespace | quote }}

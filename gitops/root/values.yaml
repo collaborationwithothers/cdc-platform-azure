@@ -8,6 +8,13 @@ externalSecrets:
   tenantId: ""
   vaultUrl: ""
 
+# Kafka Connect is enabled only when the bootstrap supplies both non-secret
+# deployment inputs. This keeps a default chart render free of placeholders.
+connect:
+  enabled: false
+  image: ""
+  identityClientId: ""
+
 eso:
   repository: https://charts.external-secrets.io
   chart: external-secrets
@@ -15,8 +22,7 @@ eso:
   namespace: external-secrets
   serviceAccount: external-secrets-key-vault
 
-# Every later Application belongs to one of these waves. Only ESO is rendered
-# until its platform and workload owners add their own content.
+# Every later Application belongs to one of these waves.
 syncWaves:
   eso: "0"
   istio: "1"

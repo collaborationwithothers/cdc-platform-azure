@@ -41,5 +41,5 @@ resource "azurerm_federated_identity_credential" "connect" {
   user_assigned_identity_id = data.terraform_remote_state.persistent.outputs.connect_identity_id
   audience                  = ["api://AzureADTokenExchange"]
   issuer                    = azurerm_kubernetes_cluster.platform.oidc_issuer_url
-  subject                   = "system:serviceaccount:connect:connect-connect"
+  subject                   = "system:serviceaccount:kafka:connect-connect"
 }

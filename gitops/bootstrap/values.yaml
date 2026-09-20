@@ -20,6 +20,13 @@ externalSecrets:
   tenantId: ""
   vaultUrl: ""
 
+# The disposable Terraform layer supplies these non-secret values. Defaults
+# keep Connect disabled for a standalone chart render.
+connect:
+  enabled: false
+  image: ""
+  identityClientId: ""
+
 # Argo objects. The root Application and its children live in the argocd
 # namespace, which the Argo CD install creates.
 rootApplicationName: root
