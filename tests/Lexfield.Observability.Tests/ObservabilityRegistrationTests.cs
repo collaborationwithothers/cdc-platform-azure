@@ -124,9 +124,24 @@ public sealed class ObservabilityRegistrationTests
         }
     }
     [Fact]
+    public async Task AddLexfieldObservability_UsesPortConfiguredAfterRegistration()
+    {
+        var builder = Host.CreateApplicationBuilder();
+        builder.AddLexfieldObservability("TaskApi");
+        var port = GetUnusedPort();
+        builder.Configuration["Lexfield:Observability:Port"] = port.ToString();
+
+        using var host = builder.Build();
+        await StartHostAndAssertProbeBodiesAsync(host, port);
+    }
+    [Fact]
     public async Task AddLexfieldObservability_ServesLivenessAndReadinessProbeBodies()
     {
         using var host = CreateEndpointHost(out var port);
+        await StartHostAndAssertProbeBodiesAsync(host, port);
+    }
+    private static async Task StartHostAndAssertProbeBodiesAsync(IHost host, int port)
+    {
         await host.StartAsync();
         using var client = new HttpClient();
         Assert.True("ok\n" == await client.GetStringAsync($"http://localhost:{port}/healthz"),
@@ -153,13 +168,16 @@ public sealed class ObservabilityRegistrationTests
     [InlineData("not-a-port")]
     [InlineData("0")]
     [InlineData("65536")]
-    public void AddLexfieldObservability_ExplainsInvalidObservabilityPort(string configuredPort)
+    public async Task AddLexfieldObservability_ExplainsInvalidLateConfiguredObservabilityPort(
+        string configuredPort)
     {
         var builder = Host.CreateApplicationBuilder();
+        builder.AddLexfieldObservability("QueueBuilder");
         builder.Configuration["Lexfield:Observability:Port"] = configuredPort;
+        using var host = builder.Build();
 
-        var exception = Assert.Throws<InvalidOperationException>(
-            () => builder.AddLexfieldObservability("QueueBuilder"));
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(
+            () => host.StartAsync());
 
         Assert.True(exception.Message.Contains("QueueBuilder observability endpoint cannot start"),
             "The configuration error identifies the service observability endpoint.");
@@ -171,7 +189,7 @@ public sealed class ObservabilityRegistrationTests
     [Fact]
     public async Task AddLexfieldObservability_ExplainsWhenProbeListenerCannotBind()
     {
-        var port = ReservePort();
+        var port = GetUnusedPort();
         using var occupied = new HttpListener();
         occupied.Prefixes.Add($"http://*:{port}/");
         occupied.Start();
@@ -202,13 +220,13 @@ public sealed class ObservabilityRegistrationTests
     }
     private static IHost CreateEndpointHost(out int port)
     {
-        port = ReservePort();
+        port = GetUnusedPort();
         var builder = Host.CreateApplicationBuilder();
         builder.Configuration["Lexfield:Observability:Port"] = port.ToString();
         builder.AddLexfieldObservability("Notifier");
         return builder.Build();
     }
-    private static int ReservePort()
+    private static int GetUnusedPort()
     {
         using var reservation = new TcpListener(IPAddress.Loopback, 0);
         reservation.Start();

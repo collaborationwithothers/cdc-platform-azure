@@ -31,8 +31,9 @@ public static class LexfieldObservabilityExtensions
         builder.Configuration["OTEL_TRACES_SAMPLER"] = SamplerName;
         builder.Configuration["OTEL_TRACES_SAMPLER_ARG"] = SamplerArgument;
         AddTelemetry(builder.Services, serviceName, sourceName, builder.Configuration);
-        var endpointPort = ReadEndpointPort(builder.Configuration, serviceName);
-        builder.Services.AddSingleton(new LexfieldEndpointOptions(endpointPort, serviceName));
+        builder.Services.AddSingleton(provider => new LexfieldEndpointOptions(
+            ReadEndpointPort(provider.GetRequiredService<IConfiguration>(), serviceName),
+            serviceName));
         builder.Services.AddHostedService<LexfieldEndpointHostedService>();
         return builder;
     }
