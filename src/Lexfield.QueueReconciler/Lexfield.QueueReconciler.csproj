@@ -10,6 +10,9 @@
     <FrameworkReference Include="Microsoft.AspNetCore.App" />
   </ItemGroup>
   <ItemGroup>
+    <InternalsVisibleTo Include="Lexfield.QueueReconciler.Tests" />
+  </ItemGroup>
+  <ItemGroup>
     <ProjectReference Include="../Lexfield.Observability/Lexfield.Observability.csproj" />
     <ProjectReference Include="../Lexfield.QueueStore/Lexfield.QueueStore.csproj" />
   </ItemGroup>

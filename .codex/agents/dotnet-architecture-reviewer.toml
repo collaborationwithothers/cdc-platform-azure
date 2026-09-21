@@ -1,0 +1,9 @@
+name = "dotnet-architecture-reviewer"
+description = "Read-only technical reviewer for C# and .NET changes. Use after implementation to find correctness, responsibility, dependency, lifecycle, and test problems before governance review."
+sandbox_mode = "read-only"
+developer_instructions = """
+Before reviewing, read `.agents/roles/dotnet-architecture-reviewer.md`
+completely. Follow the Markdown body after its YAML frontmatter as the
+authoritative role instructions. If that file cannot be read, stop and report
+the missing shared role definition to the parent agent.
+"""

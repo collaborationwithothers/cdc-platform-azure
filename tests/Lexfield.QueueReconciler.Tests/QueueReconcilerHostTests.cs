@@ -24,7 +24,7 @@ using Microsoft.IdentityModel.Tokens;
 namespace Lexfield.QueueReconciler.Tests;
 
 [Collection(LexfieldContainers.Name)]
-public sealed class PassOneTests(SqlServerFixture sql)
+public sealed class QueueReconcilerIntegrationTests(SqlServerFixture sql)
 {
     [Fact]
     public async Task SweepHost_two_hosts_renew_one_lease_and_report_one_empty_sweep()
@@ -78,6 +78,47 @@ public sealed class PassOneTests(SqlServerFixture sql)
         Assert.True(firstWatermark > context.InitialSourceVersion);
         Assert.Equal(context.SecondInitialSourceVersion, await context.WatermarkAsync("tenant-b"));
         Assert.DoesNotContain(events, item => item.Name == "Reconciler.SweepCompleted");
+        Assert.Contains(events, item =>
+            item is { Name: "Reconciler.SweepLeaseLost", TenantId: "tenant-b", Reason: "LeaseFenceRejected" });
+    }
+
+    [Fact]
+    public async Task SweepHost_incomplete_tenant_does_not_stop_later_tenants()
+    {
+        await using var context = await CreateContextAsync();
+        var events = new ConcurrentQueue<SweepEvent>();
+        using var handler = new DelayHandler(TimeSpan.Zero);
+        using var host = context.BuildHost(events, handler, ["tenant-a", "tenant-b"]);
+        await host.StartAsync();
+
+        var outcome = await host.Services.GetRequiredService<SweepHost>().TickAsync();
+
+        Assert.Equal(SweepOutcome.Incomplete, outcome);
+        var incomplete = events.Where(item => item.Name == "Reconciler.SweepIncomplete").ToArray();
+        Assert.Equal(["tenant-a", "tenant-b"], incomplete.Select(item => item.TenantId));
+        Assert.All(incomplete, item => Assert.Equal("WatermarkMissing", item.Reason));
+        Assert.DoesNotContain(events, item => item.Name == "Reconciler.SweepCompleted");
+    }
+
+    [Fact]
+    public async Task SweepHost_logs_a_failed_tick_and_runs_the_next_tick()
+    {
+        await using var context = await CreateContextAsync();
+        await context.SetWatermarkAsync();
+        var events = new ConcurrentQueue<SweepEvent>();
+        using var handler = new RequestGate(failRequest: 1);
+        using var host = context.BuildHost(
+            events, handler, interval: TimeSpan.FromMilliseconds(30));
+        await host.StartAsync();
+
+        Assert.True(SpinWait.SpinUntil(
+            () => events.Any(item => item.Name == "Reconciler.SweepFailed"),
+            TimeSpan.FromSeconds(2)));
+        Assert.True(SpinWait.SpinUntil(
+            () => events.Any(item => item.Name == "Reconciler.SweepCompleted"),
+            TimeSpan.FromSeconds(5)));
+        Assert.Contains(events, item =>
+            item is { Name: "Reconciler.SweepFailed", TenantId: null, Reason: "UnhandledException" });
     }
 
     [Fact]
@@ -467,7 +508,7 @@ public sealed class PassOneTests(SqlServerFixture sql)
         }
     }
 
-    private sealed class RequestGate(int blockRequest) : DelegatingHandler
+    private sealed class RequestGate(int blockRequest = 0, int failRequest = 0) : DelegatingHandler
     {
         private readonly TaskCompletionSource blocked = new(
             TaskCreationOptions.RunContinuationsAsynchronously);
@@ -479,7 +520,10 @@ public sealed class PassOneTests(SqlServerFixture sql)
         protected override async Task<HttpResponseMessage> SendAsync(
             HttpRequestMessage request, CancellationToken cancellationToken)
         {
-            if (Interlocked.Increment(ref requests) == blockRequest)
+            var requestNumber = Interlocked.Increment(ref requests);
+            if (requestNumber == failRequest)
+                throw new HttpRequestException("Injected test failure.");
+            if (requestNumber == blockRequest)
             {
                 blocked.TrySetResult();
                 await released.Task.WaitAsync(cancellationToken);
@@ -488,37 +532,35 @@ public sealed class PassOneTests(SqlServerFixture sql)
         }
     }
 
-    private sealed record SweepEvent(string Name, int? ChangeCount);
+    private sealed record SweepEvent(
+        string Name, int? ChangeCount, string? TenantId, string? Reason);
 
     private sealed class SweepLoggerProvider(ConcurrentQueue<SweepEvent> events)
-        : ILoggerProvider, ISupportExternalScope
+        : ILoggerProvider
     {
-        private IExternalScopeProvider scopes = new LoggerExternalScopeProvider();
-        public ILogger CreateLogger(string categoryName) => new SweepLogger(events, () => scopes);
-        public void SetScopeProvider(IExternalScopeProvider scopeProvider) => scopes = scopeProvider;
+        public ILogger CreateLogger(string categoryName) => new SweepLogger(events);
         public void Dispose() { }
 
-        private sealed class SweepLogger(
-            ConcurrentQueue<SweepEvent> events, Func<IExternalScopeProvider> scopes) : ILogger
+        private sealed class SweepLogger(ConcurrentQueue<SweepEvent> events) : ILogger
         {
-            public IDisposable? BeginScope<TState>(TState state) where TState : notnull =>
-                scopes().Push(state);
+            public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
             public bool IsEnabled(LogLevel logLevel) => true;
             public void Log<TState>(LogLevel logLevel, EventId eventId, TState state,
                 Exception? exception, Func<TState, Exception?, string> formatter)
             {
                 string? name = null;
                 int? count = null;
-                scopes().ForEachScope((scope, _) =>
+                string? tenantId = null;
+                string? reason = null;
+                if (state is not IEnumerable<KeyValuePair<string, object?>> values) return;
+                foreach (var pair in values)
                 {
-                    if (scope is not IEnumerable<KeyValuePair<string, object?>> values) return;
-                    foreach (var pair in values)
-                    {
-                        if (pair.Key == "eventName") name = pair.Value as string;
-                        if (pair.Key == "changeCount") count = pair.Value as int?;
-                    }
-                }, state);
-                if (name is not null) events.Enqueue(new(name, count));
+                    if (pair.Key == "EventName") name = pair.Value as string;
+                    if (pair.Key == "ChangeCount") count = pair.Value as int?;
+                    if (pair.Key == "TenantId") tenantId = pair.Value as string;
+                    if (pair.Key == "Reason") reason = pair.Value as string;
+                }
+                if (name is not null) events.Enqueue(new(name, count, tenantId, reason));
             }
         }
     }

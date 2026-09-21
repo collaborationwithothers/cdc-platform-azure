@@ -1,16 +1,38 @@
 # Lexfield.QueueReconciler
 
-Lexfield.QueueReconciler is the scheduled backstop for the work-queue projection, the stored copy used for fast reads. It reads source task versions through task-api, compares them with QueueState, and records first-pass mismatches in QueueStore. It does not connect to tenant databases or Kafka.
+Lexfield.QueueReconciler checks whether the work queue still matches task-api, the service that reads current task data. The work queue is a stored copy of task data used for fast reads.
 
-## Sweep contract
+The service reads changed task versions from task-api. It compares them with the work queue and records differences in QueueStore, the SQL database that holds queue and checking data.
 
-The generic host runs one sweep, a check across every configured tenant, after each configured interval. Each tick first tries to acquire the single renewable `SweepLease` row in QueueStore. Only the winning replica emits `Reconciler.SweepStarted`, advances watermarks, and emits `Reconciler.SweepCompleted`. A completed event includes the total change count, including zero for a successful empty sweep.
+This detects a task update that did not reach the work queue.
 
-The host renews the lease during a long sweep. Every pass-one commit is fenced by the lease owner and expiry in the same SQL transaction as its watermark update. Lease loss therefore suppresses completion and stops the host before a later tenant watermark can commit. Lease expiry permits another replica to take over on a later tick. Killed-process takeover remains unverified here; issue #328 owns that proof.
+The service does not read tenant databases or Kafka message streams directly.
 
-A process also rejects a tick while its prior sweep is still running. Each rejection increments `reconciler.sweep.skipped`, an in-process monotonic counter that resets when the process restarts. Monitoring must use the counter's increase over a time window, not its absolute value.
+## Scheduled check
 
-Missing watermarks and HTTP 410 responses are left unchanged for the bootstrap path owned by issue #56. Pass two, grace-window confirmation, repair, and attribution checks are later work.
+A sweep is one check across every configured tenant. The service starts a sweep after each configured interval.
+
+Before checking tenants, each running process tries to claim the single `SweepLease` row in QueueStore. This row records which process may save check progress and when that permission expires.
+
+Only the process that claims the row logs `Reconciler.SweepStarted`, updates watermarks, and logs `Reconciler.SweepCompleted`. A watermark is the last task-api change version that the service finished checking.
+
+The process extends the expiry time while a sweep is running. Every watermark update checks that the process still owns the row and that its permission has not expired.
+
+If either check fails, SQL rejects the watermark update. The process logs `Reconciler.SweepLeaseLost` and stops before checking another tenant.
+
+If a process stops unexpectedly, its permission eventually expires. Another process can then claim the row during a later scheduled run. Issue #328 owns the unverified test that stops a real process.
+
+A process does not start a second sweep while its previous sweep is running. It increments `reconciler.sweep.skipped` instead.
+
+This counter only increases while the process is running and resets after restart. Monitoring must check whether the counter increased during a time window, not whether its total is above a fixed value.
+
+A tenant may have no watermark, or task-api may return HTTP 410 because the saved version is too old. The service leaves that tenant unchanged and logs `Reconciler.SweepIncomplete` with the tenant and reason.
+
+The same sweep continues with later tenants but does not log `Reconciler.SweepCompleted`. Issue #56 owns the work that creates or replaces an unusable watermark.
+
+An unexpected failure logs `Reconciler.SweepFailed`. The process remains running and attempts the next scheduled sweep.
+
+This change only records differences. Later work will wait to see whether they persist, correct confirmed differences, and check whether every configured tenant is sending events.
 
 ## Configuration
 
@@ -24,12 +46,18 @@ TenantManifest:Path=<shared tenant manifest JSON>
 ConnectionStrings:QueueStore=<QueueStore SQL connection string>
 ```
 
-The per-tenant bearer tokens are an input boundary only. Production token acquisition and refresh through Azure identity are not implemented by this ticket. Container tests use locally signed tokens accepted by the Task API production authentication pipeline.
+The deployment supplies one task-api token for each tenant. This change does not obtain or refresh production tokens through Azure identity.
 
-The focused container tests start two real reconciler hosts against the real task-api authentication and HTTP pipeline plus Testcontainers SQL Server:
+The container tests create local signed tokens. Task-api validates those tokens through the same authentication code used by the running application.
+
+## Verification
+
+The focused container tests start two Queue Reconciler processes. Both use the task-api HTTP and authentication code plus a SQL Server container.
 
 ```text
 dotnet test tests/Lexfield.QueueReconciler.Tests/Lexfield.QueueReconciler.Tests.csproj --configuration Release --filter FullyQualifiedName~SweepHost
 ```
 
-The tests prove local host, HTTP, lease renewal and fencing, telemetry, and SQL behavior. They do not prove live Azure identity, deployment, production timing, killed-process recovery, or 400-tenant performance.
+The tests cover local scheduling, HTTP calls, SQL updates, permission renewal, loss of update permission, logs, and the skipped-sweep counter.
+
+The tests do not cover Azure identity, Azure deployment, timing under a production workload, recovery after the operating system stops a process, or performance with 400 tenants.

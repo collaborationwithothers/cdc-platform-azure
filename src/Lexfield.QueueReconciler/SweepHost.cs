@@ -1,15 +1,11 @@
 using System.Diagnostics.Metrics;
-using System.Text.Json;
-using Lexfield.Observability;
 using Lexfield.QueueStore;
-using Microsoft.Extensions.Configuration;
-using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 
 namespace Lexfield.QueueReconciler;
 
-public sealed class SweepHost(
+internal sealed class SweepHost(
     ReconcilerStateStore stateStore,
     PassOne passOne,
     SweepSettings settings,
@@ -31,6 +27,12 @@ public sealed class SweepHost(
         try
         {
             return await RunSweepAsync(cancellationToken);
+        }
+        catch (Exception exception) when (
+            exception is not OperationCanceledException || !cancellationToken.IsCancellationRequested)
+        {
+            return RecordNonCompletion(
+                SweepOutcome.Incomplete, null, "UnhandledException", exception);
         }
         finally
         {
@@ -60,23 +62,36 @@ public sealed class SweepHost(
         var lease = await stateStore.TryAcquireLeaseAsync(settings.LeaseDuration, cancellationToken);
         if (lease is null) return SweepOutcome.NotLeaseHolder;
 
-        Log("Reconciler.SweepStarted", null, "Queue reconciler started a globally leased sweep.");
+        Log("Reconciler.SweepStarted", null,
+            "Queue reconciler started a globally leased sweep.");
         var leaseState = new LeaseState(lease);
         using var renewalCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         var renewal = RenewLeaseAsync(leaseState, renewalCancellation.Token);
         try
         {
+            var outcome = SweepOutcome.Completed;
             var changeCount = 0;
             foreach (var tenantId in settings.TenantIds)
             {
                 var activeLease = Volatile.Read(ref leaseState.Current);
-                if (activeLease is null) return SweepOutcome.LeaseLost;
+                if (activeLease is null)
+                    return RecordNonCompletion(
+                        SweepOutcome.LeaseLost, tenantId, "LeaseRenewalFailed");
+
                 var result = await passOne.RunAsync(activeLease, tenantId, cancellationToken);
-                if (result.Status == PassOneStatus.LeaseLost) return SweepOutcome.LeaseLost;
-                if (result.Status != PassOneStatus.Completed) return SweepOutcome.Incomplete;
+                if (result.Status == PassOneStatus.LeaseLost)
+                    return RecordNonCompletion(
+                        SweepOutcome.LeaseLost, tenantId, "LeaseFenceRejected");
+                if (result.Status != PassOneStatus.Completed)
+                {
+                    outcome = RecordNonCompletion(
+                        SweepOutcome.Incomplete, tenantId, result.Status.ToString());
+                    continue;
+                }
                 changeCount += result.ChangeCount;
             }
 
+            if (outcome != SweepOutcome.Completed) return outcome;
             Log("Reconciler.SweepCompleted", changeCount,
                 "Queue reconciler completed every tenant in the globally leased sweep.");
             return SweepOutcome.Completed;
@@ -113,92 +128,27 @@ public sealed class SweepHost(
         }
     }
 
-    private void Log(string eventName, int? changeCount, string message)
+    private void Log(string eventName, int? changeCount, string message) =>
+        logger.LogInformation("{EventName}: {Message} Change count: {ChangeCount}.",
+            eventName, message, changeCount);
+
+    private SweepOutcome RecordNonCompletion(
+        SweepOutcome outcome,
+        string? tenantId,
+        string reason,
+        Exception? exception = null)
     {
-        using (logger.BeginScope(new Dictionary<string, object?>
-        {
-            ["eventName"] = eventName,
-            ["changeCount"] = changeCount
-        })) logger.LogInformation(message);
+        var eventName = exception is null
+            ? $"Reconciler.Sweep{outcome}"
+            : "Reconciler.SweepFailed";
+        logger.LogWarning(exception,
+            "{EventName}: queue reconciler did not complete a sweep for tenant {TenantId}. Reason: {Reason}.",
+            eventName, tenantId, reason);
+        return outcome;
     }
 
     private sealed class LeaseState(ReconcilerLease current)
     {
         public ReconcilerLease? Current = current;
-    }
-}
-
-public enum SweepOutcome { Completed, NotLeaseHolder, Skipped, LeaseLost, Incomplete }
-
-public sealed record SweepSettings(
-    string QueueStoreConnectionString,
-    Uri TaskApiBaseAddress,
-    IReadOnlyDictionary<string, string> TaskApiBearerTokens,
-    IReadOnlyList<string> TenantIds,
-    TimeSpan Interval,
-    TimeSpan LeaseDuration,
-    TimeSpan RenewalPeriod)
-{
-    public static SweepSettings From(IConfiguration configuration)
-    {
-        var queueStore = Required(configuration.GetConnectionString("QueueStore"),
-            "Queue reconciler cannot start because connection string 'QueueStore' is missing.");
-        var baseAddress = Required(configuration["QueueReconciler:TaskApiBaseAddress"],
-            "Queue reconciler cannot start because 'QueueReconciler:TaskApiBaseAddress' is missing.");
-        var manifest = Required(configuration["TenantManifest:Path"],
-            "Queue reconciler cannot start because 'TenantManifest:Path' is missing.");
-        using var document = JsonDocument.Parse(File.ReadAllText(manifest));
-        var tenants = document.RootElement.EnumerateArray()
-            .Select(item => item.GetProperty("tenantId").GetString())
-            .Where(item => !string.IsNullOrWhiteSpace(item)).Cast<string>().ToArray();
-        if (tenants.Length == 0) throw new InvalidOperationException(
-            "Queue reconciler cannot start because the tenant manifest contains no tenants.");
-        var tokens = tenants.ToDictionary(tenantId => tenantId, tenantId => Required(
-            configuration[$"QueueReconciler:TaskApiBearerTokens:{tenantId}"],
-            $"Queue reconciler cannot start because no task-api bearer token is configured for tenant '{tenantId}'."));
-        var interval = Duration(configuration, "QueueReconciler:Interval", TimeSpan.FromMinutes(10));
-        var lease = Duration(configuration, "QueueReconciler:LeaseDuration", TimeSpan.FromMinutes(2));
-        var renewal = Duration(configuration, "QueueReconciler:RenewalPeriod", TimeSpan.FromSeconds(30));
-        if (renewal >= lease) throw new InvalidOperationException(
-            "QueueReconciler:RenewalPeriod must be shorter than QueueReconciler:LeaseDuration.");
-        return new(queueStore, new Uri(baseAddress, UriKind.Absolute), tokens, tenants,
-            interval, lease, renewal);
-    }
-
-    private static TimeSpan Duration(IConfiguration configuration, string key, TimeSpan fallback) =>
-        configuration[key] is { } value && TimeSpan.TryParse(value, out var parsed) && parsed > TimeSpan.Zero
-            ? parsed : configuration[key] is null ? fallback
-            : throw new InvalidOperationException($"Queue reconciler cannot start because '{key}' is not a positive duration.");
-
-    private static string Required(string? value, string message) =>
-        string.IsNullOrWhiteSpace(value) ? throw new InvalidOperationException(message) : value;
-}
-
-public static class QueueReconcilerHostExtensions
-{
-    public static IHostApplicationBuilder AddQueueReconciler(this IHostApplicationBuilder builder)
-    {
-        builder.AddLexfieldObservability("QueueReconciler");
-        var settings = SweepSettings.From(builder.Configuration);
-        builder.Services.AddSingleton(settings);
-        builder.Services.AddSingleton(new ReconcilerStateStore(settings.QueueStoreConnectionString));
-        builder.Services.AddSingleton(new QueueStateStore(settings.QueueStoreConnectionString));
-        builder.Services.AddSingleton(new TaskApiTokenProvider(settings.TaskApiBearerTokens));
-        builder.Services.AddHttpClient<TaskApiChangesClient>(client =>
-            client.BaseAddress = settings.TaskApiBaseAddress);
-        builder.Services.AddSingleton<PassOne>();
-        builder.Services.AddSingleton<SweepHost>();
-        builder.Services.AddHostedService(services => services.GetRequiredService<SweepHost>());
-        return builder;
-    }
-}
-
-public static class Program
-{
-    public static async Task Main(string[] args)
-    {
-        var builder = Host.CreateApplicationBuilder(args);
-        builder.AddQueueReconciler();
-        await builder.Build().RunAsync();
     }
 }

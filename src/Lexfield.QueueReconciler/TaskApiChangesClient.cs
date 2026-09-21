@@ -7,9 +7,10 @@ namespace Lexfield.QueueReconciler;
 
 /// <summary>
 /// Calls the Task API changes feed. The reconciler has no tenant database or
-/// Kafka connection; Task API is its source-of-truth boundary.
+/// Kafka connection; Task API is the only service it calls for current task
+/// versions.
 /// </summary>
-public sealed class TaskApiChangesClient(HttpClient client, TaskApiTokenProvider tokens)
+internal sealed class TaskApiChangesClient(HttpClient client, TaskApiTokenProvider tokens)
 {
     public async Task<TaskApiChangesResult> ReadAsync(
         string tenantId, long? since, CancellationToken cancellationToken = default)
@@ -37,19 +38,13 @@ public sealed class TaskApiChangesClient(HttpClient client, TaskApiTokenProvider
     }
 }
 
-public sealed class TaskApiTokenProvider(IReadOnlyDictionary<string, string> tokens)
-{
-    public string ForTenant(string tenantId) => tokens.TryGetValue(tenantId, out var token)
-        ? token : throw new InvalidOperationException($"No task-api bearer token is configured for tenant '{tenantId}'.");
-}
-
-public sealed record ChangesResponse(
+internal sealed record ChangesResponse(
     IReadOnlyList<TaskChange> Changes,
     long NextSyncVersion);
 
-public sealed record TaskChange(int TaskId, int Version);
+internal sealed record TaskChange(int TaskId, int Version);
 
-public enum TaskApiChangesStatus
+internal enum TaskApiChangesStatus
 {
     Success,
     WatermarkAgedOut,
@@ -57,6 +52,6 @@ public enum TaskApiChangesStatus
     Unavailable
 }
 
-public sealed record TaskApiChangesResult(
+internal sealed record TaskApiChangesResult(
     TaskApiChangesStatus Status,
     ChangesResponse? Response);
