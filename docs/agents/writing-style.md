@@ -198,3 +198,7 @@ above them. Seeded from the sibling repo's repo-neutral rules.
   the Hari-only GOVERNANCE block. Deferring a small in-scope fix to "surfaced
   for Hari to decide" is not a substitute for making it when the fix is
   clear and the file is not gated.
+- 2026-09-21: Do not use architecture shorthand such as "backstop", "fence",
+  or "source of truth" in first-time-reader documentation. State the actor,
+  check, failure, and consequence in literal language. Keep a required code
+  name only when the reader must recognise it, and define it on first use.

@@ -1,14 +1,16 @@
 using System.Globalization;
 using System.Net;
 using System.Net.Http.Json;
+using System.Net.Http.Headers;
 
 namespace Lexfield.QueueReconciler;
 
 /// <summary>
 /// Calls the Task API changes feed. The reconciler has no tenant database or
-/// Kafka connection; Task API is its source-of-truth boundary.
+/// Kafka connection; Task API is the only service it calls for current task
+/// versions.
 /// </summary>
-public sealed class TaskApiChangesClient(HttpClient client)
+internal sealed class TaskApiChangesClient(HttpClient client, TaskApiTokenProvider tokens)
 {
     public async Task<TaskApiChangesResult> ReadAsync(
         string tenantId, long? since, CancellationToken cancellationToken = default)
@@ -17,7 +19,10 @@ public sealed class TaskApiChangesClient(HttpClient client)
         var route = $"tenants/{Uri.EscapeDataString(tenantId)}/tasks/changes";
         if (since is not null)
             route += $"?since={since.Value.ToString(CultureInfo.InvariantCulture)}";
-        using var response = await client.GetAsync(route, cancellationToken);
+        using var request = new HttpRequestMessage(HttpMethod.Get, route);
+        request.Headers.Authorization = new AuthenticationHeaderValue(
+            "Bearer", tokens.ForTenant(tenantId));
+        using var response = await client.SendAsync(request, cancellationToken);
         if (response.StatusCode == HttpStatusCode.Gone)
             return new(TaskApiChangesStatus.WatermarkAgedOut, null);
         if (response.StatusCode == HttpStatusCode.NotFound)
@@ -33,13 +38,13 @@ public sealed class TaskApiChangesClient(HttpClient client)
     }
 }
 
-public sealed record ChangesResponse(
+internal sealed record ChangesResponse(
     IReadOnlyList<TaskChange> Changes,
     long NextSyncVersion);
 
-public sealed record TaskChange(int TaskId, int Version);
+internal sealed record TaskChange(int TaskId, int Version);
 
-public enum TaskApiChangesStatus
+internal enum TaskApiChangesStatus
 {
     Success,
     WatermarkAgedOut,
@@ -47,6 +52,6 @@ public enum TaskApiChangesStatus
     Unavailable
 }
 
-public sealed record TaskApiChangesResult(
+internal sealed record TaskApiChangesResult(
     TaskApiChangesStatus Status,
     ChangesResponse? Response);

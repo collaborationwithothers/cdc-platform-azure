@@ -273,6 +273,19 @@ here: do not run /triage or /wayfinder against this repo's issues. If a skill's
 output implies a state, the only states that exist are the ones in
 docs/agents/issue-tracker.md.
 
+### .NET implementation roles
+
+For a task that changes C# source, .NET project files, or .NET tests, the
+implementation session delegates the bounded code change to `dotnet-developer`.
+After the code and tests are complete, it delegates a read-only technical check
+to `dotnet-architecture-reviewer`. These roles are task-local subagents, not
+ticket-owning sessions.
+
+The parent implementation session retains the issue claim, allowed Paths, pull
+request size forecast, branch, GitHub state, CI follow-up, governance-review
+loop, and Hari handoff. The .NET technical check is pre-PR evidence. It does
+not replace the separate governance review and never approves or merges.
+
 ### Frontier workflow (parallel)
 
 The frontier workflow is the tool-neutral procedure for picking up and

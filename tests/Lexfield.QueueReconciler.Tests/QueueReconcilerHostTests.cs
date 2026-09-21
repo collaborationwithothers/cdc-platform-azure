@@ -1,4 +1,6 @@
 using System.IdentityModel.Tokens.Jwt;
+using System.Collections.Concurrent;
+using System.Diagnostics.Metrics;
 using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
@@ -15,13 +17,168 @@ using Microsoft.AspNetCore.TestHost;
 using Microsoft.Data.SqlClient;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
 using Microsoft.IdentityModel.Tokens;
 
 namespace Lexfield.QueueReconciler.Tests;
 
 [Collection(LexfieldContainers.Name)]
-public sealed class PassOneTests(SqlServerFixture sql)
+public sealed class QueueReconcilerIntegrationTests(SqlServerFixture sql)
 {
+    [Fact]
+    public async Task SweepHost_two_hosts_renew_one_lease_and_report_one_empty_sweep()
+    {
+        await using var context = await CreateContextAsync();
+        await context.CreateTaskAsync();
+        await context.SetWatermarkAsync();
+        await context.TransitionTaskAsync();
+        await context.SeedQueueStateAsync(1);
+        var events = new ConcurrentQueue<SweepEvent>();
+        using var firstDelay = new DelayHandler(TimeSpan.FromSeconds(3));
+        using var secondDelay = new DelayHandler(TimeSpan.FromSeconds(3));
+        using var first = context.BuildHost(events, firstDelay);
+        using var second = context.BuildHost(events, secondDelay);
+        await first.StartAsync();
+        await second.StartAsync();
+
+        var outcomes = await Task.WhenAll(
+            first.Services.GetRequiredService<SweepHost>().TickAsync(),
+            second.Services.GetRequiredService<SweepHost>().TickAsync());
+
+        Assert.Contains(SweepOutcome.Completed, outcomes);
+        Assert.Contains(SweepOutcome.NotLeaseHolder, outcomes);
+        Assert.Single(events, item => item.Name == "Reconciler.SweepStarted");
+        var completed = Assert.Single(events,
+            item => item.Name == "Reconciler.SweepCompleted");
+        Assert.Equal(1, completed.ChangeCount);
+        Assert.True(await context.WatermarkAsync() > context.InitialSourceVersion);
+    }
+
+    [Fact]
+    public async Task SweepHost_lease_loss_fences_the_next_tenant_watermark()
+    {
+        await using var context = await CreateContextAsync();
+        await context.CreateTaskAsync();
+        await context.SetWatermarkAsync(includeSecondTenant: true);
+        await context.TransitionTaskAsync();
+        await context.SeedQueueStateAsync(1);
+        var events = new ConcurrentQueue<SweepEvent>();
+        using var gate = new RequestGate(blockRequest: 2);
+        using var host = context.BuildHost(events, gate, ["tenant-a", "tenant-b"]);
+        await host.StartAsync();
+
+        var sweep = host.Services.GetRequiredService<SweepHost>().TickAsync();
+        await gate.Blocked;
+        var firstWatermark = await context.WatermarkAsync("tenant-a");
+        await context.StealLeaseAsync();
+        gate.Release();
+
+        Assert.Equal(SweepOutcome.LeaseLost, await sweep);
+        Assert.True(firstWatermark > context.InitialSourceVersion);
+        Assert.Equal(context.SecondInitialSourceVersion, await context.WatermarkAsync("tenant-b"));
+        Assert.DoesNotContain(events, item => item.Name == "Reconciler.SweepCompleted");
+        Assert.Contains(events, item =>
+            item is { Name: "Reconciler.SweepLeaseLost", TenantId: "tenant-b", Reason: "LeaseFenceRejected" });
+    }
+
+    [Fact]
+    public async Task SweepHost_incomplete_tenant_does_not_stop_later_tenants()
+    {
+        await using var context = await CreateContextAsync();
+        var events = new ConcurrentQueue<SweepEvent>();
+        using var handler = new DelayHandler(TimeSpan.Zero);
+        using var host = context.BuildHost(events, handler, ["tenant-a", "tenant-b"]);
+        await host.StartAsync();
+
+        var outcome = await host.Services.GetRequiredService<SweepHost>().TickAsync();
+
+        Assert.Equal(SweepOutcome.Incomplete, outcome);
+        var incomplete = events.Where(item => item.Name == "Reconciler.SweepIncomplete").ToArray();
+        Assert.Equal(["tenant-a", "tenant-b"], incomplete.Select(item => item.TenantId));
+        Assert.All(incomplete, item => Assert.Equal("WatermarkMissing", item.Reason));
+        Assert.DoesNotContain(events, item => item.Name == "Reconciler.SweepCompleted");
+    }
+
+    [Theory]
+    [InlineData(TransportFailure.Connection)]
+    [InlineData(TransportFailure.Timeout)]
+    public async Task SweepHost_transport_failure_does_not_stop_later_tenants(
+        TransportFailure failure)
+    {
+        await using var context = await CreateContextAsync();
+        await context.SetWatermarkAsync(includeSecondTenant: true);
+        var events = new ConcurrentQueue<SweepEvent>();
+        using var handler = new RequestGate(failRequest: 1, failure: failure);
+        using var host = context.BuildHost(events, handler, ["tenant-a", "tenant-b"]);
+        await host.StartAsync();
+
+        var outcome = await host.Services.GetRequiredService<SweepHost>().TickAsync();
+
+        Assert.Equal(SweepOutcome.Incomplete, outcome);
+        Assert.Equal(2, handler.RequestCount);
+        Assert.Contains(events, item =>
+            item is
+            {
+                Name: "Reconciler.SweepFailed",
+                TenantId: "tenant-a",
+                Reason: "TaskApiTransportFailure"
+            });
+        Assert.DoesNotContain(events, item => item.Name == "Reconciler.SweepCompleted");
+    }
+
+    [Fact]
+    public async Task SweepHost_logs_a_failed_tick_and_runs_the_next_tick()
+    {
+        await using var context = await CreateContextAsync();
+        await context.SetWatermarkAsync();
+        var events = new ConcurrentQueue<SweepEvent>();
+        using var handler = new RequestGate(failRequest: 1);
+        using var host = context.BuildHost(
+            events, handler, interval: TimeSpan.FromMilliseconds(30));
+        await host.StartAsync();
+
+        Assert.True(SpinWait.SpinUntil(
+            () => events.Any(item => item.Name == "Reconciler.SweepFailed"),
+            TimeSpan.FromSeconds(2)));
+        Assert.True(SpinWait.SpinUntil(
+            () => events.Any(item => item.Name == "Reconciler.SweepCompleted"),
+            TimeSpan.FromSeconds(5)));
+        Assert.Contains(events, item =>
+            item is
+            {
+                Name: "Reconciler.SweepFailed",
+                TenantId: "tenant-a",
+                Reason: "TaskApiTransportFailure"
+            });
+    }
+
+    [Fact]
+    public async Task SweepHost_reentrant_tick_is_skipped_and_counted()
+    {
+        await using var context = await CreateContextAsync();
+        await context.CreateTaskAsync();
+        await context.SetWatermarkAsync();
+        await context.SeedQueueStateAsync(1);
+        var measurements = new ConcurrentQueue<long>();
+        var events = new ConcurrentQueue<SweepEvent>();
+        using var listener = MetricListener(measurements);
+        using var gate = new RequestGate(blockRequest: 1);
+        using var host = context.BuildHost(events, gate, interval: TimeSpan.FromMilliseconds(30));
+        await host.StartAsync();
+
+        await gate.Blocked;
+        Assert.True(SpinWait.SpinUntil(
+            () => measurements.Sum() > 0, TimeSpan.FromSeconds(2)));
+        gate.Release();
+
+        Assert.True(SpinWait.SpinUntil(
+            () => events.Any(item => item.Name == "Reconciler.SweepCompleted"),
+            TimeSpan.FromSeconds(5)));
+        Assert.Equal(0, Assert.Single(events,
+            item => item.Name == "Reconciler.SweepCompleted").ChangeCount);
+    }
+
     [Fact]
     public async Task Mismatch_is_recorded_with_the_real_task_api_and_queue_store()
     {
@@ -114,17 +271,20 @@ public sealed class PassOneTests(SqlServerFixture sql)
     private async Task<TestContext> CreateContextAsync()
     {
         var suffix = Guid.NewGuid().ToString("N")[..8];
-        var tenantName = $"ReconcilerTenant{suffix}";
+        var tenantName = $"ReconcilerTenantA{suffix}";
+        var secondTenantName = $"ReconcilerTenantB{suffix}";
         var queueName = $"ReconcilerQueue{suffix}";
         var tenant = await sql.CreateTenantDatabaseAsync(tenantName, "tenant-a");
+        var secondTenant = await sql.CreateTenantDatabaseAsync(secondTenantName, "tenant-b");
         var queue = await sql.CreateQueueStoreDatabaseAsync(queueName);
         var key = Convert.ToBase64String(
             System.Security.Cryptography.RandomNumberGenerator.GetBytes(32));
         var manifest = Path.GetTempFileName();
         await File.WriteAllTextAsync(manifest,
-            $$"""[{"tenantId":"tenant-a","database":"{{tenantName}}","streamIsolated":false}]""");
-        return new TestContext(tenant, queue, key, manifest,
-            new TaskApiFactory(tenant, tenantName, key, manifest, ReservePort()));
+            $$"""[{"tenantId":"tenant-a","database":"{{tenantName}}","streamIsolated":false},{"tenantId":"tenant-b","database":"{{secondTenantName}}","streamIsolated":false}]""");
+        return new TestContext(tenant, secondTenant, queue, key, manifest,
+            new TaskApiFactory(tenant, secondTenant, tenantName, secondTenantName,
+                key, manifest, ReservePort()));
     }
 
     private static int ReservePort()
@@ -137,10 +297,12 @@ public sealed class PassOneTests(SqlServerFixture sql)
     private sealed record Observation(int TaskId, int SourceVersion, int? QueueVersion);
 
     private sealed class TestContext(
-        string tenantConnectionString, string queueConnectionString, string signingKey,
+        string tenantConnectionString, string secondTenantConnectionString,
+        string queueConnectionString, string signingKey,
         string manifestPath, TaskApiFactory taskApi) : IAsyncDisposable
     {
         public long InitialSourceVersion { get; private set; }
+        public long SecondInitialSourceVersion { get; private set; }
 
         public async Task CreateTaskAsync()
         {
@@ -159,7 +321,7 @@ public sealed class PassOneTests(SqlServerFixture sql)
             Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         }
 
-        public async Task SetWatermarkAsync(long? version = null)
+        public async Task SetWatermarkAsync(long? version = null, bool includeSecondTenant = false)
         {
             await using var tenant = new SqlConnection(tenantConnectionString);
             await tenant.OpenAsync();
@@ -170,6 +332,16 @@ public sealed class PassOneTests(SqlServerFixture sql)
             await queue.ExecuteAsync(
                 "INSERT dbo.ReconcilerWatermark (TenantId, SyncVersion, UpdatedAt) VALUES ('tenant-a', @version, SYSUTCDATETIME());",
                 new { version = InitialSourceVersion });
+            if (includeSecondTenant)
+            {
+                await using var secondTenant = new SqlConnection(secondTenantConnectionString);
+                await secondTenant.OpenAsync();
+                SecondInitialSourceVersion = await secondTenant.ExecuteScalarAsync<long>(
+                    "SELECT CHANGE_TRACKING_CURRENT_VERSION();");
+                await queue.ExecuteAsync(
+                    "INSERT dbo.ReconcilerWatermark (TenantId, SyncVersion, UpdatedAt) VALUES ('tenant-b', @version, SYSUTCDATETIME());",
+                    new { version = SecondInitialSourceVersion });
+            }
         }
 
         public async Task SeedQueueStateAsync(int version) =>
@@ -206,7 +378,8 @@ public sealed class PassOneTests(SqlServerFixture sql)
             return await new PassOne(
                 new ReconcilerStateStore(queueConnectionString),
                 new QueueStateStore(queueConnectionString),
-                new TaskApiChangesClient(client))
+                new TaskApiChangesClient(client, new TaskApiTokenProvider(
+                    new Dictionary<string, string> { ["tenant-a"] = Token() })))
                 .RunAsync(lease, "tenant-a");
         }
 
@@ -217,12 +390,52 @@ public sealed class PassOneTests(SqlServerFixture sql)
             return await connection.QuerySingleAsync<T>(sql);
         }
 
-        public async Task<long> WatermarkAsync()
+        public Task<long> WatermarkAsync() => WatermarkAsync("tenant-a");
+
+        public async Task<long> WatermarkAsync(string tenantId)
         {
             await using var connection = new SqlConnection(queueConnectionString);
             await connection.OpenAsync();
             return await connection.ExecuteScalarAsync<long>(
-                "SELECT SyncVersion FROM dbo.ReconcilerWatermark WHERE TenantId = 'tenant-a';");
+                "SELECT SyncVersion FROM dbo.ReconcilerWatermark WHERE TenantId = @tenantId;",
+                new { tenantId });
+        }
+
+        public async Task StealLeaseAsync()
+        {
+            await using var connection = new SqlConnection(queueConnectionString);
+            await connection.OpenAsync();
+            await connection.ExecuteAsync(
+                "UPDATE dbo.SweepLease SET Owner = 'stolen', ExpiresAt = DATEADD(minute, 1, SYSUTCDATETIME()) WHERE Id = 1;");
+        }
+
+        public IHost BuildHost(
+            ConcurrentQueue<SweepEvent> events,
+            DelegatingHandler handler,
+            string[]? tenantIds = null,
+            TimeSpan? interval = null)
+        {
+            handler.InnerHandler = taskApi.Server.CreateHandler();
+            var builder = Host.CreateApplicationBuilder();
+            builder.Configuration.AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["ConnectionStrings:QueueStore"] = queueConnectionString,
+                ["TenantManifest:Path"] = manifestPath,
+                ["QueueReconciler:TaskApiBaseAddress"] = "http://task-api.test/",
+                ["QueueReconciler:TaskApiBearerTokens:tenant-a"] = CreateToken(signingKey),
+                ["QueueReconciler:TaskApiBearerTokens:tenant-b"] = CreateToken(signingKey, "tenant-b"),
+                ["QueueReconciler:Interval"] = (interval ?? TimeSpan.FromHours(1)).ToString(),
+                ["QueueReconciler:LeaseDuration"] = TimeSpan.FromSeconds(2).ToString(),
+                ["QueueReconciler:RenewalPeriod"] = TimeSpan.FromMilliseconds(250).ToString(),
+                ["Lexfield:Observability:Port"] = ReservePort().ToString()
+            });
+            builder.AddQueueReconciler();
+            var settings = SweepSettings.From(builder.Configuration);
+            builder.Services.AddSingleton(settings with { TenantIds = tenantIds ?? ["tenant-a"] });
+            builder.Services.AddHttpClient<TaskApiChangesClient>()
+                .ConfigurePrimaryHttpMessageHandler(() => handler);
+            builder.Logging.AddProvider(new SweepLoggerProvider(events));
+            return builder.Build();
         }
 
         public async Task<int> CountAsync(string table)
@@ -250,8 +463,9 @@ public sealed class PassOneTests(SqlServerFixture sql)
     }
 
     private sealed class TaskApiFactory(
-        string tenantConnectionString, string tenantDatabaseName, string signingKey,
-        string manifest, int port) : WebApplicationFactory<Program>
+        string tenantConnectionString, string secondTenantConnectionString,
+        string tenantDatabaseName, string secondTenantDatabaseName, string signingKey,
+        string manifest, int port) : WebApplicationFactory<global::Program>
     {
         protected override void ConfigureWebHost(IWebHostBuilder builder)
         {
@@ -260,6 +474,7 @@ public sealed class PassOneTests(SqlServerFixture sql)
                 {
                     ["TenantManifest:Path"] = manifest,
                     [$"ConnectionStrings:{tenantDatabaseName}"] = tenantConnectionString,
+                    [$"ConnectionStrings:{secondTenantDatabaseName}"] = secondTenantConnectionString,
                     ["Authentication:Authority"] = "https://issuer.test",
                     ["Authentication:Audience"] = "lexfield-task-api",
                     ["Lexfield:Observability:Port"] = port.ToString()
@@ -273,9 +488,12 @@ public sealed class PassOneTests(SqlServerFixture sql)
                         options.RequireHttpsMetadata = false;
                         options.TokenValidationParameters = new TokenValidationParameters
                         {
-                            ValidateIssuer = true, ValidIssuer = "https://issuer.test",
-                            ValidateAudience = true, ValidAudience = "lexfield-task-api",
-                            ValidateLifetime = true, ValidateIssuerSigningKey = true,
+                            ValidateIssuer = true,
+                            ValidIssuer = "https://issuer.test",
+                            ValidateAudience = true,
+                            ValidAudience = "lexfield-task-api",
+                            ValidateLifetime = true,
+                            ValidateIssuerSigningKey = true,
                             IssuerSigningKey = new SymmetricSecurityKey(
                                 Encoding.UTF8.GetBytes(signingKey))
                         };
@@ -283,7 +501,7 @@ public sealed class PassOneTests(SqlServerFixture sql)
         }
     }
 
-    private static string CreateToken(string key)
+    private static string CreateToken(string key, string tenantId = "tenant-a")
     {
         var credentials = new SigningCredentials(
             new SymmetricSecurityKey(Encoding.UTF8.GetBytes(key)),
@@ -292,11 +510,105 @@ public sealed class PassOneTests(SqlServerFixture sql)
             issuer: "https://issuer.test", audience: "lexfield-task-api",
             claims:
             [
-                new("tenantId", "tenant-a"), new(JwtRegisteredClaimNames.Sub, "user:1"),
+                new("tenantId", tenantId), new(JwtRegisteredClaimNames.Sub, "user:1"),
                 new("tid", "entra-tenant"), new("oid", "user-object"),
                 new("scp", "Tasks.Write"), new("idtyp", "user")
             ], notBefore: DateTime.UtcNow.AddMinutes(-1),
             expires: DateTime.UtcNow.AddMinutes(5), signingCredentials: credentials));
+    }
+
+    private static MeterListener MetricListener(ConcurrentQueue<long> measurements)
+    {
+        var listener = new MeterListener();
+        listener.InstrumentPublished = (instrument, candidate) =>
+        {
+            if (instrument.Meter.Name == "Lexfield.QueueReconciler" &&
+                instrument.Name == "reconciler.sweep.skipped") candidate.EnableMeasurementEvents(instrument);
+        };
+        listener.SetMeasurementEventCallback<long>((_, value, _, _) => measurements.Enqueue(value));
+        listener.Start();
+        return listener;
+    }
+
+    private sealed class DelayHandler(TimeSpan delay) : DelegatingHandler
+    {
+        protected override async Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            await Task.Delay(delay, cancellationToken);
+            return await base.SendAsync(request, cancellationToken);
+        }
+    }
+
+    public enum TransportFailure
+    {
+        Connection,
+        Timeout
+    }
+
+    private sealed class RequestGate(
+        int blockRequest = 0,
+        int failRequest = 0,
+        TransportFailure failure = TransportFailure.Connection) : DelegatingHandler
+    {
+        private readonly TaskCompletionSource blocked = new(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly TaskCompletionSource released = new(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        private int requests;
+        public Task Blocked => blocked.Task;
+        public int RequestCount => Volatile.Read(ref requests);
+        public void Release() => released.TrySetResult();
+        protected override async Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            var requestNumber = Interlocked.Increment(ref requests);
+            if (requestNumber == failRequest)
+            {
+                if (failure == TransportFailure.Timeout)
+                    throw new TaskCanceledException("Injected task-api timeout.");
+                throw new HttpRequestException("Injected task-api connection failure.");
+            }
+            if (requestNumber == blockRequest)
+            {
+                blocked.TrySetResult();
+                await released.Task.WaitAsync(cancellationToken);
+            }
+            return await base.SendAsync(request, cancellationToken);
+        }
+    }
+
+    private sealed record SweepEvent(
+        string Name, int? ChangeCount, string? TenantId, string? Reason);
+
+    private sealed class SweepLoggerProvider(ConcurrentQueue<SweepEvent> events)
+        : ILoggerProvider
+    {
+        public ILogger CreateLogger(string categoryName) => new SweepLogger(events);
+        public void Dispose() { }
+
+        private sealed class SweepLogger(ConcurrentQueue<SweepEvent> events) : ILogger
+        {
+            public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
+            public bool IsEnabled(LogLevel logLevel) => true;
+            public void Log<TState>(LogLevel logLevel, EventId eventId, TState state,
+                Exception? exception, Func<TState, Exception?, string> formatter)
+            {
+                string? name = null;
+                int? count = null;
+                string? tenantId = null;
+                string? reason = null;
+                if (state is not IEnumerable<KeyValuePair<string, object?>> values) return;
+                foreach (var pair in values)
+                {
+                    if (pair.Key == "EventName") name = pair.Value as string;
+                    if (pair.Key == "ChangeCount") count = pair.Value as int?;
+                    if (pair.Key == "TenantId") tenantId = pair.Value as string;
+                    if (pair.Key == "Reason") reason = pair.Value as string;
+                }
+                if (name is not null) events.Enqueue(new(name, count, tenantId, reason));
+            }
+        }
     }
 }
 

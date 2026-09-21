@@ -1,5 +1,6 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
+    <OutputType>Exe</OutputType>
     <TargetFramework>net10.0</TargetFramework>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
@@ -9,6 +10,10 @@
     <FrameworkReference Include="Microsoft.AspNetCore.App" />
   </ItemGroup>
   <ItemGroup>
+    <InternalsVisibleTo Include="Lexfield.QueueReconciler.Tests" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="../Lexfield.Observability/Lexfield.Observability.csproj" />
     <ProjectReference Include="../Lexfield.QueueStore/Lexfield.QueueStore.csproj" />
   </ItemGroup>
 </Project>

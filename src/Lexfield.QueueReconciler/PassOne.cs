@@ -6,7 +6,7 @@ namespace Lexfield.QueueReconciler;
 /// Compares one tenant's Task API changes with QueueState and persists pass-one state.
 /// A scheduled host supplies the lease; this runner does not own scheduling or leases.
 /// </summary>
-public sealed class PassOne(
+internal sealed class PassOne(
     ReconcilerStateStore stateStore,
     QueueStateStore queueStateStore,
     TaskApiChangesClient changesClient)
@@ -56,7 +56,7 @@ public sealed class PassOne(
     }
 }
 
-public enum PassOneStatus
+internal enum PassOneStatus
 {
     Completed,
     WatermarkMissing,
@@ -64,7 +64,7 @@ public enum PassOneStatus
     LeaseLost
 }
 
-public sealed record PassOneResult(
+internal sealed record PassOneResult(
     PassOneStatus Status,
     int ChangeCount,
     TaskApiChangesStatus? FeedStatus)
