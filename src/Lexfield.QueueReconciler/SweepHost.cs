@@ -78,7 +78,19 @@ internal sealed class SweepHost(
                     return RecordNonCompletion(
                         SweepOutcome.LeaseLost, tenantId, "LeaseRenewalFailed");
 
-                var result = await passOne.RunAsync(activeLease, tenantId, cancellationToken);
+                PassOneResult result;
+                try
+                {
+                    result = await passOne.RunAsync(activeLease, tenantId, cancellationToken);
+                }
+                catch (Exception exception) when (
+                    exception is HttpRequestException ||
+                    exception is TaskCanceledException && !cancellationToken.IsCancellationRequested)
+                {
+                    outcome = RecordNonCompletion(
+                        SweepOutcome.Incomplete, tenantId, "TaskApiTransportFailure", exception);
+                    continue;
+                }
                 if (result.Status == PassOneStatus.LeaseLost)
                     return RecordNonCompletion(
                         SweepOutcome.LeaseLost, tenantId, "LeaseFenceRejected");

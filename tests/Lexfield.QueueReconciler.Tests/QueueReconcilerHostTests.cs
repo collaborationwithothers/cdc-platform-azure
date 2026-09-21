@@ -35,8 +35,8 @@ public sealed class QueueReconcilerIntegrationTests(SqlServerFixture sql)
         await context.TransitionTaskAsync();
         await context.SeedQueueStateAsync(1);
         var events = new ConcurrentQueue<SweepEvent>();
-        using var firstDelay = new DelayHandler(TimeSpan.FromMilliseconds(250));
-        using var secondDelay = new DelayHandler(TimeSpan.FromMilliseconds(250));
+        using var firstDelay = new DelayHandler(TimeSpan.FromSeconds(3));
+        using var secondDelay = new DelayHandler(TimeSpan.FromSeconds(3));
         using var first = context.BuildHost(events, firstDelay);
         using var second = context.BuildHost(events, secondDelay);
         await first.StartAsync();
@@ -100,6 +100,33 @@ public sealed class QueueReconcilerIntegrationTests(SqlServerFixture sql)
         Assert.DoesNotContain(events, item => item.Name == "Reconciler.SweepCompleted");
     }
 
+    [Theory]
+    [InlineData(TransportFailure.Connection)]
+    [InlineData(TransportFailure.Timeout)]
+    public async Task SweepHost_transport_failure_does_not_stop_later_tenants(
+        TransportFailure failure)
+    {
+        await using var context = await CreateContextAsync();
+        await context.SetWatermarkAsync(includeSecondTenant: true);
+        var events = new ConcurrentQueue<SweepEvent>();
+        using var handler = new RequestGate(failRequest: 1, failure: failure);
+        using var host = context.BuildHost(events, handler, ["tenant-a", "tenant-b"]);
+        await host.StartAsync();
+
+        var outcome = await host.Services.GetRequiredService<SweepHost>().TickAsync();
+
+        Assert.Equal(SweepOutcome.Incomplete, outcome);
+        Assert.Equal(2, handler.RequestCount);
+        Assert.Contains(events, item =>
+            item is
+            {
+                Name: "Reconciler.SweepFailed",
+                TenantId: "tenant-a",
+                Reason: "TaskApiTransportFailure"
+            });
+        Assert.DoesNotContain(events, item => item.Name == "Reconciler.SweepCompleted");
+    }
+
     [Fact]
     public async Task SweepHost_logs_a_failed_tick_and_runs_the_next_tick()
     {
@@ -118,7 +145,12 @@ public sealed class QueueReconcilerIntegrationTests(SqlServerFixture sql)
             () => events.Any(item => item.Name == "Reconciler.SweepCompleted"),
             TimeSpan.FromSeconds(5)));
         Assert.Contains(events, item =>
-            item is { Name: "Reconciler.SweepFailed", TenantId: null, Reason: "UnhandledException" });
+            item is
+            {
+                Name: "Reconciler.SweepFailed",
+                TenantId: "tenant-a",
+                Reason: "TaskApiTransportFailure"
+            });
     }
 
     [Fact]
@@ -393,8 +425,8 @@ public sealed class QueueReconcilerIntegrationTests(SqlServerFixture sql)
                 ["QueueReconciler:TaskApiBearerTokens:tenant-a"] = CreateToken(signingKey),
                 ["QueueReconciler:TaskApiBearerTokens:tenant-b"] = CreateToken(signingKey, "tenant-b"),
                 ["QueueReconciler:Interval"] = (interval ?? TimeSpan.FromHours(1)).ToString(),
-                ["QueueReconciler:LeaseDuration"] = TimeSpan.FromMilliseconds(120).ToString(),
-                ["QueueReconciler:RenewalPeriod"] = TimeSpan.FromMilliseconds(30).ToString(),
+                ["QueueReconciler:LeaseDuration"] = TimeSpan.FromSeconds(2).ToString(),
+                ["QueueReconciler:RenewalPeriod"] = TimeSpan.FromMilliseconds(250).ToString(),
                 ["Lexfield:Observability:Port"] = ReservePort().ToString()
             });
             builder.AddQueueReconciler();
@@ -508,7 +540,16 @@ public sealed class QueueReconcilerIntegrationTests(SqlServerFixture sql)
         }
     }
 
-    private sealed class RequestGate(int blockRequest = 0, int failRequest = 0) : DelegatingHandler
+    public enum TransportFailure
+    {
+        Connection,
+        Timeout
+    }
+
+    private sealed class RequestGate(
+        int blockRequest = 0,
+        int failRequest = 0,
+        TransportFailure failure = TransportFailure.Connection) : DelegatingHandler
     {
         private readonly TaskCompletionSource blocked = new(
             TaskCreationOptions.RunContinuationsAsynchronously);
@@ -516,13 +557,18 @@ public sealed class QueueReconcilerIntegrationTests(SqlServerFixture sql)
             TaskCreationOptions.RunContinuationsAsynchronously);
         private int requests;
         public Task Blocked => blocked.Task;
+        public int RequestCount => Volatile.Read(ref requests);
         public void Release() => released.TrySetResult();
         protected override async Task<HttpResponseMessage> SendAsync(
             HttpRequestMessage request, CancellationToken cancellationToken)
         {
             var requestNumber = Interlocked.Increment(ref requests);
             if (requestNumber == failRequest)
-                throw new HttpRequestException("Injected test failure.");
+            {
+                if (failure == TransportFailure.Timeout)
+                    throw new TaskCanceledException("Injected task-api timeout.");
+                throw new HttpRequestException("Injected task-api connection failure.");
+            }
             if (requestNumber == blockRequest)
             {
                 blocked.TrySetResult();

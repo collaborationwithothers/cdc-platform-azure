@@ -30,7 +30,9 @@ A tenant may have no watermark, or task-api may return HTTP 410 because the save
 
 The same sweep continues with later tenants but does not log `Reconciler.SweepCompleted`. Issue #56 owns the work that creates or replaces an unusable watermark.
 
-An unexpected failure logs `Reconciler.SweepFailed`. The process remains running and attempts the next scheduled sweep.
+If a connection failure or HTTP timeout prevents task-api from answering for one tenant, the service logs `Reconciler.SweepFailed` with that tenant. The same sweep continues with later tenants but does not log `Reconciler.SweepCompleted`.
+
+Any other unexpected failure logs `Reconciler.SweepFailed`. The process remains running and attempts the next scheduled sweep.
 
 This change only records differences. Later work will wait to see whether they persist, correct confirmed differences, and check whether every configured tenant is sending events.
 
