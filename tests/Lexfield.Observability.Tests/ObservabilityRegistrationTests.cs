@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.Diagnostics.Metrics;
 using System.Net;
 using System.Net.Sockets;
+using System.Reflection;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using Lexfield.Observability;
@@ -133,6 +134,27 @@ public sealed class ObservabilityRegistrationTests
 
         using var host = builder.Build();
         await StartHostAndAssertProbeBodiesAsync(host, port);
+    }
+    [Fact]
+    public void AddLexfieldObservability_DefaultsMissingPortTo8080()
+    {
+        var builder = Host.CreateApplicationBuilder();
+        builder.AddLexfieldObservability("TaskApi");
+        using var host = builder.Build();
+
+        var endpoint = Assert.Single(
+            host.Services.GetServices<IHostedService>(),
+            service => service.GetType().Assembly == typeof(LexfieldObservabilityExtensions).Assembly);
+        var optionsField = endpoint.GetType().GetField(
+            "_options", BindingFlags.Instance | BindingFlags.NonPublic);
+        Assert.NotNull(optionsField);
+        var options = optionsField.GetValue(endpoint);
+        Assert.NotNull(options);
+        var portProperty = options.GetType().GetProperty("Port");
+        Assert.NotNull(portProperty);
+        var port = portProperty.GetValue(options);
+
+        Assert.Equal(8080, port);
     }
     [Fact]
     public async Task AddLexfieldObservability_ServesLivenessAndReadinessProbeBodies()

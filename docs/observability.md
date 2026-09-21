@@ -50,7 +50,7 @@ A service-level objective (SLO) is a target for user-visible reliability. Severi
 
 The shared `/healthz` and `/readyz` endpoints return HTTP 200 with `ok` and `ready`. They are unconditional process endpoints, not dependency readiness checks.
 
-**Current implementation/test evidence:** The endpoint reads `Lexfield:Observability:Port` from the final application configuration when the hosted endpoint service is created. Hosted application tests can add the setting after service registration, so each test can ask the operating system for an unused ephemeral port instead of using the default port 8080. The test releases that port before host startup, so local focused tests do not prove collision-free parallel execution. Production services still use configuration supplied before registration. Missing configuration selects 8080.
+**Current implementation/test evidence:** The endpoint reads `Lexfield:Observability:Port` from the final application configuration when the hosted endpoint service is created. Hosted application tests can add the setting after service registration, so each test can ask the operating system for an unused ephemeral port instead of using the default port 8080. The test releases that port before host startup, so local focused tests do not prove collision-free parallel execution. Production services still use configuration supplied before registration. Missing configuration selects 8080. Invalid port values now fail when the host creates the endpoint service during startup, not when the service calls `AddLexfieldObservability`.
 
 A 200 response does not prove that SQL Server, Kafka, Connect, or a consumer is usable.
 
